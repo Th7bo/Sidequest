@@ -154,6 +154,24 @@ public class HudElementNode(
         update { it.withScale(scale, definition.scaleRange) }
     }
 
+    /**
+     * Resizes within the definition's bounds.
+     *
+     * Unlike [rescale] this changes the space the content lays out in, so it does force
+     * a measure pass — which is the whole distinction between the two operations.
+     */
+    public fun resize(size: Size) {
+        if (!definition.resizeMode.supportsResize) return
+        val maximum = definition.maxSize
+        val clamped = Size(
+            size.width.coerceAtLeast(definition.minSize.width)
+                .let { if (maximum != null) it.coerceAtMost(maximum.width) else it },
+            size.height.coerceAtLeast(definition.minSize.height)
+                .let { if (maximum != null) it.coerceAtMost(maximum.height) else it },
+        )
+        update { it.copy(size = clamped) }
+    }
+
     /** Restores the definition's defaults. */
     public fun reset() {
         setPlacement(definition.defaultPlacement())

@@ -227,6 +227,24 @@ public class UndoStack(
         gestureStarted = false
     }
 
+    /**
+     * Ends the gesture and discards whatever entry it accumulated.
+     *
+     * For a gesture the user abandoned — Escape part-way through a drag — where the
+     * caller has already restored the starting state. Leaving the entry in place would
+     * make the next undo re-apply a change that was explicitly cancelled.
+     */
+    public fun abortGesture() {
+        UiThread.check()
+        if (gestureStarted && undoable.isNotEmpty()) {
+            undoable.removeLast()
+            if (stepsSinceSave > 0) stepsSinceSave--
+        }
+        gestureLabel = null
+        gestureStarted = false
+        refresh()
+    }
+
     /** True while a gesture is collapsing edits. */
     public val isGestureActive: Boolean get() = gestureLabel != null
 
