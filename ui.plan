@@ -1,0 +1,2150 @@
+Build a Production-Quality UI Framework for a Minecraft SkyBlock Mod
+
+Build a reusable, production-quality UI framework for a modern Minecraft SkyBlock mod.
+
+The framework must support:
+
+1. Full configuration screens
+2. In-game HUD elements
+3. Temporary screen-space overlays
+4. Optional world-space overlays
+5. A visual HUD editor
+
+This must be a reusable framework, not a hard-coded configuration menu or a collection of unrelated HUD implementations.
+
+⸻
+
+1. Mandatory implementation strategy
+
+Do not attempt to implement the entire framework in one undifferentiated pass.
+
+Work in the ordered phases defined below.
+
+At the end of each phase:
+
+1. Ensure the project compiles.
+2. Run all relevant tests.
+3. Document architectural decisions.
+4. Demonstrate the completed phase.
+5. Do not begin the next phase until the previous phase has working acceptance criteria.
+
+Prioritize correctness of the core runtime over the number of implemented widgets.
+
+A smaller set of complete, extensible, tested components is preferable to a large collection of incomplete components.
+
+⸻
+
+2. Platform assumptions
+
+Use these assumptions unless the existing project explicitly requires alternatives:
+
+* Language: Kotlin
+* Java compatibility: Java 21
+* Build system: Gradle Kotlin DSL
+* Mod loader: Fabric
+* Minecraft version: define one explicit supported version in the project
+* Mappings: Yarn
+* Rendering: Minecraft GUI rendering through an adapter
+* Mixins: permitted only where required for lifecycle or rendering integration
+* Serialization: kotlinx.serialization
+* Tests: JUnit 5
+* Coroutines: permitted outside rendering hot paths
+* No blocking file I/O on the client render thread
+* No external retained-mode UI toolkit
+* Minecraft classes must remain outside the framework-independent core wherever practical
+
+If adapting to another loader or Minecraft version, isolate the changes inside the Minecraft adapter module.
+
+Before implementation, record the exact:
+
+* Minecraft version
+* Fabric Loader version
+* Fabric API version
+* Kotlin version
+* Java version
+* Gradle version
+* Mapping version
+
+⸻
+
+3. Design language
+
+The supplied visual references establish the default design language:
+
+* Clean
+* Minimal
+* Premium
+* Dark translucent surfaces
+* Near-black navy backgrounds
+* Slightly lighter elevated cards
+* Thin soft-gray borders
+* Restrained purple accents around #8B5CF6
+* Rounded corners
+* Clear compact typography
+* Compact controls
+* Subtle shadows
+* Minimal blur
+* No excessive glow
+* No large distracting panels
+* No unnecessary decoration
+* No visual clutter
+
+Configuration screens may use structured panels.
+
+Normal HUD elements must remain compact and focused. A HUD should usually communicate one purpose rather than behave like a full-screen dashboard.
+
+Do not begin by hard-coding the supplied visual references. Build the framework primitives and theme tokens first.
+
+⸻
+
+4. Core objective
+
+The framework must make normal configuration and HUD creation concise while retaining enough flexibility for:
+
+* Large configuration systems
+* Custom components
+* Custom layouts
+* Third-party modules
+* Multiple HUD instances
+* Dynamic data
+* Future mod features
+* Minecraft-specific controls
+* World-space overlays
+* Custom themes
+* Profile-aware persistence
+
+Developers should be able to declaratively describe:
+
+* Screens
+* Categories
+* Sections
+* Settings
+* Layouts
+* Bindings
+* Validation
+* Visibility conditions
+* Themes
+* HUD definitions
+* HUD instances
+* Preview data
+* Notifications
+* World overlays
+
+The framework should automatically handle:
+
+* Rendering
+* Layout
+* Input
+* Focus
+* Hover and pressed states
+* Scrolling
+* Search
+* Tooltips
+* Keyboard navigation
+* Validation
+* Persistence
+* Profiles
+* Import and export
+* Undo and redo
+* Animation
+* Responsive sizing
+* HUD dragging
+* HUD scaling
+* HUD anchoring
+* HUD persistence
+* HUD editor integration
+* Resolution changes
+* Minecraft GUI-scale changes
+
+Normal API usage must not require manual child-coordinate calculation.
+
+⸻
+
+5. Explicit non-goals for the initial release
+
+The following must not block the stable initial release:
+
+* Full right-to-left layout support
+* Controller navigation
+* Arbitrary graph editing
+* Timeline editors
+* General-purpose rule builders
+* Full nested-object form generation
+* Nested HUD groups
+* Arbitrary rotation of HUD elements
+* Rich document editing
+* Plugin-defined shader pipelines
+* Cross-device cloud synchronization
+* Collaborative configuration editing
+
+Design extension points so these can be added later, but do not sacrifice core correctness to implement them early.
+
+⸻
+
+6. Required architectural decisions
+
+Before implementing visual components, create an architecture document that resolves the following.
+
+6.1 State model
+
+Use a typed reactive state system with explicit ownership.
+
+Define:
+
+* Mutable state
+* Read-only state
+* Derived state
+* Subscriptions
+* Invalidation
+* Update policies
+* Thread confinement
+* Snapshot semantics
+* Disposal
+* Dependency tracking
+* Dependency-cycle detection
+
+Do not rely exclusively on arbitrary lambdas being reevaluated every frame.
+
+A condition such as:
+
+visibleWhen = config.showNotificationsState
+
+should be preferred over an opaque lambda that gives the runtime no dependency information.
+
+Convenience lambda APIs may exist, but the reliable core must use explicit typed dependencies or tracked reactive reads.
+
+6.2 Rendering model
+
+Use a documented hybrid retained model.
+
+The implementation must clearly define:
+
+* Which objects persist between frames
+* Which render nodes are ephemeral
+* How component identity is preserved
+* Where temporary component state is stored
+* How dirty-state invalidation works
+* When layout measurement occurs
+* When nodes are materialized
+* How virtualized rows are created and discarded
+* How focus survives virtualization
+* How animations survive target changes
+
+Do not rebuild the complete component tree every frame.
+
+6.3 Threading model
+
+Define a strict threading contract.
+
+At minimum:
+
+* Rendering and input dispatch occur on the Minecraft client thread.
+* Minecraft object access occurs on the client thread unless explicitly documented safe.
+* Background persistence operates on immutable snapshots.
+* Background work submits results through a client-thread scheduler.
+* UI state updates from other threads must use an explicit thread-safe submission API.
+* Callbacks must document which thread invokes them.
+
+6.4 Extension ownership
+
+All runtime registrations must belong to a registration scope or owner token.
+
+This includes:
+
+* Components
+* Renderers
+* Validators
+* Serializers
+* Icons
+* HUD definitions
+* Search providers
+* Notification types
+* World overlays
+* Context-menu actions
+
+When a module unloads, disposing its registration scope must remove its registrations and release retained references.
+
+Avoid leaking:
+
+* Lambdas from unloaded modules
+* Classloaders
+* Active HUD instances
+* Cached renderer objects
+* Search-index entries
+* Icons
+* serializers
+
+⸻
+
+7. Module structure
+
+Use a structure similar to:
+
+ui-api/
+  ids/
+  config/
+  binding/
+  state/
+  components/
+  layout/
+  rendering/
+  theme/
+  validation/
+  persistence/
+  hud/
+  notification/
+  overlay/
+  extension/
+ui-core/
+  runtime/
+  tree/
+  invalidation/
+  input/
+  focus/
+  animation/
+  search/
+  virtualization/
+  undo/
+  diagnostics/
+ui-components/
+  basic/
+  input/
+  selection/
+  collections/
+  color/
+  minecraft/
+  advanced/
+ui-minecraft/
+  rendering/
+  textures/
+  fonts/
+  screen/
+  input/
+  lifecycle/
+  hud/
+  world-overlay/
+ui-editor/
+  hud-editor/
+  inspector/
+  selection/
+  snapping/
+  guides/
+  safe-areas/
+ui-demo/
+  config-demo/
+  hud-demo/
+  component-gallery/
+  overlay-demo/
+  stress-test/
+ui-testkit/
+  fake-renderer/
+  fake-input/
+  snapshots/
+  performance/
+
+The exact structure may be adjusted, but these boundaries must remain clear:
+
+* Stable public API
+* Framework-independent runtime
+* Standard components
+* Minecraft-specific integration
+* HUD editor
+* Persistence
+* Testing utilities
+* Demonstrations
+
+Provide a dependency graph.
+
+Module dependencies must be acyclic.
+
+Implementation classes must not leak into stable public APIs unless they are deliberate extension points.
+
+⸻
+
+8. Stable identifiers
+
+Do not use unqualified strings as the primary identifier system.
+
+Use namespaced stable identifiers.
+
+Example:
+
+@JvmInline
+value class UiId private constructor(val value: String) {
+    companion object {
+        fun of(namespace: String, path: String): UiId
+        fun parse(value: String): UiId
+    }
+}
+
+Examples:
+
+skyblockmod:general.notifications
+skyblockmod:hud.mining_xp
+thirdpartymod:widget.gradient
+
+Identifiers must be validated.
+
+Detect:
+
+* Duplicate setting IDs
+* Duplicate HUD definition IDs
+* Duplicate instance IDs
+* Duplicate component registrations
+* Invalid namespace syntax
+* Invalid path syntax
+
+Serialized enum-like values must use stable explicit IDs rather than enum ordinal positions.
+
+⸻
+
+9. Public API design
+
+Design the public API before implementing the standard visual library.
+
+Public APIs must exist for:
+
+* Screen definitions
+* Configuration settings
+* Typed state
+* Typed bindings
+* Layout primitives
+* Components
+* Renderers
+* Themes
+* Validators
+* Serializers
+* Profile stores
+* HUD definitions
+* HUD instances
+* HUD layout stores
+* Icons
+* Search providers
+* Notifications
+* World overlays
+* Extension registration scopes
+
+Avoid exposing internal runtime classes.
+
+Kotlin must receive a concise DSL.
+
+Java consumers must receive a fluent API over the same core model.
+
+⸻
+
+10. Configuration model
+
+The configuration model is the durable source of truth.
+
+It must not contain transient rendering state.
+
+Every setting must support:
+
+* Stable namespaced ID
+* Display name
+* Description
+* Optional tooltip
+* Category
+* Section
+* Typed default value
+* Typed current-value binding
+* Optional icon
+* Search keywords
+* Visibility state
+* Enabled state
+* Validation rules
+* Change events
+* Reset behavior
+* Optional restart-required flag
+* Optional experimental flag
+* Optional warning
+* Optional confirmation requirement
+* Optional permission requirement
+
+Do not use raw Any, arbitrary object maps, or untyped values as the primary API.
+
+Temporary state such as hover, focus, selection, open dropdown state, cursor position, drag state, and animation progress must live in runtime-owned state stores.
+
+⸻
+
+11. Declarative configuration DSL
+
+Normal settings must require only a few lines.
+
+Target style:
+
+val screen = configScreen(
+    id = UiId.of("skyblockmod", "main"),
+    title = "SkyBlock Mod Config"
+) {
+    category(
+        id = UiId.of("skyblockmod", "general"),
+        title = "General",
+        icon = Icons.settings
+    ) {
+        section("Interface") {
+            dropdown(
+                id = UiId.of("skyblockmod", "general.theme"),
+                title = "Theme",
+                description = "Choose your preferred theme",
+                value = config.themeBinding,
+                options = Theme.entries.map {
+                    option(
+                        id = it.serializedId,
+                        label = it.displayName,
+                        value = it
+                    )
+                }
+            )
+            colorPicker(
+                id = UiId.of("skyblockmod", "general.accent_color"),
+                title = "Accent Color",
+                value = config.accentColorBinding
+            )
+            keybind(
+                id = UiId.of("skyblockmod", "general.menu_keybind"),
+                title = "Mod Menu Keybind",
+                value = config.menuKeyBinding
+            )
+            toggle(
+                id = UiId.of("skyblockmod", "general.notifications"),
+                title = "Show In-Game Notifications",
+                value = config.notificationsBinding
+            )
+        }
+    }
+}
+
+The API must remain practical with hundreds or thousands of settings.
+
+Developers must not instantiate low-level widget or renderer classes for standard controls.
+
+⸻
+
+12. Typed state and bindings
+
+Provide typed two-way bindings.
+
+Support:
+
+* Mutable property references
+* Getter and setter pairs
+* Observable state
+* Read-only state
+* Derived state
+* Transformations
+* Validation
+* Debouncing
+* Change events
+* Undo integration
+* Explicit disposal
+
+Example:
+
+toggle(
+    id = UiId.of("skyblockmod", "feature.enabled"),
+    title = "Enabled",
+    value = bind(
+        get = config::enabled,
+        set = config::setEnabled
+    )
+)
+
+Reflection-based convenience may exist outside hot paths, but explicit typed bindings must be the reliable foundation.
+
+Define binding failure behavior.
+
+Broken bindings must produce clear development errors rather than silently failing.
+
+⸻
+
+13. Reactive behavior
+
+Settings and HUDs must support:
+
+* Conditional visibility
+* Conditional enabled state
+* Dynamic warnings
+* Dynamic options
+* Dynamic labels
+* Dynamic descriptions
+* Derived values
+* Composable predicates
+* Dependency graphs
+* Cycle detection
+
+Example:
+
+slider(
+    id = UiId.of("skyblockmod", "notifications.duration"),
+    title = "Notification Duration",
+    value = config.notificationDurationBinding,
+    visibleWhen = config.showNotificationsState,
+    enabledWhen = config.compactModeState.map { compact -> !compact }
+)
+
+Dependency cycles must produce a useful error containing the dependency path.
+
+Updating one state value must not rebuild unrelated screens or HUD elements.
+
+⸻
+
+14. Component registry
+
+Do not render component types through a giant conditional statement.
+
+Create a typed component registry.
+
+It must support:
+
+* Built-in components
+* Third-party components
+* Generic typed components
+* Runtime registration
+* Safe unregistration
+* Custom renderers
+* Custom serializers
+* Custom validators
+* Search indexing
+* Editor integrations
+* Registration ownership
+
+Example:
+
+registrationScope.registerComponent<GradientSetting>(
+    renderer = GradientSettingRenderer(),
+    serializer = GradientSettingSerializer(),
+    validator = GradientSettingValidator()
+)
+
+Custom controls must be registerable without modifying core framework source.
+
+Missing renderers must display a developer-facing fallback instead of crashing the entire screen.
+
+⸻
+
+15. Layout engine
+
+Create a real layout engine.
+
+Support:
+
+* Vertical stacks
+* Horizontal rows
+* Overlays
+* Grids
+* Cards
+* Sections
+* Dividers
+* Padding
+* Margins
+* Insets
+* Alignment
+* Minimum sizes
+* Maximum sizes
+* Fixed sizes
+* Flexible growth
+* Text wrapping
+* Responsive columns
+* Collapsible groups
+* Scroll containers
+* Nested scroll containers only where justified
+* Sticky headers where practical
+
+The standard API must not expose raw child coordinates.
+
+The layout engine must adapt to:
+
+* 1280×720
+* 1920×1080
+* 2560×1440
+* Ultrawide displays
+* Small resizable windows
+* Minecraft GUI-scale changes
+* Long translated strings
+* Larger accessibility text
+* Optional inspectors and sidebars
+
+Implement dirty measurement and layout invalidation.
+
+Do not remeasure static subtrees without cause.
+
+⸻
+
+16. Virtualization
+
+Large configuration systems must be virtualized.
+
+Only visible elements plus a configurable overscan region should be:
+
+* Materialized where possible
+* Fully measured
+* Rendered
+* Included in expensive hit testing
+* Actively animated
+
+Support:
+
+* Thousands of settings
+* Dynamic row heights
+* Cached row measurements
+* Incremental measurement updates
+* Scroll-to-item
+* Focus restoration
+* Search-result navigation
+* Temporarily expanded parent sections
+
+The runtime must distinguish:
+
+* Registered elements
+* Materialized elements
+* Measured elements
+* Visible elements
+* Animated elements
+* Hit-test candidates
+
+⸻
+
+17. Rendering abstraction
+
+Configuration models and HUD definitions must not depend on Minecraft drawing classes.
+
+Provide an abstraction similar to:
+
+interface UiRenderer {
+    fun fillRect(bounds: Rect, color: Color)
+    fun roundedRect(bounds: Rect, radius: Dp, color: Color)
+    fun border(bounds: Rect, radius: Dp, width: Dp, color: Color)
+    fun text(layout: TextLayout, position: Vec2, color: Color)
+    fun icon(icon: Icon, bounds: Rect, tint: Color)
+    fun image(texture: TextureRef, bounds: Rect, tint: Color)
+    fun pushClip(bounds: Rect)
+    fun popClip()
+    fun pushTransform(transform: Transform)
+    fun popTransform()
+    fun pushOpacity(opacity: Float)
+    fun popOpacity()
+}
+
+Support:
+
+* Rectangles
+* Rounded rectangles
+* Borders
+* Text
+* Icons
+* Images
+* Clipping
+* Scissor regions
+* Controlled blur
+* Shadows
+* Gradients
+* Transforms
+* Opacity
+* Frame timing
+
+Minecraft rendering must be implemented through an adapter.
+
+Use batching where possible.
+
+Cache:
+
+* Text measurement
+* Text layouts
+* Icon lookups
+* Static geometry
+* Theme token resolution
+
+Avoid unnecessary render-state changes.
+
+⸻
+
+18. Input system
+
+Centralize input handling.
+
+Support:
+
+* Mouse movement
+* Mouse buttons
+* Mouse wheel
+* Dragging
+* Keyboard input
+* Character input
+* Keybind capture
+* Focus traversal
+* Tab navigation
+* Enter and space activation
+* Escape behavior
+* Click-outside behavior
+* Modal dialogs
+* Context menus
+* Tooltips
+* Pointer capture
+
+Use explicit event propagation:
+
+* Capture
+* Target
+* Bubble
+* Consumed events
+* Focus owner
+* Pointer owner
+
+Components must not independently poll global mouse state.
+
+Scaled HUD hit testing must transform input coordinates correctly.
+
+⸻
+
+19. Theme system
+
+Use a token-based theme system.
+
+Do not hard-code colors, spacing, radii, typography, or animation durations inside components.
+
+Tokens must include:
+
+* Window background
+* Panel background
+* Elevated panel background
+* Hover background
+* Pressed background
+* Border colors
+* Accent
+* Success
+* Warning
+* Error
+* Primary text
+* Secondary text
+* Disabled text
+* Corner radii
+* Shadows
+* Blur strength
+* Spacing scale
+* Typography scale
+* Animation durations
+* Control heights
+* Sidebar width
+* Inspector width
+
+Support:
+
+* Dark theme
+* Light theme
+* Custom themes
+* Runtime theme switching
+* Custom accent colors
+* High contrast
+* Reduced motion
+* Larger text
+
+Do not rely on color alone to communicate state.
+
+⸻
+
+20. Animation system
+
+Animations must be:
+
+* Delta-time based
+* Interruptible
+* Target-driven
+* Reversible
+* Disposable
+* Reduced-motion aware
+
+Support:
+
+* Hover transitions
+* Toggle movement
+* Dropdown opening
+* Accordion expansion
+* Selection highlights
+* Focus indicators
+* Modal transitions
+* Scroll interpolation
+* HUD fade
+* HUD slide
+* Numeric interpolation
+* Progress interpolation
+* Temporary highlighting
+
+When a target changes mid-animation, continue smoothly from the current value.
+
+Do not restart from the original value.
+
+Avoid animating large blur regions every frame.
+
+⸻
+
+21. Validation
+
+Provide typed validation.
+
+Support:
+
+* Required values
+* Numeric ranges
+* String lengths
+* Regex
+* Custom validators
+* Cross-field validation
+* Warnings
+* Errors
+* Optional asynchronous validation
+
+Invalid values must not silently corrupt persisted configuration.
+
+Validation results must contain:
+
+* Severity
+* Clear message
+* Relevant field ID
+* Optional remediation
+* Optional related field IDs
+
+⸻
+
+22. Persistence and profiles
+
+Use storage abstractions.
+
+interface ConfigStore {
+    suspend fun load(profileId: ProfileId): ConfigSnapshot
+    suspend fun save(profileId: ProfileId, snapshot: ConfigSnapshot)
+}
+interface HudLayoutStore {
+    suspend fun load(profileId: ProfileId): HudLayoutSnapshot
+    suspend fun save(profileId: ProfileId, snapshot: HudLayoutSnapshot)
+}
+
+Support:
+
+* Default profile
+* Create
+* Rename
+* Duplicate
+* Delete
+* Switch
+* Optional per-server profiles
+* Optional per-SkyBlock-profile resolution
+* Import
+* Export
+* Reset setting
+* Reset section
+* Reset category
+* Reset everything
+* Schema versioning
+* Migrations
+* Atomic writes
+* Backup creation
+* Corruption recovery
+* Unknown-field preservation where practical
+
+Saving must:
+
+* Be debounced
+* Run outside the render path
+* Use immutable snapshots
+* Write atomically
+* Recover from partial writes where possible
+
+Feature configuration and HUD layout should be stored separately.
+
+⸻
+
+23. Undo and change tracking
+
+Support optional undo and redo.
+
+Track:
+
+* Individual setting changes
+* List edits
+* Reordering
+* Reset operations
+* Bulk changes
+* HUD movement
+* HUD scaling
+* HUD resizing
+* HUD grouping
+* HUD visibility
+* HUD z-order
+* HUD lock state
+
+Support interaction modes:
+
+* Immediate persistence
+* Apply and cancel
+* Save and close
+
+Expose whether unsaved changes exist.
+
+Continuous drag operations should collapse into one undo action rather than producing an entry for every mouse movement.
+
+⸻
+
+24. Search
+
+Implement global configuration search.
+
+Index:
+
+* Setting title
+* Description
+* Category
+* Section
+* Keywords
+* Option labels
+* Aliases
+* Stable ID
+
+Search results must:
+
+* Rank exact and prefix matches highly
+* Support predictable fuzzy matching
+* Highlight matching text
+* Display category paths
+* Navigate directly to settings
+* Expand collapsed parents temporarily
+* Scroll virtualized settings into view
+
+Search indexes must update incrementally.
+
+Do not rebuild the full index every frame.
+
+Provide deterministic ranking tests.
+
+⸻
+
+25. Standard component library
+
+Phase-one required controls
+
+Implement these completely before expanding the library:
+
+* Toggle
+* Checkbox
+* Button
+* Dropdown
+* Searchable dropdown
+* Integer slider
+* Decimal slider
+* Single-line text field
+* Multiline text area
+* Keybind selector
+* Color picker
+* Section header
+* Description block
+* Warning
+* Error message
+* Divider
+* Progress bar
+* Tabs
+* Expandable panel
+* Editable list
+* Reorderable list
+
+Phase-two controls
+
+After phase-one controls pass tests:
+
+* Radio group
+* Segmented control
+* Multi-select
+* Range slider
+* Numeric field
+* Stepper
+* Duration input
+* Password field
+* Regex field
+* URL field
+* Tag input
+* Tree view
+* Table
+* Item grid
+* Gradient editor
+* Theme selector
+* Font selector
+* Icon selector
+
+Minecraft-specific controls
+
+Implement after the generic controls are stable:
+
+* Keybind selector
+* Item selector
+* Block selector
+* Entity selector
+* Sound selector
+* Particle selector
+* Chat color selector
+* Formatting preview
+* Inventory slot selector
+* Server selector
+* Hypixel area selector
+* SkyBlock item selector
+* Command input
+* Coordinate input
+
+Collection components must support stable item keys and generic item renderers.
+
+⸻
+
+26. In-game HUD system
+
+HUD elements must be first-class framework definitions.
+
+Do not implement HUDs as unrelated custom callbacks with manual coordinate, scale, drag, and persistence logic.
+
+A HUD definition must support:
+
+* Stable namespaced ID
+* Title
+* Category
+* Default anchor
+* Default offset
+* Default scale
+* Scale range
+* Optional size constraints
+* Visibility state
+* Data source
+* Declarative layout
+* Optional settings
+* Preview data
+* Update policies
+* Layer
+* Search metadata
+
+The framework must automatically provide:
+
+* Position persistence
+* Scale persistence
+* Optional resize persistence
+* Anchoring
+* Dragging
+* Selection
+* Alignment guides
+* Snapping
+* Bounding boxes
+* Z-order
+* Visibility
+* Reset behavior
+* Profile support
+* Resolution adaptation
+* GUI-scale adaptation
+* Editor integration
+
+Developers must not manually implement editor dragging, scaling, coordinate conversion, or serialization for standard HUDs.
+
+⸻
+
+27. HUD API
+
+Target API:
+
+hudElement(
+    id = UiId.of("skyblockmod", "hud.mining_xp"),
+    title = "Mining XP",
+    defaultAnchor = Anchor.BOTTOM_CENTER,
+    defaultOffset = Vec2(0f, -90f),
+    defaultScale = 1f,
+    scaleRange = 0.5f..2.5f,
+    visibleWhen = skyblockState.isMining
+) {
+    card {
+        row(
+            verticalAlignment = Alignment.CENTER,
+            spacing = 10.dp
+        ) {
+            itemIcon(miningSkillIconState)
+            column(
+                grow = true,
+                spacing = 4.dp
+            ) {
+                row {
+                    text("Mining XP", style = TextStyle.Title)
+                    spacer(grow = true)
+                    text(
+                        value = formattedXpState,
+                        style = TextStyle.Secondary
+                    )
+                }
+                progressBar(
+                    value = progressState,
+                    accent = theme.accent
+                )
+            }
+        }
+    }
+}
+
+Provide specialized builders over the same runtime:
+
+progressHud(
+    id = UiId.of("skyblockmod", "hud.mining_xp"),
+    title = "Mining XP",
+    icon = Icons.mining,
+    current = state.currentXp,
+    maximum = state.requiredXp,
+    subtitle = state.level.map { "Lv. $it" }
+)
+
+Specialized builders must compose standard primitives rather than use a separate rendering implementation.
+
+⸻
+
+28. Reactive HUD state
+
+Support:
+
+* Observable values
+* Derived values
+* Event-driven updates
+* Tick-based updates
+* Fixed intervals
+* Lazy values
+* Cached values
+* Debounced values
+* Manual invalidation
+* Thread-safe submissions
+
+Per-value update policies:
+
+text(
+    value = session.coinsPerHour,
+    updatePolicy = UpdatePolicy.Interval(500.milliseconds)
+)
+
+Supported policies:
+
+* On change
+* Every tick
+* Every frame
+* Fixed interval
+* Manual
+
+Every-frame updates must be opt-in.
+
+Updating one HUD value must not invalidate unrelated HUDs.
+
+⸻
+
+29. HUD context and lifecycle
+
+HUD elements must receive explicit context.
+
+interface HudContext {
+    val screenSize: Size
+    val guiScale: Float
+    val partialTick: Float
+    val player: PlayerContext?
+    val skyblock: SkyblockContext?
+    val theme: HudTheme
+}
+
+Define a lifecycle:
+
+* Registered
+* Initialized
+* Activated
+* Updated
+* Measured
+* Rendered
+* Deactivated
+* Disposed
+
+Avoid global static access from HUD implementations.
+
+⸻
+
+30. HUD anchoring and placement
+
+Do not persist only absolute pixels.
+
+Support:
+
+* Top left
+* Top center
+* Top right
+* Center left
+* Center
+* Center right
+* Bottom left
+* Bottom center
+* Bottom right
+
+Persist:
+
+data class HudPlacement(
+    val anchor: Anchor,
+    val offset: Vec2,
+    val scale: Float,
+    val size: Size?,
+    val zIndex: Int,
+    val opacity: Float,
+    val locked: Boolean
+)
+
+HUDs must preserve their relationship to screen edges when:
+
+* Resolution changes
+* Window size changes
+* GUI scale changes
+
+Changing an anchor in the editor must preserve the HUD’s visible screen position.
+
+Add exhaustive anchor-conversion tests.
+
+⸻
+
+31. HUD editor
+
+The game world must remain visible behind a subtle dim overlay.
+
+The editor must support:
+
+* Move HUDs
+* Scale HUDs
+* Resize supported HUDs
+* Enable and disable HUDs
+* Reset HUDs
+* Change anchors
+* Change z-order
+* Align HUDs
+* Snap HUDs
+* Group HUDs
+* Lock HUDs
+* Preview inactive HUDs
+* Search HUDs
+* Filter by category or module
+* Edit HUD-specific settings
+* Undo and redo
+
+Do not obscure the screen with a large opaque interface.
+
+Selection
+
+Support:
+
+* Single selection
+* Shift-click multi-selection
+* Drag-selection rectangle
+* Select all
+* Deselect
+* Cycling overlapping elements
+
+Selected HUDs display:
+
+* Subtle outline
+* Bounding box
+* Scale handles
+* Name
+* Scale
+* Anchor
+* Optional dimensions
+* Compact contextual toolbar
+
+Dragging
+
+Support:
+
+* Free dragging
+* Modifier to disable snapping
+* Precision modifier
+* Arrow-key nudging
+* Larger modified nudging
+* Boundary clamping
+* Optional off-screen placement
+* Multi-element movement
+* Anchor-relative movement
+
+The cursor must remain aligned at every scale.
+
+Scaling and resizing
+
+Treat scaling and resizing as different operations.
+
+Scaling changes the rendered output through transforms.
+
+Resizing changes available layout space and may trigger wrapping or reflow.
+
+HUDs may support:
+
+* Scaling only
+* Resizing only
+* Both
+* Neither
+
+Support:
+
+* Corner scale handles
+* Mouse-wheel scaling while selected
+* Numeric scale input
+* Scale presets
+* Reset scale
+* Minimum and maximum scale
+* Aspect-ratio locking
+* Multi-selection scaling
+
+⸻
+
+32. Snapping, guides, and safe areas
+
+Display guides for:
+
+* Screen center
+* Screen edges
+* Other HUD edges
+* Other HUD centers
+* Safe margins
+* Hotbar
+* Chat
+* Scoreboard
+* Boss bars
+
+Support snapping to:
+
+* Grid
+* Screen center
+* Safe areas
+* Other HUDs
+* Vanilla UI boundaries
+
+Visualize optional safe areas for:
+
+* Hotbar
+* Crosshair
+* Chat
+* Scoreboard
+* Boss bars
+* Status effects
+* Action bar
+* Titles
+* Subtitles
+
+Snapping thresholds must be configurable.
+
+Warn about critical overlap, but do not force prevention unless configured.
+
+⸻
+
+33. HUD inspector
+
+When a HUD is selected, show a compact inspector with:
+
+* Name
+* Enabled state
+* Anchor
+* X offset
+* Y offset
+* Scale
+* Width
+* Height
+* Opacity
+* Z-index
+* Lock state
+* Reset action
+* HUD-specific settings
+* Delete action for user-created instances
+
+Support direct numeric input.
+
+Changes should apply immediately.
+
+HUD-specific settings must be usable both in the normal configuration screen and in the HUD inspector from the same underlying setting definitions.
+
+⸻
+
+34. Multiple HUD instances
+
+Some HUD definitions must support multiple instances.
+
+Examples:
+
+* Timers
+* Waypoints
+* Counters
+* Custom text
+* Stat displays
+
+Each instance must have independent:
+
+* Instance ID
+* Placement
+* Scale
+* Size
+* Settings
+* Visibility
+* Data binding
+* Z-order
+* Lock state
+
+Example:
+
+hudManager.createInstance(
+    definitionId = UiId.of("skyblockmod", "hud.stat_display"),
+    instanceId = UiId.of("skyblockmod", "hud.instance.damage_per_second")
+)
+
+⸻
+
+35. HUD visibility
+
+Support composable, testable visibility rules:
+
+* Only in SkyBlock
+* Only on selected islands
+* Only in dungeons
+* Only during Kuudra
+* Only while holding an item
+* Only while a feature is active
+* Hide while chat is open
+* Hide while the debug screen is open
+* Hide in screenshots
+* Show only when data is meaningful
+* Show only in the editor
+
+Visibility logic must not be embedded directly in render methods.
+
+⸻
+
+36. Notifications
+
+Provide a notification stack for:
+
+* Rare drops
+* Coin gains
+* Ability ready
+* Warnings
+* Errors
+* Quest updates
+* Party invitations
+* Cooldown completion
+
+Example:
+
+notifications.show(
+    Notification.success(
+        title = "Rare Drop!",
+        message = "You found a Wither Essence",
+        icon = Icons.rareDrop,
+        duration = 4.seconds
+    )
+)
+
+Support:
+
+* Position
+* Queueing
+* Stacking
+* Maximum visible count
+* Deduplication
+* Priority
+* Dismiss actions
+* Duration progress
+* Action buttons
+* Hover pause
+* Custom types
+
+Notifications should use a persistent notification-region definition rather than every notification being independently positioned in the HUD editor.
+
+⸻
+
+37. World-space overlays
+
+Provide a separate API for world-space content.
+
+Examples:
+
+* Waypoints
+* Entity labels
+* Block labels
+* Objective markers
+* Route nodes
+* Distance markers
+
+Example:
+
+worldOverlay(
+    id = UiId.of("skyblockmod", "overlay.commission_waypoint"),
+    position = commission.targetPosition
+) {
+    marker(Icons.waypoint)
+    text(commission.targetName)
+    distance(player.distanceTo(commission.targetPosition))
+}
+
+Support:
+
+* Depth-testing modes
+* Maximum render distance
+* Distance scaling
+* Occlusion behavior
+* Screen-edge indicators
+* Screen clamping
+* Distance fading
+* Click-through behavior
+
+Do not mix world-space placement logic with screen-space HUD placement.
+
+⸻
+
+38. Performance budgets
+
+Target 60 FPS during normal gameplay on representative mid-range hardware.
+
+Document the test hardware.
+
+For the stress-test configuration screen, target:
+
+* Idle update time: under 1 ms average
+* Visible layout time: under 2 ms average
+* Visible render preparation: under 2 ms average
+* Search response for 5,000 settings: under 50 ms
+* No blocking persistence on the render thread
+* No complete tree rebuild during idle frames
+* No unbounded per-frame allocation growth
+
+For HUD stress testing with 50 visible simple HUDs:
+
+* HUD update time: under 1 ms average
+* HUD layout time: under 1.5 ms average
+* HUD render preparation: under 1.5 ms average
+
+These are target budgets, not permission to hide measurements.
+
+If a target cannot be achieved, report the measured result and bottleneck honestly.
+
+Provide debug metrics for:
+
+* Configuration update time
+* Layout time
+* Render time
+* HUD update time
+* HUD layout time
+* HUD render time
+* Active HUD count
+* Visible HUD count
+* Materialized component count
+* Visible component count
+* Hit-test candidate count
+* Draw-call count
+* Text-layout count
+* Cache hit rate
+* Allocation rate where measurable
+
+⸻
+
+39. Failure modes to avoid
+
+Do not build the framework around:
+
+* One giant renderer when or switch statement
+* One monolithic configuration-screen class
+* Raw Any values
+* Untyped maps as the primary model
+* Persistent values mixed with animation or focus state
+* Raw screen pixels as the only HUD placement system
+* Full processing of every setting each frame
+* Full component-tree rebuilding every frame
+* Global mouse polling inside components
+* Rendering tightly coupled to configuration storage
+* Reflection in hot paths
+* File I/O on the render thread
+* Manual per-HUD dragging implementations
+* Manual per-HUD scale persistence
+* Manual child-coordinate calculation
+* Unowned global registries
+* Static global HUD context
+* Enum ordinal persistence
+* Silent binding failures
+* Silent validation failures
+* Catch-all exception swallowing
+* Placeholder tests that only verify object construction
+
+⸻
+
+40. Error handling
+
+Detect and report:
+
+* Duplicate setting IDs
+* Duplicate HUD IDs
+* Duplicate instance IDs
+* Missing renderers
+* Invalid ranges
+* Invalid defaults
+* Dependency cycles
+* Broken bindings
+* Unsupported serialized values
+* Invalid schemas
+* Invalid HUD layouts
+* Layout overflow
+* Missing icons
+* Component exceptions
+* Invalid anchor data
+* Invalid scale values
+* Missing preview data where required
+* Registration ownership violations
+
+One broken custom component or HUD should not necessarily crash the full screen.
+
+Where practical, render a development error placeholder containing:
+
+* Component ID
+* Component type
+* Concise error
+* Link or action to inspect diagnostics
+
+Do not expose raw stack traces to normal users by default.
+
+⸻
+
+41. Developer tooling
+
+Include:
+
+* UI inspector
+* Component-tree viewer
+* HUD-tree viewer
+* Bounds visualization
+* Focus visualization
+* Hitbox visualization
+* Layout timing
+* Render timing
+* Update timing
+* Search-index viewer
+* Theme-token viewer
+* Current hovered component
+* Current focused component
+* Current selected HUD
+* Anchor visualization
+* Safe-area visualization
+* Reload UI command
+* Component gallery
+* HUD gallery
+* Stress-test mode
+
+Development tooling must be disableable in production builds.
+
+⸻
+
+42. Testing strategy
+
+Pure JVM tests
+
+Use framework-independent tests for:
+
+* Typed state
+* Bindings
+* Validation
+* Serialization
+* Schema migrations
+* Search ranking
+* Conditional visibility
+* Dependency-cycle detection
+* List editing
+* Undo and redo
+* Focus traversal
+* Hit testing
+* Layout calculations
+* Virtualization
+* Profile switching
+* Import and export
+* Component registration
+* HUD registration
+* Anchor conversion
+* Resolution changes
+* GUI-scale changes
+* HUD dragging
+* HUD scaling
+* HUD resizing
+* HUD snapping
+* HUD grouping
+* Multi-selection
+* Z-order
+* Visibility rules
+* Preview state
+* HUD persistence
+* Multiple instances
+* Safe-area warnings
+* Scaled hit testing
+* Registration disposal
+
+Fake-platform integration tests
+
+Create a fake renderer and fake input system.
+
+Test:
+
+* Complete render trees
+* Event propagation
+* Focus behavior
+* Pointer capture
+* Clipping
+* Modal behavior
+* Virtualized navigation
+* Editor transformations
+* Animation interruption
+
+Visual tests
+
+Add screenshot or snapshot tests at:
+
+* 1280×720
+* 1920×1080
+* 2560×1440
+* Ultrawide
+* High GUI scale
+* Low GUI scale
+* Large text mode
+* High-contrast mode
+* Reduced-motion mode
+
+Minecraft integration tests
+
+Add smoke tests for:
+
+* Opening the configuration screen
+* Rendering standard components
+* Input forwarding
+* HUD lifecycle
+* Resolution changes
+* GUI-scale changes
+* World-overlay rendering
+* Resource reloads
+* Module registration and unregistration
+
+Tests must verify behavior, not merely successful construction.
+
+⸻
+
+43. Stress tests
+
+Create a stress-test screen containing at least:
+
+* 1,000 toggles
+* 500 sliders
+* 200 dropdowns
+* Several large editable lists
+* Nested conditional sections
+* Dozens of active HUDs
+* Several animated values
+* Multiple world overlays
+
+Measure:
+
+* Frame time
+* Update time
+* Layout time
+* Render time
+* Draw calls
+* Registered elements
+* Materialized elements
+* Visible elements
+* Hit-test candidates
+* Allocation rate
+* Cache hit rate
+
+Include an automated benchmark report.
+
+⸻
+
+44. Required demonstrations
+
+Create:
+
+1. A configuration screen matching the supplied design language
+2. A component gallery
+3. A HUD editor
+4. A mining XP HUD
+5. A temporary-notification demo
+6. A world-space waypoint demo
+7. A stress-test screen
+
+The mining XP HUD must contain:
+
+* One compact horizontal card
+* Dark translucent background
+* Rounded corners
+* Thin border
+* Small icon block on the left
+* Title and level text
+* Current and required XP aligned on the right
+* Thin purple progress bar
+* No unrelated elements
+* No large surrounding UI
+* No distracting glow
+* No screen takeover
+
+The demo must prove that the HUD can be:
+
+* Created declaratively
+* Moved in the editor
+* Scaled
+* Anchored
+* Persisted
+* Previewed with fake data
+* Updated with real reactive data
+* Themed consistently with configuration screens
+
+⸻
+
+45. Documentation
+
+Document:
+
+* Architecture
+* Dependency graph
+* Threading contract
+* State model
+* Rendering model
+* Installation
+* Creating a screen
+* Creating categories
+* Creating sections
+* Standard setting types
+* Bindings
+* Validation
+* Conditional visibility
+* Persistence
+* Profiles
+* Search
+* Themes
+* Custom components
+* Custom renderers
+* Custom serializers
+* Creating a HUD
+* Specialized HUD builders
+* Custom composed HUDs
+* HUD preview data
+* HUD editor integration
+* Multiple instances
+* Notifications
+* World overlays
+* Performance guidelines
+* Schema migrations
+* Module registration and safe unregistration
+
+Include:
+
+* Concise examples
+* One complete demo mod
+* Public API KDoc
+* Migration examples
+* Common failure cases
+
+⸻
+
+46. Ordered implementation phases
+
+Phase 0 — Architecture
+
+Deliver:
+
+* Platform-version matrix
+* Dependency graph
+* State-model design
+* Rendering-model design
+* Threading contract
+* Extension ownership model
+* Public API proposal
+* Persistence format proposal
+* Performance measurement plan
+
+Do not implement the full component library yet.
+
+Phase 1 — Core runtime
+
+Implement:
+
+* IDs
+* Typed state
+* Bindings
+* Component identity
+* Runtime tree
+* Dirty invalidation
+* Layout primitives
+* Fake renderer
+* Central input system
+* Focus
+* Theme tokens
+* Basic animation
+* Diagnostics
+
+Acceptance criteria:
+
+* Pure JVM tests pass
+* Fake-renderer demo works
+* No Minecraft dependency in core modules
+* No full-tree rebuild during idle frames
+
+Phase 2 — Configuration foundation
+
+Implement:
+
+* Screen DSL
+* Categories
+* Sections
+* Scrolling
+* Virtualization
+* Search
+* Validation
+* Persistence
+* Profiles
+* Undo
+* Required phase-one controls
+
+Acceptance criteria:
+
+* 1,000-toggle stress test remains responsive
+* Search navigation works with virtualization
+* Persistence is atomic and off-thread
+* Keyboard navigation works
+
+Phase 3 — Minecraft adapter
+
+Implement:
+
+* Minecraft renderer
+* Font adapter
+* Texture adapter
+* Screen lifecycle
+* Input forwarding
+* Resource reload handling
+* GUI-scale adaptation
+
+Acceptance criteria:
+
+* Demo screen renders in Minecraft
+* Resolution and GUI-scale changes pass tests
+* No file I/O occurs on the render thread
+
+Phase 4 — HUD runtime
+
+Implement:
+
+* HUD definitions
+* HUD instances
+* HUD context
+* Anchoring
+* Placement
+* Scaling
+* Resizing
+* Visibility
+* Preview state
+* Persistence
+* HUD registry
+* Basic HUD composition
+
+Acceptance criteria:
+
+* Mining XP HUD works
+* Anchor changes preserve visible position
+* Scaled hit testing passes
+* One value update does not rebuild unrelated HUDs
+
+Phase 5 — HUD editor
+
+Implement:
+
+* Selection
+* Dragging
+* Scaling
+* Resizing
+* Inspector
+* Snapping
+* Guides
+* Safe areas
+* Locking
+* Z-order
+* Multi-selection
+* Undo integration
+
+Acceptance criteria:
+
+* Drag cursor alignment remains correct at all scales
+* Multi-selection transformations are reversible
+* Placement survives resolution and GUI-scale changes
+
+Phase 6 — Notifications and world overlays
+
+Implement:
+
+* Notification region
+* Notification queue
+* World-overlay API
+* Waypoint demo
+* Distance fading
+* Screen-edge indicators
+
+Acceptance criteria:
+
+* Screen-space and world-space placement remain separate
+* Overlays dispose cleanly with their registration scope
+
+Phase 7 — Extended components and tooling
+
+Implement:
+
+* Remaining standard controls
+* Minecraft-specific selectors
+* Component gallery
+* Inspector tools
+* Stress-test instrumentation
+* Visual snapshot suite
+
+Do not add advanced components before the earlier acceptance criteria pass.
+
+⸻
+
+47. Expected output
+
+Deliver, in order:
+
+1. Architecture overview
+2. Platform assumptions
+3. Dependency graph
+4. Public API design
+5. Core state model
+6. Threading contract
+7. Extension ownership model
+8. Module structure
+9. Core interfaces
+10. Typed configuration model
+11. Binding system
+12. Component registry
+13. Layout engine
+14. Input system
+15. Rendering abstraction
+16. Theme system
+17. Validation
+18. Persistence and profiles
+19. Search
+20. Virtualization
+21. Undo and redo
+22. Standard component library
+23. Minecraft adapter
+24. HUD runtime
+25. HUD registry
+26. HUD editor
+27. HUD inspector
+28. Anchor and placement system
+29. Snapping and guides
+30. Notification system
+31. World-overlay system
+32. Demonstrations
+33. Stress-test results
+34. Automated tests
+35. Documentation
+36. Complete example usage
+
+Begin with Phase 0: architecture and public API.
+
+Do not skip directly to visual components.
+
+Do not claim a phase is complete unless its acceptance criteria are implemented, tested, and demonstrated.
+
+The final framework must make simple configuration screens and HUD elements extremely concise while preserving strong typing, modularity, predictable performance, safe extension, testability, and future compatibility.
