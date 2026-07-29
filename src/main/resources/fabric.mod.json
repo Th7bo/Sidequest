@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "sidequest",
+  "version": "${version}",
+  "name": "Sidequest",
+  "description": "A Minecraft mod by th7bo.",
+  "authors": [
+    "th7bo"
+  ],
+  "license": "MIT",
+  "environment": "client",
+  "contact": {},
+  "entrypoints": {
+    "client": [
+      {
+        "value": "dev.th7bo.sidequest.Sidequest",
+        "adapter": "kotlin"
+      }
+    ]
+  },
+  "mixins": [
+    "sidequest.mixins.json"
+  ],
+  "accessWidener": "sidequest.classtweaker",
+  "depends": {
+    "minecraft": "${minecraft_range}",
+    "fabricloader": ">=${fabric_loader}",
+    "fabric-api": ">=${fabric_api}",
+    "fabric-language-kotlin": ">=${fabric_language_kotlin}"
+  }
+}

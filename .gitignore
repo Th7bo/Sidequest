@@ -1,0 +1,24 @@
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin/
+out/
+bin/
+
+# Stonecutter / Loom
+/run/
+versions/*/run/
+versions/*/build/
+
+# DevAuth caches the account tokens next to its config
+.devauth/*.json
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store

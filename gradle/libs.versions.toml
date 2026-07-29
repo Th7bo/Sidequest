@@ -1,0 +1,33 @@
+# Shared across every Minecraft target.
+# Anything that differs per version lives in gradle/<version>.versions.toml.
+
+[versions]
+kotlin = "2.4.10"
+fabric-loom = "1.17.17"
+fabric-loader = "0.19.3"
+fabric-language-kotlin = "1.13.13+kotlin.2.4.10"
+devauth = "1.2.2"
+
+# fabric-language-kotlin 1.13.13 ships these; keep them in lockstep with it so the
+# versions bundled at runtime match what the UI modules compile against.
+kotlinx-serialization = "1.9.0"
+kotlinx-coroutines = "1.10.2"
+
+junit = "5.11.4"
+
+[libraries]
+fabric-loader = { module = "net.fabricmc:fabric-loader", version.ref = "fabric-loader" }
+fabric-language-kotlin = { module = "net.fabricmc:fabric-language-kotlin", version.ref = "fabric-language-kotlin" }
+devauth = { module = "me.djtheredstoner:DevAuth-fabric", version.ref = "devauth" }
+
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+
+[plugins]
+fabric-loom = { id = "net.fabricmc.fabric-loom", version.ref = "fabric-loom" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
