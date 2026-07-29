@@ -5,6 +5,10 @@ import dev.th7bo.sidequest.ui.core.persistence.ConfigPersistenceController
 import dev.th7bo.sidequest.ui.core.persistence.JsonFileConfigStore
 import dev.th7bo.sidequest.ui.minecraft.lifecycle.FontReloadListener
 import dev.th7bo.sidequest.ui.minecraft.lifecycle.SidequestKeybinds
+import dev.th7bo.sidequest.ui.core.hud.HudLayoutPersistence
+import dev.th7bo.sidequest.ui.hud.HudPlacement
+import dev.th7bo.sidequest.ui.ids.ProfileId
+import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.minecraft.hud.SidequestHudLayer
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestConfigScreen
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestHudEditorScreen
@@ -64,6 +68,52 @@ object Sidequest : ClientModInitializer {
         )
     }
 
+    /**
+     * HUD placement persistence.
+     *
+     * Built lazily against the layer, which does not exist until the first frame in a
+     * world. Uses the same store implementation as the configuration, only a different
+     * file — atomic writes and corruption quarantine matter here for the same reasons.
+     */
+    private var hudLayout: HudLayoutPersistence? = null
+
+    /** Wires persistence to the HUD layer. Called once the layer has been built. */
+    private fun attachHudPersistence(layer: dev.th7bo.sidequest.ui.core.hud.HudLayerNode) {
+        if (hudLayout != null) return
+        val controller = HudLayoutPersistence(
+            layer = layer,
+            store = JsonFileConfigStore(
+                root = loader.configDir.resolve(MOD_ID),
+                currentVersion = HUD_LAYOUT_SCHEMA_VERSION,
+                fileName = HudLayoutPersistence.FILE_NAME,
+            ),
+            coroutineScope = ioScope,
+            scheduler = clientScheduler,
+            schemaVersion = HUD_LAYOUT_SCHEMA_VERSION,
+        )
+        controller.onLoadReport = { report ->
+            when {
+                report.corruptionBackupPath != null ->
+                    logger.error("HUD layout was unreadable; the file was kept at {}", report.corruptionBackupPath)
+                report.rejectedValues.isNotEmpty() ->
+                    logger.warn("{} HUD placement(s) were rejected: {}", report.rejectedValues.size, report.rejectedValues)
+                report.wasEmpty -> logger.info("No saved HUD layout; using defaults")
+                else -> logger.info("HUD layout loaded")
+            }
+        }
+        hudLayout = controller
+        controller.load(ProfileId.DEFAULT)
+    }
+
+    /** The placements the last load applied, for diagnostics and in-game tests. */
+    val loadedHudPlacements: Map<UiId, HudPlacement>
+        get() = hudLayout?.lastLoaded ?: emptyMap()
+
+    /** Writes the HUD layout now. Called when the editor closes. */
+    fun saveHudLayout() {
+        hudLayout?.saveNow(ProfileId.DEFAULT)
+    }
+
     /** Resolves the configured theme name to a theme. */
     fun activeTheme(): Theme = when (SidequestSettings.theme) {
         "light" -> LightTheme
@@ -81,7 +131,14 @@ object Sidequest : ClientModInitializer {
      */
     fun createHudEditorScreen(): SidequestHudEditorScreen? {
         val layer = SidequestHudLayer.hudLayer ?: return null
-        return SidequestHudEditorScreen(layer, activeTheme(), onSave = { persistence.saveNow() })
+        return SidequestHudEditorScreen(
+            layer,
+            activeTheme(),
+            onSave = {
+                persistence.saveNow()
+                saveHudLayout()
+            },
+        )
     }
 
     override fun onInitializeClient() {
@@ -113,8 +170,12 @@ object Sidequest : ClientModInitializer {
         FontReloadListener.register()
         SidequestKeybinds.register()
         SidequestHuds.register()
+        SidequestHudLayer.onLayerReady = { layer -> attachHudPersistence(layer) }
     }
 
     /** Schema version of the on-disk configuration. Bump alongside a new migration. */
     const val CONFIG_SCHEMA_VERSION: Int = 1
+
+    /** Bumped when the persisted shape of a HUD placement changes. */
+    const val HUD_LAYOUT_SCHEMA_VERSION: Int = 1
 }

@@ -1,6 +1,13 @@
 package dev.th7bo.sidequest.ui.geometry
 
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -297,7 +304,7 @@ public data class Alignment(
  * element keeps its relationship to the edge it was placed against when the resolution
  * or GUI scale changes. [serializedId] is what goes on disk — never the ordinal.
  */
-@Serializable
+@Serializable(with = AnchorSerializer::class)
 public enum class Anchor(
     public val serializedId: String,
     public val horizontalFactor: Float,
@@ -359,5 +366,29 @@ public enum class Anchor(
                 abs(center.x - anchorPoint.x) + abs(center.y - anchorPoint.y)
             }
         }
+    }
+}
+
+/**
+ * Persists an [Anchor] by its [Anchor.serializedId] rather than by its constant name.
+ *
+ * The default enum serializer writes the constant name, which ties the on-disk format to
+ * a Kotlin identifier: renaming `TOP_LEFT` would silently invalidate every saved layout.
+ * `serializedId` exists precisely so the two can move independently, and this is what
+ * makes the type actually honour it.
+ */
+public object AnchorSerializer : KSerializer<Anchor> {
+
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("dev.th7bo.sidequest.ui.geometry.Anchor", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: Anchor) {
+        encoder.encodeString(value.serializedId)
+    }
+
+    override fun deserialize(decoder: Decoder): Anchor {
+        val id = decoder.decodeString()
+        return Anchor.fromSerializedId(id)
+            ?: throw SerializationException("Unknown anchor '$id'")
     }
 }

@@ -4,10 +4,13 @@ import dev.th7bo.sidequest.Sidequest
 import dev.th7bo.sidequest.ui.core.hud.editor.HudHandle
 import dev.th7bo.sidequest.ui.geometry.Anchor
 import dev.th7bo.sidequest.ui.geometry.Vec2
+import dev.th7bo.sidequest.ui.hud.HudPlacement
 import dev.th7bo.sidequest.ui.minecraft.hud.SidequestHudLayer
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestHudEditorScreen
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest
+import net.fabricmc.loader.api.FabricLoader
+import java.nio.file.Files
 
 /**
  * Drives the HUD editor in a running client and captures each state.
@@ -38,11 +41,32 @@ class HudEditorRenderTest : FabricClientGameTest {
         // It is only ever touched on the client thread.
         lateinit var screen: SidequestHudEditorScreen
 
-        // Every HUD back to its defaults. The gametests share one client and one HUD
-        // layer, so without this the editor would start from wherever the previous test
-        // left things — and a capture that depends on test order is worth very little.
+        // Placement has to survive quitting the game, which no single-process test can
+        // show. The run directory persists between launches, so this test proves it
+        // across two: the last run writes a known placement, and this one asserts the
+        // load applied it. On the very first run there is no file, and the check is
+        // skipped rather than failed.
+        //
+        // Asserted against what the *load* applied rather than where the element sits
+        // now: the gametests share one client, and the HUD render test runs first and
+        // legitimately moves things around.
+        val layoutFile = FabricLoader.getInstance().configDir
+            .resolve("sidequest/profiles/default/huds.json")
+        val hadSavedLayout = Files.exists(layoutFile)
+
         onClient(context) {
             val layer = checkNotNull(SidequestHudLayer.hudLayer) { "The HUD layer never built" }
+            if (hadSavedLayout) {
+                val instanceId = checkNotNull(layer.ordered.firstOrNull()) { "No HUD to check" }
+                    .instance.instanceId
+                val restored = Sidequest.loadedHudPlacements[instanceId]
+                check(restored == PERSISTED_PLACEMENT) {
+                    "A previous run saved $PERSISTED_PLACEMENT but this one loaded " +
+                        "$restored — HUD placement did not survive the restart"
+                }
+            }
+
+            // Then back to defaults, so the captures below do not depend on test order.
             for (element in layer.ordered) element.reset()
         }
 
@@ -120,6 +144,21 @@ class HudEditorRenderTest : FabricClientGameTest {
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("hud_editor_reanchored")
 
+        // 6. Leave a known placement on disk for the next run to find.
+        onClient(context) {
+            val session = checkNotNull(screen.session)
+            val element = session.layer.ordered.first()
+            element.setPlacement(PERSISTED_PLACEMENT)
+            Sidequest.saveHudLayout()
+        }
+        context.waitTicks(SETTLE_TICKS)
+
+        check(Files.exists(layoutFile)) { "No HUD layout was written to $layoutFile" }
+        val written = Files.readString(layoutFile)
+        check(PERSISTED_PLACEMENT.anchor.serializedId in written) {
+            "The saved layout does not name the anchor by its serialized id: $written"
+        }
+
         // Back to the title screen, which is where a client gametest has to end.
         context.setScreen { null }
         context.waitTicks(SETTLE_TICKS)
@@ -138,6 +177,15 @@ class HudEditorRenderTest : FabricClientGameTest {
     ): T = context.computeOnClient<T, RuntimeException> { client -> action(client) }
 
     private companion object {
+        /** Distinctive enough that a default could never be mistaken for it. */
+        val PERSISTED_PLACEMENT = HudPlacement(
+            anchor = Anchor.TOP_RIGHT,
+            offset = Vec2(-37f, 23f),
+            scale = 1.25f,
+            zIndex = 2,
+            opacity = 0.9f,
+        )
+
         const val SETTLE_TICKS = 10
         const val WORLD_SETTLE_TICKS = 40
         const val BASELINE_GUI_SCALE = 2

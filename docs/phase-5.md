@@ -88,7 +88,8 @@ refuse.
 | Multi-selection transformations are reversible | a three-element drag is asserted to be one undo entry, and undo/redo restores and reapplies every member together |
 | Placement survives resolution and GUI-scale changes | an edited placement is resolved against four screen sizes and asserted to keep its distance from the anchored edge |
 
-56 tests in `Phase5AcceptanceTest`; 518 across the framework, 0 failures.
+56 tests in `Phase5AcceptanceTest`, 18 in `HudLayoutPersistenceTest`; 536 across
+the framework, 0 failures.
 
 ---
 
@@ -121,11 +122,42 @@ very little.
 
 ---
 
+## Placement persistence
+
+Placement now survives quitting the game. `HudLayoutPersistence` is built on the same
+`ConfigStore` as the configuration rather than a second persistence path — atomic writes,
+migrations, unknown-field preservation and corruption quarantine are already solved
+there, and a HUD layout that survives a crash mid-write matters for the same reasons a
+config file does. Only the file name differs: `huds.json`, beside `config.json` in the
+profile directory.
+
+**Anchor is stored by `serializedId`, not by its constant name.** The type carried a
+plain `@Serializable`, which writes the Kotlin identifier — so renaming `TOP_LEFT` would
+have silently invalidated every saved layout. `serializedId` existed for exactly this
+reason and was documented as "what goes on disk"; `AnchorSerializer` now makes the type
+honour it. The written file reads `"anchor": "top_right"`.
+
+**An element with no entry keeps its default rather than jumping to the origin.** A
+layout written before a HUD existed must not drag that HUD to `(0, 0)` the first time a
+new build runs.
+
+**A placement for a HUD that is not currently loaded is preserved, not dropped.** If a
+module is disabled for one session, rewriting the file must not cost it its position.
+
+**One unreadable entry does not cost the rest of the layout.** It is reported through the
+load report and that element keeps its default.
+
+Verified across two actual processes: the gametest writes a distinctive placement on one
+run and asserts the next run's *load* produced it. The assertion is against what the load
+applied rather than where the element currently sits, because the gametests share one
+client and the HUD render test runs first and legitimately moves things — the first
+version of this check failed on exactly that, which is worth recording since it looked
+like a persistence bug and was not.
+
+---
+
 ## Still open
 
-- Placement is still not persisted between sessions. `HudLayoutSnapshot` defines the
-  shape and the editor's `onSave` hook is wired to the config store, but the
-  serialisation round-trip is not written yet.
 - Multi-instance HUDs can be created by the runtime but the editor has no "add instance"
   affordance.
 - Rotation is not supported and is not planned; `Transform` has no rotation term.

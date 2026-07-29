@@ -56,6 +56,15 @@ public object SidequestHudLayer : HudElement {
      */
     public var onPopulate: ((HudLayerNode, ComponentContext) -> Unit)? = null
 
+    /**
+     * Called once the layer exists and has been populated.
+     *
+     * Separate from [onPopulate] because loading saved placements is a different concern
+     * from deciding what is on the layer, and it has to happen after — there is nothing
+     * to position until the elements are there.
+     */
+    public var onLayerReady: ((HudLayerNode) -> Unit)? = null
+
     /** The live layer, for the editor and for diagnostics. */
     public val hudLayer: HudLayerNode? get() = layer
 
@@ -132,6 +141,7 @@ public object SidequestHudLayer : HudElement {
         runtime = created
 
         onPopulate?.invoke(built, context)
+        onLayerReady?.invoke(built)
         return created
     }
 
