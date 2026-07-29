@@ -131,6 +131,12 @@ public class TextAreaControlNode(
         invalidateMeasure()
     }
 
+    override fun onFocusLost() {
+        if (!isEditing) return
+        isEditing = false
+        invalidatePaint()
+    }
+
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
         measurer = context.textMeasurer
 

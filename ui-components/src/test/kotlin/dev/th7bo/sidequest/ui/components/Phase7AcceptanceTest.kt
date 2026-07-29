@@ -9,6 +9,8 @@ import dev.th7bo.sidequest.ui.config.DropdownSetting
 import dev.th7bo.sidequest.ui.config.Keybind
 import dev.th7bo.sidequest.ui.config.KeybindSetting
 import dev.th7bo.sidequest.ui.config.TextAreaSetting
+import dev.th7bo.sidequest.ui.config.TextSetting
+import dev.th7bo.sidequest.ui.core.layout.ColumnNode
 import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.component.ComponentRegistry
 import dev.th7bo.sidequest.ui.core.component.MissingComponentNode
@@ -324,6 +326,57 @@ class Phase7AcceptanceTest {
         repeat(20) { press(Key.ARROW_UP) }
         frame()
         assertEquals(0, control.firstVisibleLine, "moving back to the top scrolls back")
+    }
+
+    @Test
+    fun `moving to another input puts the first one away`() {
+        // Reported from the game: the caret stayed drawn on the control you left, so two
+        // fields claimed to be editing at once. Focus moving away is the only signal a
+        // control gets, and nothing was listening for it.
+        val area = TextAreaControlNode(textArea(initial = "one"), context)
+        val field = TextFieldControlNode(
+            TextSetting(
+                id = id("name"),
+                metadata = SettingMetadata(constantState("Name")),
+                binding = mutableStateOf("steve", "name").asBinding(),
+                defaultValue = "",
+                placeholder = constantState(""),
+            ),
+            context,
+        )
+        val keybind = KeybindControlNode(
+            KeybindSetting(
+                id = id("bind"),
+                metadata = SettingMetadata(constantState("Bind")),
+                binding = mutableStateOf(Keybind(Key.G), "bind").asBinding(),
+                defaultValue = Keybind(Key.G),
+            ),
+            context,
+        )
+        runtime.root = ColumnNode(id("inputs")).apply { addChildren(area, field, keybind) }
+        frame()
+
+        check(runtime.focus.requestFocus(area))
+        press(Key.SPACE)
+        assertTrue(area.isEditing)
+
+        check(runtime.focus.requestFocus(field))
+        assertFalse(area.isEditing, "the caret must not stay on the control you moved away from")
+
+        press(Key.SPACE)
+        assertTrue(field.isEditing)
+
+        check(runtime.focus.requestFocus(keybind))
+        assertFalse(field.isEditing)
+
+        press(Key.SPACE)
+        assertTrue(keybind.isCapturing)
+
+        // Clicking away from every focusable node drops focus, which must also put the
+        // keybind away rather than leaving it waiting for a key it will never receive.
+        runtime.focus.clearFocus()
+        assertFalse(keybind.isCapturing)
+        assertTrue(keybind.bindingLabel.contains("G"), "and the label goes back to the binding")
     }
 
     @Test

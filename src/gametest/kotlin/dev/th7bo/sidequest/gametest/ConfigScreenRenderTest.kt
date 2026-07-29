@@ -345,6 +345,29 @@ class ConfigScreenRenderTest : FabricClientGameTest {
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("gallery_text_field_caret")
 
+        // 8d. Moving to another input has to put the first one away. Both fields drawing a
+        //     caret at once is what the player saw, and only the control losing focus can
+        //     notice — nothing else tells it.
+        onClient(context) { gallery.controller?.search("field") }
+        context.waitTicks(SETTLE_TICKS)
+
+        onClient(context) {
+            val fields = findControls<TextFieldControlNode>(gallery)
+            check(fields.size >= 2) { "Expected two text fields in the search results, got ${fields.size}" }
+            val runtime = checkNotNull(gallery.uiRuntime) { "No runtime" }
+
+            runtime.input.pointerPressed(fields[0].absoluteBounds().center)
+            check(fields[0].isEditing) { "The first field did not start editing" }
+
+            runtime.input.pointerPressed(fields[1].absoluteBounds().center)
+            check(fields[1].isEditing) { "The second field did not start editing" }
+            check(!fields[0].isEditing) {
+                "The first field is still editing — its caret is drawn next to the one that has focus"
+            }
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("gallery_one_caret_at_a_time")
+
         onClient(context) { gallery.controller?.clearSearch() }
         context.waitTicks(SETTLE_TICKS)
 
@@ -360,6 +383,15 @@ class ConfigScreenRenderTest : FabricClientGameTest {
     ): T? {
         var found: T? = null
         screen.uiRoot?.forEachInTree { node -> if (found == null && node is T) found = node }
+        return found
+    }
+
+    /** Every control of a given type, in tree order. */
+    private inline fun <reified T> findControls(
+        screen: SidequestConfigScreen,
+    ): List<T> {
+        val found = mutableListOf<T>()
+        screen.uiRoot?.forEachInTree { node -> if (node is T) found.add(node) }
         return found
     }
 

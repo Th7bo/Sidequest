@@ -86,6 +86,9 @@ Both controls share one editor, so both take the same keys:
 | Escape | stops editing |
 | click | places the caret where you clicked — text area only |
 
+Editing also stops when focus moves elsewhere — clicking another input, Tab, or clicking
+the background. Exactly one caret is on screen at a time.
+
 The caret is drawn while editing and is **not** animated. A blinking caret would mean the
 screen never reaches an idle frame, and the idle-frame guarantee is worth more than the
 blink — see [performance](performance.md).

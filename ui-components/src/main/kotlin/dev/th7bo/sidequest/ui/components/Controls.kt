@@ -23,6 +23,7 @@ import dev.th7bo.sidequest.ui.geometry.Rect
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.geometry.Vec2
 import dev.th7bo.sidequest.ui.input.EventPhase
+import dev.th7bo.sidequest.ui.input.FocusEvent
 import dev.th7bo.sidequest.ui.input.InputEvent
 import dev.th7bo.sidequest.ui.input.Key
 import dev.th7bo.sidequest.ui.input.KeyDownEvent
@@ -62,8 +63,28 @@ public abstract class ControlNode<T>(
     /** Invoked by click and by Enter/Space. */
     protected abstract fun activate()
 
+    /**
+     * Called when focus leaves this control.
+     *
+     * Anything modal a control turns on — editing a value, capturing a key — has to turn
+     * off here. Nothing else will: focus moving away is not an event the control would
+     * otherwise see, so a caret or a "Press a key…" prompt left behind stays on screen
+     * next to the control that actually has focus.
+     */
+    protected open fun onFocusLost() {
+        // Most controls have nothing to put away.
+    }
+
     override fun onInputEvent(event: InputEvent) {
         if (event.phase != EventPhase.TARGET) return
+
+        // Checked ahead of the enabled guard: a control disabled while focused still has
+        // to put away whatever it had open.
+        if (event is FocusEvent) {
+            if (!event.gained) onFocusLost()
+            return
+        }
+
         if (!isEnabled) {
             // A disabled control still swallows the event, so a click does not fall
             // through to whatever is behind it.
@@ -721,6 +742,12 @@ public class TextFieldControlNode(
         invalidatePaint()
     }
 
+    override fun onFocusLost() {
+        if (!isEditing) return
+        isEditing = false
+        invalidatePaint()
+    }
+
     /** Applies a text edit through the setting, so validation still runs. */
     public fun insert(text: String) {
         if (!isEnabled) return
@@ -890,6 +917,12 @@ public class KeybindControlNode(
 
     override fun activate() {
         capturingState.value = true
+    }
+
+    override fun onFocusLost() {
+        // Otherwise the control is left reading "Press a key…" while the next key press
+        // goes somewhere else entirely.
+        capturingState.value = false
     }
 
     override fun onInputEvent(event: InputEvent) {
