@@ -25,6 +25,10 @@
       {
         "value": "dev.th7bo.sidequest.gametest.PlatformRuntimeTest",
         "adapter": "kotlin"
+      },
+      {
+        "value": "dev.th7bo.sidequest.gametest.BoardReaderTest",
+        "adapter": "kotlin"
       }
     ]
   },

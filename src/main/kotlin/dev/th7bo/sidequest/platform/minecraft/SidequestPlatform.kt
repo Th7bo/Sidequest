@@ -5,6 +5,7 @@ import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.feature.DefaultFeatureRegistry
 import dev.th7bo.sidequest.platform.core.log.LoggerFactory
+import dev.th7bo.sidequest.platform.core.context.DefaultGameContextService
 import dev.th7bo.sidequest.platform.core.scheduler.DefaultScheduler
 import dev.th7bo.sidequest.platform.event.ClientShutdownEvent
 import dev.th7bo.sidequest.platform.event.ClientTickEvent
@@ -24,6 +25,7 @@ import dev.th7bo.sidequest.platform.log.LogLevel
 import dev.th7bo.sidequest.platform.log.LogSink
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
+import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import org.slf4j.LoggerFactory as Slf4jLoggerFactory
 
 /**
@@ -83,6 +85,19 @@ class SidequestPlatform(
         loggers = loggers,
     )
 
+    /**
+     * The authority on where the player is.
+     *
+     * Fed from the scoreboard and tab list below. Features read [GameContextService.context]
+     * rather than deciding for themselves what "in a dungeon" means.
+     */
+    private val contextService = DefaultGameContextService(
+        events = events,
+        log = loggers.create(LogCategory.PARSER, SqId.sidequest("context")),
+    )
+
+    val gameContext: GameContextService get() = contextService
+
     /** The adapter's own hooks into the game, released on [stop]. */
     private val adapterScope = RegistrationScope("platform.adapter")
 
@@ -131,16 +146,25 @@ class SidequestPlatform(
         // Sourced as GAME: these came from the client itself, so they are the one class
         // of event the sync layer is allowed to treat as authoritative.
         adapterScope.add(
-            minecraftLifecycle.onClientTick { events.post(ClientTickEvent(minecraftClient.tickCount), EventSource.GAME) }
-                .asRegistration(),
+            minecraftLifecycle.onClientTick {
+                events.post(ClientTickEvent(minecraftClient.tickCount), EventSource.GAME)
+                pollBoards()
+            }.asRegistration(),
         )
         adapterScope.add(
-            minecraftLifecycle.onJoin { address -> events.post(MinecraftJoinEvent(address), EventSource.GAME) }
-                .asRegistration(),
+            minecraftLifecycle.onJoin { address ->
+                contextService.setOnHypixel(isHypixel(address))
+                events.post(MinecraftJoinEvent(address), EventSource.GAME)
+            }.asRegistration(),
         )
         adapterScope.add(
-            minecraftLifecycle.onDisconnect { events.post(MinecraftDisconnectEvent(), EventSource.GAME) }
-                .asRegistration(),
+            minecraftLifecycle.onDisconnect {
+                // Before the event, so a listener reacting to the disconnect does not read
+                // an island from a server it has just left.
+                contextService.reset()
+                contextService.setOnHypixel(false)
+                events.post(MinecraftDisconnectEvent(), EventSource.GAME)
+            }.asRegistration(),
         )
         adapterScope.add(
             minecraftLifecycle.onShutdown {
@@ -148,6 +172,36 @@ class SidequestPlatform(
                 stop()
             }.asRegistration(),
         )
+    }
+
+    /**
+     * Feeds the scoreboard and tab list to the context service.
+     *
+     * Every tick, but not every tick's worth of work: the service compares the snapshot
+     * to the previous one and returns immediately when nothing changed, which is nearly
+     * always. Reading the boards is a handful of string builds — cheap enough to do at
+     * 20 Hz, and polling is the only option because neither has a change callback.
+     *
+     * Skipped entirely off Hypixel: parsing a vanilla server's scoreboard would find
+     * nothing, and there is no reason to look.
+     */
+    private fun pollBoards() {
+        if (!contextService.context.isOnHypixel) return
+        contextService.onScoreboard(MinecraftScoreboardReader.read())
+        contextService.onTabList(MinecraftTabListReader.read())
+    }
+
+    /**
+     * Whether an address is Hypixel.
+     *
+     * Deliberately generous about subdomains — `mc.hypixel.net`, `alpha.hypixel.net` and
+     * the regional addresses are all Hypixel — and deliberately not generous about
+     * anything else, because the parsers would happily read a lookalike scoreboard and
+     * report an island the player is not on.
+     */
+    private fun isHypixel(address: String?): Boolean {
+        val host = address?.substringBefore(':')?.lowercase() ?: return false
+        return host == HYPIXEL_DOMAIN || host.endsWith(".$HYPIXEL_DOMAIN")
     }
 
     /** Disables every feature and unhooks the adapter. Safe to call more than once. */
@@ -164,6 +218,10 @@ class SidequestPlatform(
 
     private fun AutoCloseable.asRegistration() =
         dev.th7bo.sidequest.platform.lifecycle.Registration { close() }
+
+    private companion object {
+        const val HYPIXEL_DOMAIN = "hypixel.net"
+    }
 }
 
 /**
