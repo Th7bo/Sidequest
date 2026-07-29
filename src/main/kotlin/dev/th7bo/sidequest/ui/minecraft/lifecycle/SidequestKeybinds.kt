@@ -36,29 +36,64 @@ public object SidequestKeybinds {
         category,
     )
 
+    /**
+     * Opens the component gallery.
+     *
+     * A demonstration screen rather than a feature, but it has to be reachable to be one:
+     * a gallery only a test can open demonstrates nothing to the person installing the mod.
+     */
+    public val openGallery: KeyMapping = KeyMapping(
+        "key.sidequest.open_gallery",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_UNKNOWN,
+        category,
+    )
+
+    /** Opens the stress screen, for checking responsiveness by hand. */
+    public val openStressScreen: KeyMapping = KeyMapping(
+        "key.sidequest.open_stress",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_UNKNOWN,
+        category,
+    )
+
+    /**
+     * Drains every queued press and reports whether there was one.
+     *
+     * Holding a key must open the screen once rather than every tick, and leaving presses
+     * queued would fire again the moment the screen closes.
+     */
+    private fun consumeAll(mapping: KeyMapping): Boolean {
+        var pressed = false
+        while (mapping.consumeClick()) pressed = true
+        return pressed
+    }
+
     public fun register() {
         KeyMappingHelper.registerKeyMapping(openConfig)
         KeyMappingHelper.registerKeyMapping(openHudEditor)
+        KeyMappingHelper.registerKeyMapping(openGallery)
+        KeyMappingHelper.registerKeyMapping(openStressScreen)
 
         ClientTickEvents.END_CLIENT_TICK.register { client ->
-            // `consumeClick` drains the queued presses, so holding the key opens the
-            // screen once rather than every tick. Minecraft only queues keybind presses
-            // while no screen is open, so no "is a screen already showing" check is
-            // needed — and 26.2 no longer exposes one.
-            var pressed = false
-            while (openConfig.consumeClick()) pressed = true
-
-            if (pressed) {
+            // Minecraft only queues keybind presses while no screen is open, so no "is a
+            // screen already showing" check is needed — and 26.2 no longer exposes one.
+            if (consumeAll(openConfig)) {
                 client.setScreenAndShow(Sidequest.createConfigScreen())
             }
 
-            var editorPressed = false
-            while (openHudEditor.consumeClick()) editorPressed = true
-
             // Null in a menu, where the HUD layer does not exist yet and there is
             // nothing to arrange.
-            if (editorPressed) {
+            if (consumeAll(openHudEditor)) {
                 Sidequest.createHudEditorScreen()?.let { client.setScreenAndShow(it) }
+            }
+
+            if (consumeAll(openGallery)) {
+                client.setScreenAndShow(Sidequest.createGalleryScreen())
+            }
+
+            if (consumeAll(openStressScreen)) {
+                client.setScreenAndShow(Sidequest.createStressScreen())
             }
         }
     }

@@ -60,6 +60,10 @@ public class SidequestHudEditorScreen(
         // The session reads the viewport from the runtime rather than capturing it, so a
         // window resize while the editor is open is picked up on the next gesture.
         val built = HudEditorSession(layer, { runtime.viewport })
+        // Elements swap to preview data while the editor is open. A HUD arranged from a
+        // menu often has nothing real to show, and one rendering as "0 / 0" cannot be
+        // positioned sensibly.
+        built.setEditing(true)
         session = built
 
         val node = HudEditorScreenNode(UiId.of(Sidequest.MOD_ID, "hud_editor.root"), built, context)
@@ -85,6 +89,9 @@ public class SidequestHudEditorScreen(
     }
 
     override fun onClose() {
+        // Back to live data before the screen goes away, or the HUDs would keep showing
+        // samples over the actual game.
+        session?.setEditing(false)
         onSave?.invoke()
         super.onClose()
     }

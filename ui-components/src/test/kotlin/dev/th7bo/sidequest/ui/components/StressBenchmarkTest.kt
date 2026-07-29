@@ -278,15 +278,15 @@ class StressBenchmarkTest {
                 HudElementNode(
                     HudInstance(id("hud.instance.$index"), definition.id),
                     definition,
-                    { HudContext(screen, 2f, 0f, context) },
+                ) {
                     ProgressHudNode(
                         id = id("hud.content.$index"),
                         componentContext = context,
                         title = constantState("HUD $index"),
                         current = value,
                         maximum = constantState(100L),
-                    ),
-                ),
+                    )
+                },
             )
         }
 

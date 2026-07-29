@@ -1,5 +1,7 @@
 {
   "key.sidequest.open_config": "Open Sidequest Config",
   "key.categories.sidequest.main": "Sidequest",
-  "key.sidequest.open_hud_editor": "Open HUD Editor"
+  "key.sidequest.open_hud_editor": "Open HUD Editor",
+  "key.sidequest.open_gallery": "Open Component Gallery",
+  "key.sidequest.open_stress": "Open Stress Test Screen"
 }

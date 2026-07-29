@@ -92,15 +92,58 @@ public class HudRegistry {
 public class HudElementNode(
     public val instance: HudInstance,
     public val definition: HudDefinition,
-    private val hudContext: () -> HudContext,
-    content: UiNode,
+    /**
+     * Builds the content.
+     *
+     * Takes the element so content can observe [isEditing] and [isSelected] — a HUD that
+     * wants to show sample values in the editor needs to know it is *in* the editor, and
+     * the flags live here because they are per-instance.
+     */
+    buildContent: (HudElementNode) -> UiNode,
 ) : UiNode(instance.instanceId) {
 
     private val placementState: MutableUiState<HudPlacement> =
         mutableStateOf(definition.defaultPlacement(), "${instance.instanceId.value}.placement")
 
+    private val editingState: MutableUiState<Boolean> =
+        mutableStateOf(false, "${instance.instanceId.value}.isEditing")
+
+    private val selectedState: MutableUiState<Boolean> =
+        mutableStateOf(false, "${instance.instanceId.value}.isSelected")
+
     /** Observable placement, so the editor's inspector can bind straight to it. */
     public val placement: UiState<HudPlacement> get() = placementState
+
+    /** True while the HUD editor is open. Content may show sample data. */
+    public val isEditing: UiState<Boolean> get() = editingState
+
+    /** True while this element is the editor's current selection. */
+    public val isSelected: UiState<Boolean> get() = selectedState
+
+    /** Set by the editor when it opens and closes. */
+    public fun setEditing(editing: Boolean) {
+        editingState.value = editing
+    }
+
+    /** Set by the editor as the selection changes. */
+    public fun setSelected(selected: Boolean) {
+        selectedState.value = selected
+    }
+
+    /** The context for this frame, built from the element's own state. */
+    public fun context(
+        screenSize: Size,
+        guiScale: Float,
+        partialTick: Float,
+        components: ComponentContext,
+    ): HudContext = HudContext(
+        screenSize = screenSize,
+        guiScale = guiScale,
+        partialTick = partialTick,
+        components = components,
+        isEditing = editingState.peek(),
+        isSelected = selectedState.peek(),
+    )
 
     /** The unscaled size the content measured to. */
     public var contentSize: Size = Size.Zero
@@ -114,7 +157,7 @@ public class HudElementNode(
         // The content decides whether it is interactive; the element itself is a target
         // only in the editor, which sets this when it takes over.
         interactive = false
-        addChild(content)
+        addChild(buildContent(this))
 
         definition.visibleWhen.observe(scope) { isVisible = it }
         isVisible = definition.visibleWhen.peek()

@@ -126,14 +126,43 @@ public class HudEditorSession(
             instanceId in current -> current - instanceId
             else -> current + instanceId
         }
+        syncSelectionFlags()
     }
 
     public fun selectAll() {
         selectionState.value = layer.ordered.map { it.instance.instanceId }.toSet()
+        syncSelectionFlags()
     }
 
     public fun clearSelection() {
         selectionState.value = emptySet()
+        syncSelectionFlags()
+    }
+
+    /**
+     * Mirrors the selection onto the elements themselves.
+     *
+     * Kept on the elements rather than read back from the session, because content that
+     * wants to look different while selected should observe one state rather than hold a
+     * reference to the whole editor.
+     */
+    private fun syncSelectionFlags() {
+        val selected = selectionState.peek()
+        for (element in layer.ordered) {
+            element.setSelected(element.instance.instanceId in selected)
+        }
+    }
+
+    /**
+     * Marks every element as being edited, so content can swap in preview data.
+     *
+     * Called when the editor opens and again with false when it closes. Not inferred from
+     * "a session exists": a session is also constructed by tests and by tooling that is
+     * not showing anything to anybody.
+     */
+    public fun setEditing(editing: Boolean) {
+        for (element in layer.ordered) element.setEditing(editing)
+        if (!editing) clearSelection()
     }
 
     public fun isSelected(instanceId: UiId): Boolean = instanceId in selectionState.peek()
@@ -163,6 +192,7 @@ public class HudEditorSession(
             .map { it.instance.instanceId }
             .toSet()
         selectionState.value = if (additive) selectionState.peek() + inside else inside
+        syncSelectionFlags()
     }
 
     // -- gestures -----------------------------------------------------------

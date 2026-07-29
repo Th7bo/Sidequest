@@ -104,9 +104,7 @@ class HudLayoutPersistenceTest {
             maximum = constantState(100L),
             icon = Icons.gear,
         )
-        val element = HudElementNode(instance, definition, {
-            HudContext(screen, 2f, 0f, context)
-        }, content)
+        val element = HudElementNode(instance, definition) { content }
         layer.add(element)
         return element
     }
@@ -286,15 +284,15 @@ class HudLayoutPersistenceTest {
         val second = HudElementNode(
             HudInstance(id("instance.timer2"), definition.id),
             definition,
-            { HudContext(screen, 2f, 0f, context) },
+        ) {
             ProgressHudNode(
                 id = id("timer2.content"),
                 componentContext = context,
                 title = constantState("timer"),
                 current = constantState(1L),
                 maximum = constantState(2L),
-            ),
-        )
+            )
+        }
         layer.add(second)
 
         first.setPlacement(HudPlacement(anchor = Anchor.TOP_LEFT, offset = Vec2(1f, 1f)))

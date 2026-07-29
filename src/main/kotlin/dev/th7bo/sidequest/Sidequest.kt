@@ -135,6 +135,15 @@ object Sidequest : ClientModInitializer {
         SidequestConfigScreen(SidequestGallery.screen, activeTheme())
 
     /**
+     * The stress screen.
+     *
+     * Also unpersisted: its 1,700 settings are throwaway state, and writing them would
+     * turn opening a diagnostic into a config file the size of the screen.
+     */
+    fun createStressScreen(): SidequestConfigScreen =
+        SidequestConfigScreen(SidequestStressScreen.screen, activeTheme())
+
+    /**
      * The HUD editor, or null when the HUD layer has not been built yet — it is created
      * lazily on the first frame in a world, so there is nothing to edit on a menu screen.
      */

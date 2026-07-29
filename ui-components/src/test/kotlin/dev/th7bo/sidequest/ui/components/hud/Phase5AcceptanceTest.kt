@@ -120,9 +120,7 @@ class Phase5AcceptanceTest {
             subtitle = constantState("Lv. 42"),
             icon = Icons.gear,
         )
-        val element = HudElementNode(instance, definition, {
-            dev.th7bo.sidequest.ui.core.hud.HudContext(screen, 2f, 0f, context, isEditing = true)
-        }, content)
+        val element = HudElementNode(instance, definition) { content }
         layer.add(element)
         return element
     }
@@ -395,6 +393,72 @@ class Phase5AcceptanceTest {
             else -> position.y + size.height / 2f - screenSize.height / 2f
         }
         return Vec2(x, y)
+    }
+
+    // ---------------------------------------------------------------
+    // Preview data
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `content sees the editing flag, and gets it back when the editor closes`() {
+        val element = hud("mining")
+        frame()
+        assertFalse(element.isEditing.peek(), "not editing until the editor says so")
+
+        session.setEditing(true)
+        assertTrue(element.isEditing.peek())
+
+        session.setEditing(false)
+        assertFalse(element.isEditing.peek(), "live data must come back when the editor closes")
+    }
+
+    @Test
+    fun `previewed swaps to the sample only while editing`() {
+        val live = mutableStateOf(0L, "live")
+        val editing = mutableStateOf(false, "editing")
+        val shown = dev.th7bo.sidequest.ui.hud.previewed(live, 28_450L, editing, "test.preview")
+
+        assertEquals(0L, shown.peek(), "live data outside the editor")
+
+        editing.value = true
+        assertEquals(28_450L, shown.peek(), "a sample while editing, so the card is legible")
+
+        live.value = 999L
+        assertEquals(28_450L, shown.peek(), "the sample wins while editing")
+
+        editing.value = false
+        assertEquals(999L, shown.peek(), "and the live value comes back, up to date")
+    }
+
+    @Test
+    fun `the selection flag reaches the element`() {
+        val a = hud("a")
+        val b = hud("b")
+        frame()
+
+        session.select(a.instance.instanceId)
+        assertTrue(a.isSelected.peek())
+        assertFalse(b.isSelected.peek())
+
+        session.select(b.instance.instanceId)
+        assertFalse(a.isSelected.peek(), "selecting b must deselect a")
+        assertTrue(b.isSelected.peek())
+
+        session.clearSelection()
+        assertFalse(b.isSelected.peek())
+    }
+
+    @Test
+    fun `closing the editor also clears the selection`() {
+        val element = hud("mining")
+        frame()
+        session.setEditing(true)
+        session.select(element.instance.instanceId)
+
+        session.setEditing(false)
+
+        assertTrue(session.selection.peek().isEmpty())
+        assertFalse(element.isSelected.peek(), "a stale selection would outline a HUD during play")
     }
 
     // ---------------------------------------------------------------

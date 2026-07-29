@@ -201,6 +201,23 @@ public class HudInstance(
     override fun toString(): String = "HudInstance($instanceId of $definitionId)"
 }
 
+/**
+ * Live data, or a sample while the editor is open.
+ *
+ * A HUD arranged in a menu often has nothing real to show — no skill XP outside a world,
+ * no timer that has started — and an element that renders as `0 / 0` is impossible to
+ * position sensibly. This swaps in representative values exactly while editing, and is a
+ * derived state so it costs nothing when [isEditing] never changes.
+ */
+public fun <T> previewed(
+    live: UiState<T>,
+    sample: T,
+    isEditing: UiState<Boolean>,
+    debugName: String = "preview",
+): UiState<T> = dev.th7bo.sidequest.ui.state.derivedStateOf(debugName) {
+    if (isEditing.value) sample else live.value
+}
+
 /** Everything persisted about where HUDs sit, for one profile. */
 @Serializable
 public class HudLayoutSnapshot(

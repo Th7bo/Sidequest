@@ -5,6 +5,8 @@ import dev.th7bo.sidequest.ui.core.hud.editor.HudHandle
 import dev.th7bo.sidequest.ui.geometry.Anchor
 import dev.th7bo.sidequest.ui.geometry.Vec2
 import dev.th7bo.sidequest.ui.hud.HudPlacement
+import dev.th7bo.sidequest.SidequestHuds
+import dev.th7bo.sidequest.ui.components.hud.ProgressHudNode
 import dev.th7bo.sidequest.ui.minecraft.hud.SidequestHudLayer
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestHudEditorScreen
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext
@@ -79,6 +81,28 @@ class HudEditorRenderTest : FabricClientGameTest {
         }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("hud_editor_idle")
+
+        // Preview data: the live values are zeroed first, so a card that still reads
+        // sensibly can only be reading the sample. Outside a world there is no real
+        // mining XP, and this is the case the editor has to stay usable in.
+        onClient(context) {
+            SidequestHuds.miningXp.value = 0L
+            val element = checkNotNull(SidequestHudLayer.hudLayer?.ordered?.firstOrNull())
+            check(element.isEditing.peek()) { "The editor should have marked its elements as editing" }
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("hud_editor_preview_data")
+
+        onClient(context) {
+            val element = checkNotNull(SidequestHudLayer.hudLayer?.ordered?.firstOrNull())
+            val bar = checkNotNull(findProgressHud(element)) { "No progress card in the mining HUD" }
+            // Live XP is zero. A non-empty bar can only be the preview sample, so this is
+            // the assertion rather than the screenshot: pixels are hard to read, and the
+            // fill fraction says exactly what is being displayed.
+            check(bar.fillFraction > 0.1f) {
+                "The card should show preview data while editing, but the bar is at ${bar.fillFraction}"
+            }
+        }
 
         // 2. A selection, which brings up the handles and the inspector.
         val selected = computeOnClient(context) {
@@ -162,6 +186,13 @@ class HudEditorRenderTest : FabricClientGameTest {
         // Back to the title screen, which is where a client gametest has to end.
         context.setScreen { null }
         context.waitTicks(SETTLE_TICKS)
+    }
+
+    /** Finds the progress card inside a HUD element. */
+    private fun findProgressHud(root: dev.th7bo.sidequest.ui.core.tree.UiNode): ProgressHudNode? {
+        var found: ProgressHudNode? = null
+        root.forEachInTree { if (found == null && it is ProgressHudNode) found = it }
+        return found
     }
 
     private fun onClient(

@@ -11,6 +11,7 @@ import dev.th7bo.sidequest.ui.geometry.Anchor
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.geometry.Vec2
 import dev.th7bo.sidequest.ui.hud.HudDefinition
+import dev.th7bo.sidequest.ui.hud.previewed
 import dev.th7bo.sidequest.ui.hud.HudInstance
 import dev.th7bo.sidequest.ui.hud.HudResizeMode
 import dev.th7bo.sidequest.ui.ids.UiId
@@ -27,6 +28,11 @@ import dev.th7bo.sidequest.ui.state.mutableStateOf
  * drawn, positioned or persisted.
  */
 public object SidequestHuds {
+
+    /** Shown while the HUD editor is open, so the card is legible without live data. */
+    private const val PREVIEW_XP = 28_450L
+    private const val PREVIEW_REQUIRED = 60_000L
+    private const val PREVIEW_LEVEL = 42
 
     /** Stand-in data until there is a real source. Drives the HUD reactively. */
     public val miningXp: MutableUiState<Long> = mutableStateOf(28_450L, "miningXp")
@@ -65,27 +71,23 @@ public object SidequestHuds {
             UiId.of(Sidequest.MOD_ID, "hud.mining_xp.default"),
             miningXpDefinition.id,
         )
-        val content = ProgressHudNode(
-            id = instance.instanceId.child("content"),
-            componentContext = context,
-            title = constantState("Mining XP"),
-            current = miningXp,
-            maximum = miningXpRequired,
-            subtitle = derivedStateOf("miningLevelLabel") { "Lv. ${miningLevel.value}" },
-            icon = Icons.gear,
-        )
         return HudElementNode(
             instance = instance,
             definition = miningXpDefinition,
-            hudContext = {
-                HudContext(
-                    screenSize = Size(1f, 1f),
-                    guiScale = 1f,
-                    partialTick = 0f,
-                    components = context,
-                )
-            },
-            content = content,
-        )
+        ) { element ->
+            // Representative values while the editor is open. Outside a world there is no
+            // real mining XP, and a card reading "0 / 0" is impossible to place well.
+            ProgressHudNode(
+                id = instance.instanceId.child("content"),
+                componentContext = context,
+                title = constantState("Mining XP"),
+                current = previewed(miningXp, PREVIEW_XP, element.isEditing, "miningXp.preview"),
+                maximum = previewed(miningXpRequired, PREVIEW_REQUIRED, element.isEditing, "miningXpRequired.preview"),
+                subtitle = derivedStateOf("miningLevelLabel") {
+                    if (element.isEditing.value) "Lv. $PREVIEW_LEVEL" else "Lv. ${miningLevel.value}"
+                },
+                icon = Icons.gear,
+            )
+        }
     }
 }

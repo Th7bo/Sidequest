@@ -121,9 +121,7 @@ class Phase4AcceptanceTest {
             subtitle = constantState("Lv. 42"),
             icon = Icons.gear,
         )
-        val element = HudElementNode(instance, definition, {
-            dev.th7bo.sidequest.ui.core.hud.HudContext(screen, 2f, 0f, context)
-        }, content)
+        val element = HudElementNode(instance, definition) { content }
         layer.add(element)
         return element
     }
@@ -205,9 +203,7 @@ class Phase4AcceptanceTest {
         val element = HudElementNode(
             HudInstance(id("hud.conditional.a"), definition.id),
             definition,
-            { dev.th7bo.sidequest.ui.core.hud.HudContext(screen, 2f, 0f, context) },
-            ProgressHudNode(id("c.content"), context, constantState("C"), currentXp, requiredXp),
-        )
+        ) { ProgressHudNode(id("c.content"), context, constantState("C"), currentXp, requiredXp) }
         layer.add(element)
         frame()
         assertTrue(element.isVisible)
@@ -421,9 +417,7 @@ class Phase4AcceptanceTest {
         val element = HudElementNode(
             HudInstance(id("hud.fixed.a"), definition.id),
             definition,
-            { dev.th7bo.sidequest.ui.core.hud.HudContext(screen, 2f, 0f, context) },
-            ProgressHudNode(id("f.content"), context, constantState("F"), currentXp, requiredXp),
-        )
+        ) { ProgressHudNode(id("f.content"), context, constantState("F"), currentXp, requiredXp) }
         layer.add(element)
 
         element.rescale(2f)
@@ -446,9 +440,7 @@ class Phase4AcceptanceTest {
         val elementB = HudElementNode(
             HudInstance(id("hud.b.instance"), definitionB.id),
             definitionB,
-            { dev.th7bo.sidequest.ui.core.hud.HudContext(screen, 2f, 0f, context) },
-            ProgressHudNode(id("b.content"), context, constantState("B"), otherCurrent, otherMax),
-        )
+        ) { ProgressHudNode(id("b.content"), context, constantState("B"), otherCurrent, otherMax) }
         layer.add(elementB)
 
         // Settle both, including their entry animations.
