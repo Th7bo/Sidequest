@@ -14,43 +14,7 @@ and are recorded here to be read, not to gate a build.
 
 | Measurement | Value |
 | --- | --- |
-| Idle frame | 0.111 ms |
-| Idle nodes measured | 0 |
-| Idle draw calls | 68 |
-
-| Measurement | Value |
-| --- | --- |
-| World overlays registered | 200 |
-| World overlays resolved | 100 |
-| Resolve 200 overlays | 0.065 ms |
-
-| Measurement | Value |
-| --- | --- |
-| Full scroll (40 steps) | 5.99 ms |
-| Peak nodes on screen while scrolling | 109 |
-
-| Measurement | Value |
-| --- | --- |
-| Search round trip over 1700 settings | 0.89 ms |
-| Matches for 'Toggle 7' | 51 |
-
-| Measurement | Value |
-| --- | --- |
-| HUD elements | 50 |
-| HUD first frame | 0.42 ms |
-| HUD frame after one value changed | 8 nodes measured |
-| HUD frame with all 50 values changed | 0.137 ms |
-
-| Measurement | Value |
-| --- | --- |
-| Settings declared | 1700 |
-| Rows in the list | 1701 |
-| Nodes materialised | 95 |
-| First frame | 0.01 ms |
-
-| Measurement | Value |
-| --- | --- |
-| Idle frame | 0.021 ms |
+| Idle frame | 0.015 ms |
 | Idle nodes measured | 0 |
 | Idle draw calls | 66 |
 
@@ -58,24 +22,24 @@ and are recorded here to be read, not to gate a build.
 | --- | --- |
 | World overlays registered | 200 |
 | World overlays resolved | 100 |
-| Resolve 200 overlays | 0.086 ms |
+| Resolve 200 overlays | 0.080 ms |
 
 | Measurement | Value |
 | --- | --- |
-| Full scroll (40 steps) | 8.61 ms |
+| Full scroll (40 steps) | 7.48 ms |
 | Peak nodes on screen while scrolling | 109 |
 
 | Measurement | Value |
 | --- | --- |
-| Search round trip over 1700 settings | 0.53 ms |
+| Search round trip over 1700 settings | 0.99 ms |
 | Matches for 'Toggle 7' | 51 |
 
 | Measurement | Value |
 | --- | --- |
 | HUD elements | 50 |
-| HUD first frame | 0.28 ms |
+| HUD first frame | 0.35 ms |
 | HUD frame after one value changed | 8 nodes measured |
-| HUD frame with all 50 values changed | 0.134 ms |
+| HUD frame with all 50 values changed | 0.083 ms |
 
 | Measurement | Value |
 | --- | --- |
