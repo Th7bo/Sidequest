@@ -192,9 +192,12 @@ public class SectionCardHeaderNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
 
-        // A tinted block behind the glyph, as in the reference: the icon reads at any
-        // size, and the block keeps the header's left edge aligned whether or not a
-        // section supplied one.
+        // The space is reserved either way, so headers with and without an icon keep
+        // their titles on the same left edge. The *block* is only drawn when there is a
+        // glyph to put in it: an empty tinted square reads as a missing icon rather than
+        // as a deliberate absence.
+        val icon = section.icon ?: return
+
         val block = Rect(
             bounds.x + horizontalPadding,
             bounds.y + (bounds.height - iconBlock) / 2f,
@@ -208,18 +211,15 @@ public class SectionCardHeaderNode(
             tokens.metrics.borderWidth,
             palette.accent.withAlpha(ICON_BORDER_TINT),
         )
-        context.diagnostics.drawCalls += 2
 
-        section.icon?.let { icon ->
-            val inset = iconBlock * ICON_GLYPH_INSET
-            componentContext.icons.draw(
-                renderer,
-                icon,
-                Rect(block.x + inset, block.y + inset, block.width - inset * 2, block.height - inset * 2),
-                palette.accent,
-            )
-            context.diagnostics.drawCalls++
-        }
+        val inset = iconBlock * ICON_GLYPH_INSET
+        componentContext.icons.draw(
+            renderer,
+            icon,
+            Rect(block.x + inset, block.y + inset, block.width - inset * 2, block.height - inset * 2),
+            palette.accent,
+        )
+        context.diagnostics.drawCalls += 3
     }
 
     private val horizontalPadding: Float get() = tokens.spacing.large.value

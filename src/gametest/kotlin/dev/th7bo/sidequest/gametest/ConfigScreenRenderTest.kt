@@ -1,6 +1,8 @@
 package dev.th7bo.sidequest.gametest
 
 import dev.th7bo.sidequest.Sidequest
+import dev.th7bo.sidequest.SidequestGallery
+import dev.th7bo.sidequest.ui.core.component.MissingComponentNode
 import dev.th7bo.sidequest.ui.components.ColorControlNode
 import dev.th7bo.sidequest.ui.components.DropdownControlNode
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestConfigScreen
@@ -145,6 +147,38 @@ class ConfigScreenRenderTest : FabricClientGameTest {
             check(!screen.lastFrameWasUnbalanced) {
                 "The renderer became unbalanced after the GUI-scale changes"
             }
+        }
+
+        // 7. The component gallery, which is the one screen that shows every standard
+        //    control at once — including the two that had no renderer until phase 7.
+        context.setScreen { null }
+        context.waitTicks(SETTLE_TICKS)
+
+        lateinit var gallery: SidequestConfigScreen
+        onClient(context) { client ->
+            gallery = Sidequest.createGalleryScreen()
+            client.setScreenAndShow(gallery)
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("gallery_inputs")
+
+        onClient(context) {
+            // Nothing may fall through to the missing-component placeholder.
+            val missing = mutableListOf<String>()
+            gallery.uiRoot?.forEachInTree { node ->
+                if (node is MissingComponentNode) missing.add(node.id.value)
+            }
+            check(missing.isEmpty()) { "Controls with no renderer: $missing" }
+        }
+
+        for (index in 1..2) {
+            onClient(context) {
+                gallery.controller?.let { controller ->
+                    SidequestGallery.screen.categories.getOrNull(index)?.let { controller.selectCategory(it.id) }
+                }
+            }
+            context.waitTicks(SETTLE_TICKS)
+            context.takeScreenshot("gallery_category_$index")
         }
 
         // The harness requires the test to end on the title screen, so the config

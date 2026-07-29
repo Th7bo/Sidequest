@@ -43,19 +43,22 @@ public annotation class ConfigDslMarker
 public fun configScreen(
     id: UiId,
     title: String,
+    description: String? = null,
     configure: ConfigScreenBuilder.() -> Unit,
-): ConfigScreen = configScreen(id, constantState(title), configure)
+): ConfigScreen = configScreen(id, constantState(title), description?.let(::constantState), configure)
 
 public fun configScreen(
     id: UiId,
     title: UiState<String>,
+    description: UiState<String>? = null,
     configure: ConfigScreenBuilder.() -> Unit,
-): ConfigScreen = ConfigScreenBuilder(id, title).apply(configure).toScreen()
+): ConfigScreen = ConfigScreenBuilder(id, title, description).apply(configure).toScreen()
 
 @ConfigDslMarker
 public class ConfigScreenBuilder internal constructor(
     private val id: UiId,
     private val title: UiState<String>,
+    private val description: UiState<String>? = null,
 ) {
 
     private val categories = ArrayList<Category>()
@@ -92,7 +95,7 @@ public class ConfigScreenBuilder internal constructor(
         seenIds[id] = path
     }
 
-    internal fun toScreen(): ConfigScreen = ConfigScreen(id, title, categories.toList())
+    internal fun toScreen(): ConfigScreen = ConfigScreen(id, title, categories.toList(), description)
 }
 
 @ConfigDslMarker

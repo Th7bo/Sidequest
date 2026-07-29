@@ -126,6 +126,15 @@ object Sidequest : ClientModInitializer {
         SidequestConfigScreen(configScreen, activeTheme(), persistence)
 
     /**
+     * The component gallery.
+     *
+     * No persistence: its values are throwaway state, and writing them to disk would
+     * mean a demo screen could dirty a real config file.
+     */
+    fun createGalleryScreen(): SidequestConfigScreen =
+        SidequestConfigScreen(SidequestGallery.screen, activeTheme())
+
+    /**
      * The HUD editor, or null when the HUD layer has not been built yet — it is created
      * lazily on the first frame in a world, so there is nothing to edit on a menu screen.
      */

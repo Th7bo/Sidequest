@@ -39,7 +39,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     val compactState = mutableStateOf(SidequestSettings.compactMode, "compactMode")
     val notificationsState = mutableStateOf(SidequestSettings.notifications, "notifications")
 
-    return configScreen(id("config"), "Sidequest") {
+    return configScreen(id("config"), "Sidequest", "Configure how Sidequest looks and behaves.") {
         category(id("general"), "General", description = "Core behaviour", icon = Icons.gear) {
             section("Interface", description = "How the mod looks and behaves", icon = Icons.sliders) {
                 dropdown(

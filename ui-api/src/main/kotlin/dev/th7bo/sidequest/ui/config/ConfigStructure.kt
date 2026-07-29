@@ -59,6 +59,8 @@ public class ConfigScreen(
     public val id: UiId,
     public val title: UiState<String>,
     public val categories: List<Category>,
+    /** Shown under the title. Null leaves the header showing the title alone. */
+    public val description: UiState<String>? = null,
 ) {
 
     /** Every setting on the screen, in declaration order. */

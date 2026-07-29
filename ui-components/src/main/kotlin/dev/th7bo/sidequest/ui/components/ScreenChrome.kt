@@ -371,7 +371,9 @@ public class ConfigScreenLayoutNode(
         id = id.child("header"),
         componentContext = componentContext,
         title = controller.screen.title,
-        subtitle = constantState("Configure how Sidequest looks and behaves."),
+        // From the screen definition. A hardcoded subtitle here made every screen
+        // claim to be the mod's own configuration, including the component gallery.
+        subtitle = controller.screen.description,
         actions = buildList {
             onSaveAndClose?.let { action ->
                 add(

@@ -420,4 +420,4 @@ than asserted here, so the committed numbers always carry their own provenance.
 | 4 — HUD runtime | complete, verified in-game — see [phase-4.md](phase-4.md) |
 | 5 — HUD editor | complete, verified in-game — see [phase-5.md](phase-5.md) |
 | 6 — Notifications and world overlays | complete, verified in-game — see [phase-6.md](phase-6.md) |
-| 7 — Extended components and tooling | not started |
+| 7 — Extended components and tooling | complete, verified in-game — see [phase-7.md](phase-7.md) |
