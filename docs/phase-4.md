@@ -55,9 +55,12 @@ The default is `OnChange`.
 definition would hand ordering to Minecraft and lose the z-order the editor controls.
 `SidequestHudLayer` registers once via `HudElementRegistry.addLast` and draws the tree.
 
-**HUDs hide while a screen is open.** The config screen dims the world; leaving HUDs
-painted on top of it would defeat that. The layer returns early when `client.level` is
-null and the runtime skips the frame.
+**HUDs draw whenever there is a world, screen or not.** The layer returns early only
+when `client.level` is null. An earlier draft of this note claimed HUDs hide behind an
+open screen; they do not, and the phase 5 editor depends on that — it draws its chrome
+over the live HUDs precisely because Minecraft renders the HUD layer beneath the screen.
+The configuration screen's backdrop dims the world *and* the HUDs together, which is the
+right result there.
 
 **The progress HUD composes standard primitives.** `ProgressHudNode` is `SurfaceNode`,
 `TextNode`, `RowNode`, `ColumnNode` and `ProgressBarNode` — a specialised *builder*, not a

@@ -5,7 +5,9 @@ import dev.th7bo.sidequest.ui.core.persistence.ConfigPersistenceController
 import dev.th7bo.sidequest.ui.core.persistence.JsonFileConfigStore
 import dev.th7bo.sidequest.ui.minecraft.lifecycle.FontReloadListener
 import dev.th7bo.sidequest.ui.minecraft.lifecycle.SidequestKeybinds
+import dev.th7bo.sidequest.ui.minecraft.hud.SidequestHudLayer
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestConfigScreen
+import dev.th7bo.sidequest.ui.minecraft.screen.SidequestHudEditorScreen
 import dev.th7bo.sidequest.ui.state.UiScheduler
 import dev.th7bo.sidequest.ui.theme.DarkTheme
 import dev.th7bo.sidequest.ui.theme.HighContrastDarkTheme
@@ -72,6 +74,15 @@ object Sidequest : ClientModInitializer {
     /** Creates the configuration screen, ready to hand to `Minecraft.setScreen`. */
     fun createConfigScreen(): SidequestConfigScreen =
         SidequestConfigScreen(configScreen, activeTheme(), persistence)
+
+    /**
+     * The HUD editor, or null when the HUD layer has not been built yet — it is created
+     * lazily on the first frame in a world, so there is nothing to edit on a menu screen.
+     */
+    fun createHudEditorScreen(): SidequestHudEditorScreen? {
+        val layer = SidequestHudLayer.hudLayer ?: return null
+        return SidequestHudEditorScreen(layer, activeTheme(), onSave = { persistence.saveNow() })
+    }
 
     override fun onInitializeClient() {
         logger.info("Sidequest $VERSION loaded for Minecraft $MINECRAFT")

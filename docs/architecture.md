@@ -416,6 +416,6 @@ than asserted here, so the committed numbers always carry their own provenance.
 | 2 — Configuration foundation | complete — see [phase-2.md](phase-2.md) |
 | 3 — Minecraft adapter | complete, verified in-game — see [phase-3.md](phase-3.md) |
 | 4 — HUD runtime | complete, verified in-game — see [phase-4.md](phase-4.md) |
-| 5 — HUD editor | not started |
+| 5 — HUD editor | complete, verified in-game — see [phase-5.md](phase-5.md) |
 | 6 — Notifications and world overlays | not started |
 | 7 — Extended components and tooling | not started |

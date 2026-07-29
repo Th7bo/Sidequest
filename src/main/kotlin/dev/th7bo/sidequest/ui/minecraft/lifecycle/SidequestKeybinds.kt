@@ -28,8 +28,17 @@ public object SidequestKeybinds {
         category,
     )
 
+    /** Opens the HUD editor. Also unbound by default. */
+    public val openHudEditor: KeyMapping = KeyMapping(
+        "key.sidequest.open_hud_editor",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_UNKNOWN,
+        category,
+    )
+
     public fun register() {
         KeyMappingHelper.registerKeyMapping(openConfig)
+        KeyMappingHelper.registerKeyMapping(openHudEditor)
 
         ClientTickEvents.END_CLIENT_TICK.register { client ->
             // `consumeClick` drains the queued presses, so holding the key opens the
@@ -41,6 +50,15 @@ public object SidequestKeybinds {
 
             if (pressed) {
                 client.setScreenAndShow(Sidequest.createConfigScreen())
+            }
+
+            var editorPressed = false
+            while (openHudEditor.consumeClick()) editorPressed = true
+
+            // Null in a menu, where the HUD layer does not exist yet and there is
+            // nothing to arrange.
+            if (editorPressed) {
+                Sidequest.createHudEditorScreen()?.let { client.setScreenAndShow(it) }
             }
         }
     }
