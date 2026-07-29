@@ -167,8 +167,17 @@ public class InputDispatcher(
             key == Key.TAB && modifiers.shift -> focus.focusPrevious()
             key == Key.TAB -> focus.focusNext()
             key == Key.ESCAPE && focus.focused != null -> {
+                // Focus is dropped, but the press is *not* claimed. Dropping focus is not
+                // on its own a reason to swallow Escape: the host's own handling — closing
+                // the screen — has to still run on the same press. Reporting this handled
+                // cost the player an extra press for every control they had clicked, whose
+                // only visible effect was a focus ring going away.
+                //
+                // Anything with a real dismissable state — an open popup, a field being
+                // edited, a search query — consumes Escape above, in the focus path, and
+                // still gets its own press.
                 focus.clearFocus()
-                true
+                false
             }
             else -> false
         }

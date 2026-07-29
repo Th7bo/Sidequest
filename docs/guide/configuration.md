@@ -89,6 +89,20 @@ Both controls share one editor, so both take the same keys:
 Editing also stops when focus moves elsewhere — clicking another input, Tab, or clicking
 the background. Exactly one caret is on screen at a time.
 
+### What Escape does
+
+Escape peels one layer at a time, and each layer it claims has a visible effect:
+
+1. an open popup closes
+2. a field being edited stops editing
+3. a search query is cleared
+4. otherwise the press reaches the host, which closes the screen
+
+Merely *focusing* a control is not a layer. Focus is dropped on Escape, but the press is
+reported unhandled so the screen still closes on it — a focus ring going away is not
+something the player asked for, and treating it as a layer meant every control they had
+clicked cost them an extra press.
+
 The caret is drawn while editing and is **not** animated. A blinking caret would mean the
 screen never reaches an idle frame, and the idle-frame guarantee is worth more than the
 blink — see [performance](performance.md).

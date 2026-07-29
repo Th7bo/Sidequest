@@ -368,6 +368,25 @@ class ConfigScreenRenderTest : FabricClientGameTest {
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("gallery_one_caret_at_a_time")
 
+        // 8e. Escape has to reach the screen as soon as nothing is left to dismiss. The
+        //     screen closes when the framework reports the press unhandled, so claiming
+        //     one without a visible effect costs the player an extra press.
+        onClient(context) {
+            val runtime = checkNotNull(gallery.uiRuntime) { "No runtime" }
+            val fields = findControls<TextFieldControlNode>(gallery)
+            check(fields.any { it.isEditing }) { "Expected a field to still be editing" }
+
+            check(runtime.input.keyPressed(Key.ESCAPE)) {
+                "Escape while editing should stop the edit and be claimed"
+            }
+            check(fields.none { it.isEditing }) { "Escape did not stop the edit" }
+
+            check(!runtime.input.keyPressed(Key.ESCAPE)) {
+                "Escape was swallowed with nothing left to dismiss — the screen would not close"
+            }
+        }
+        context.waitTicks(SETTLE_TICKS)
+
         onClient(context) { gallery.controller?.clearSearch() }
         context.waitTicks(SETTLE_TICKS)
 

@@ -135,9 +135,14 @@ class FocusTest {
     }
 
     @Test
-    fun `escape clears focus`() {
+    fun `escape clears focus without claiming the press`() {
         focus.requestFocus(second)
-        assertTrue(input.keyPressed(Key.ESCAPE))
+
+        // Reported from the game as "I have to press Escape several times to close the
+        // screen": dropping focus is invisible enough not to count as having handled the
+        // key, so the host's own Escape handling has to run on the same press. A node
+        // with something real to dismiss consumes it in the focus path instead.
+        assertFalse(input.keyPressed(Key.ESCAPE), "clearing focus must not swallow Escape")
         assertNull(focus.focused)
     }
 

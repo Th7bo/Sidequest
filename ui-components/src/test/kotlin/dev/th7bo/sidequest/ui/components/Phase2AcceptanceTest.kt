@@ -479,6 +479,47 @@ class Phase2AcceptanceTest {
     }
 
     @Test
+    fun `escape reaches the host as soon as there is nothing left to dismiss`() {
+        // Reported from the game as having to press Escape several times to close the
+        // screen. The host closes when the framework reports the press unhandled, so this
+        // counts presses: each one that is claimed has to have a visible effect.
+        harness = ConfigScreenHarness(buildScreen(toggleCount = 5))
+        harness.frame()
+
+        val field = harness.runtime.focus.focusOrder()
+            .filterIsInstance<TextFieldControlNode>()
+            .first()
+        harness.runtime.focus.requestFocus(field)
+        harness.runtime.input.keyPressed(Key.ENTER)
+        assertTrue(field.isEditing)
+
+        assertTrue(
+            harness.runtime.input.keyPressed(Key.ESCAPE),
+            "the first press stops editing, which is visible, so it is claimed",
+        )
+        assertFalse(field.isEditing)
+
+        assertFalse(
+            harness.runtime.input.keyPressed(Key.ESCAPE),
+            "the second has nothing left to dismiss and belongs to the screen",
+        )
+    }
+
+    @Test
+    fun `escape closes immediately when a control is merely focused`() {
+        harness = ConfigScreenHarness(buildScreen(toggleCount = 5))
+        harness.frame()
+
+        harness.runtime.input.keyPressed(Key.TAB)
+        assertNotNull(harness.runtime.focus.focused)
+
+        assertFalse(
+            harness.runtime.input.keyPressed(Key.ESCAPE),
+            "a focus ring is not something the player asked to dismiss",
+        )
+    }
+
+    @Test
     fun `escape clears focus`() {
         harness = ConfigScreenHarness(buildScreen(toggleCount = 5))
         harness.frame()
