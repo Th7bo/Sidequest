@@ -1,5 +1,7 @@
 package dev.th7bo.sidequest
 
+import dev.th7bo.sidequest.features.SessionDiagnostics
+import dev.th7bo.sidequest.platform.minecraft.SidequestPlatform
 import dev.th7bo.sidequest.ui.config.ConfigScreen
 import dev.th7bo.sidequest.ui.core.persistence.ConfigPersistenceController
 import dev.th7bo.sidequest.ui.core.persistence.JsonFileConfigStore
@@ -190,6 +192,28 @@ object Sidequest : ClientModInitializer {
         SidequestHuds.register()
         SidequestWorld.register()
         SidequestHudLayer.onLayerReady = { layer -> attachHudPersistence(layer) }
+
+        startPlatform()
+    }
+
+    /**
+     * The mod platform: feature registry, event bus, scheduler, Minecraft adapter.
+     *
+     * Separate from the UI framework above and started after it. The two are independent
+     * on purpose — the UI framework knows nothing about features, and the platform knows
+     * nothing about rendering — so either can be worked on without the other.
+     */
+    val platform: SidequestPlatform by lazy { SidequestPlatform(MINECRAFT) }
+
+    /** Held for the developer inspector and for the in-game tests. */
+    lateinit var sessionDiagnostics: SessionDiagnostics
+        private set
+
+    private fun startPlatform() {
+        sessionDiagnostics = SessionDiagnostics(platform.client)
+
+        val refusals = platform.start(sessionDiagnostics)
+        for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
 
     /** Schema version of the on-disk configuration. Bump alongside a new migration. */

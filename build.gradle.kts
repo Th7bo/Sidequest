@@ -57,9 +57,13 @@ dependencies {
     implementation(project(":ui-api"))
     implementation(project(":ui-core"))
     implementation(project(":ui-components"))
+    implementation(project(":platform-api"))
+    implementation(project(":platform-core"))
     "include"(project(":ui-api"))
     "include"(project(":ui-core"))
     "include"(project(":ui-components"))
+    "include"(project(":platform-api"))
+    "include"(project(":platform-core"))
 
     implementation(lib("fabric-api"))
     // Loom takes the dev-launch loader from the runtime classpath. Declared

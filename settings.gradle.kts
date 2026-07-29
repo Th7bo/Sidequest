@@ -32,6 +32,13 @@ include("ui-core")
 include("ui-components")
 include("ui-testkit")
 
+// The mod platform: feature registry, event bus, scheduler, and the interfaces that
+// keep Minecraft out of feature code. Same deal as the UI modules — no Minecraft on
+// the classpath, so the compiler enforces the boundary rather than a review comment.
+include("platform-api")
+include("platform-core")
+include("platform-testkit")
+
 dependencyResolutionManagement {
     versionCatalogs {
         // One catalog per Minecraft version, resolved in build.gradle.kts via `versioned(...)`.

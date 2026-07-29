@@ -1,0 +1,1709 @@
+You are architecting and implementing a closed-source Minecraft mod called Sidequest.
+
+Sidequest is primarily for a small private friend group playing Hypixel SkyBlock. It is not meant to compete publicly with SkyHanni, NEU, Firmament, Skytils, or similar mods. The goal is to combine personal progression features, friend-group utilities, achievements, cinematics, client-sided cosmetics, shared memories, and a self-hosted backend.
+
+The config framework, custom UI framework, HUD system, layout engine, visual design, and HUD editor are already specified elsewhere. Do not redesign or re-architect them in this task. Treat them as existing systems with stable extension APIs.
+
+The mod will eventually connect to a self-hosted backend and web dashboard running on a private homelab.
+
+Do not start by implementing random features. First build the reusable runtime, data, networking, synchronization, event, storage, cosmetic, and diagnostic foundations that every feature will depend on.
+
+The most likely ways this project fails are:
+
+1. Every feature implements its own storage, event handling, networking, and parsing.
+2. Minecraft-version-specific code leaks throughout the project.
+3. Social features each invent their own synchronization format.
+4. Cinematics, achievements, sounds, evidence, and cosmetics become disconnected systems.
+5. Remote assets and backend features are implemented without strict security boundaries.
+6. Too many one-off features create an unmaintainable private SkyHanni fork under a new name.
+
+The architecture must prevent those failures.
+
+# Product identity
+
+Name: Sidequest
+
+The mod is a private SkyBlock companion for:
+
+- personal progression
+- friend-group utilities
+- achievements and joke progression
+- client-sided cosmetics
+- shared screenshots and incidents
+- soundboard integrations
+- synced waypoints and pings
+- personal and group history
+
+No public-facing tagline or marketing system is needed.
+
+# Technical principles
+
+Use Kotlin where practical.
+
+Use a modular architecture.
+
+Feature code must depend on stable Sidequest abstractions rather than raw Minecraft internals.
+
+Every feature should register through a central feature context and automatically clean up:
+
+- event listeners
+- scheduled jobs
+- network subscriptions
+- commands
+- temporary markers
+- cached state
+
+Avoid global mutable state where possible.
+
+Prefer typed models, repositories, events, and service interfaces.
+
+Do not let feature code directly:
+
+- parse raw scoreboard text
+- parse raw tab-list text
+- perform HTTP requests
+- open arbitrary WebSockets
+- read/write JSON files
+- download remote assets
+- access Minecraft render internals
+- resolve player identities by username alone
+
+# Phase 1: core runtime utilities
+
+## 1. Feature/module registry
+
+Create a central feature framework.
+
+Each feature should declare:
+
+- stable feature ID
+- display name
+- category
+- description
+- supported Minecraft versions
+- dependencies
+- config section reference
+- commands
+- event listeners
+- backend permissions
+- network subscriptions
+- optional experimental flag
+
+Example style:
+
+feature("rare_drop_animation") {
+    category = Visuals
+    config = RareDropConfig
+
+    listen<RareDropEvent>(::onRareDrop)
+    command("testraredrop", ::testRareDrop)
+}
+
+Disabling or unloading a feature must automatically unregister everything it created.
+
+## 2. Typed event bus
+
+Build a typed event system used by all features.
+
+Requirements:
+
+- typed event classes
+- listener priorities
+- cancellation where appropriate
+- synchronous and asynchronous listeners
+- main-thread dispatch support
+- event tracing for debugging
+- safe exception isolation
+- event metadata such as timestamp and source
+- feature-scoped listener registration
+
+Core events should include:
+
+- MinecraftJoinEvent
+- MinecraftDisconnectEvent
+- SkyBlockJoinEvent
+- SkyBlockLeaveEvent
+- IslandChangedEvent
+- ServerChangedEvent
+- ProfileChangedEvent
+- ActivityChangedEvent
+- DungeonStartedEvent
+- DungeonEndedEvent
+- KuudraStartedEvent
+- KuudraEndedEvent
+- CombatStateChangedEvent
+- PlayerDeathEvent
+- RareDropEvent
+- SkillProgressEvent
+- SkillLevelUpEvent
+- AchievementUnlockedEvent
+- TitleUnlockedEvent
+- CurrencyChangedEvent
+- FriendStatusChangedEvent
+- FriendActivityChangedEvent
+- PingCreatedEvent
+- ReadyCheckStartedEvent
+- ReadyCheckUpdatedEvent
+- DebtUpdatedEvent
+- CosmeticEquippedEvent
+- EvidenceCreatedEvent
+- CinematicQueuedEvent
+- CinematicPlayedEvent
+- SoundboardRuleTriggeredEvent
+
+## 3. Scheduler and coroutine utilities
+
+Provide:
+
+- main-thread execution
+- asynchronous IO
+- delayed tasks
+- repeating tasks
+- debounce
+- throttle
+- timeout
+- retry
+- exponential backoff
+- cancellation
+- feature-scoped job ownership
+- automatic cancellation when a feature unloads
+- safe dispatch back to the Minecraft thread
+
+## 4. Minecraft version abstraction
+
+Hide version-specific Minecraft code behind stable interfaces.
+
+Wrap:
+
+- player access
+- world access
+- current screen
+- item components/NBT
+- entity data
+- chat components
+- sounds
+- commands
+- keybinds
+- raycasting
+- world interaction
+- screenshots
+- skins and capes
+- client networking hooks
+
+Keep version-specific implementations isolated.
+
+## 5. Game context service
+
+Create one authoritative service for current gameplay context.
+
+It should expose:
+
+- whether the user is in SkyBlock
+- current Hypixel server
+- current island
+- current sub-location
+- current profile
+- current activity
+- current dungeon state
+- current Kuudra state
+- current boss phase
+- combat state
+- inventory/screen state
+- whether a cinematic is safe to display
+- whether notifications should be reduced
+- party state
+- nearby custom friends
+- current session state
+
+Features must consume typed context instead of independently guessing state.
+
+## 6. Chat parser registry
+
+Build centralized chat classification.
+
+Support:
+
+- formatted and unformatted text
+- component-aware matching
+- regex registry
+- pattern versioning
+- duplicate suppression
+- sender extraction
+- clickable component inspection
+- localization-ready matching
+- debug logging
+- parser fixtures and tests
+
+Expose typed events instead of raw strings.
+
+Examples:
+
+- rare drop detected
+- party invite
+- ready-check response
+- skill level-up
+- debt confirmation command
+- dungeon completion
+- Kuudra completion
+- friend join/leave
+- auction event
+- achievement trigger
+
+## 7. Scoreboard parser
+
+Provide:
+
+- raw lines
+- cleaned lines
+- key/value extraction
+- change detection
+- island detection
+- activity detection
+- phase detection
+- profile detection
+- dungeon and Kuudra detection
+- parser debugging
+
+## 8. Tab-list parser
+
+Provide:
+
+- raw entries
+- cleaned entries
+- player extraction
+- party extraction
+- activity clues
+- server clues
+- change events
+- parser debug output
+
+## 9. Item abstraction
+
+Create a stable persistent item model.
+
+Do not persist raw ItemStack instances.
+
+Store where available:
+
+- SkyBlock ID
+- item UUID
+- display name
+- rarity
+- quantity
+- lore snapshot
+- texture or icon reference
+- relevant upgrades
+- enchantments
+- estimated value
+- acquisition context
+- serialized safe snapshot
+
+Use this model for:
+
+- rare drops
+- evidence
+- debts
+- item lending
+- upgrade history
+- cosmetics
+- screenshots
+- notifications
+
+## 10. Player identity service
+
+Use UUID as the canonical identity.
+
+Support:
+
+- UUID
+- current username
+- username history
+- nickname
+- skin reference
+- custom friend membership
+- online state
+- activity
+- location-sharing permissions
+- profile cache
+- cosmetics
+- titles
+- achievements
+- debt summary
+
+Never use username as the permanent database key.
+
+## 11. Player targeting utilities
+
+Support:
+
+- raycast player under crosshair
+- line-of-sight checks
+- distance
+- UUID resolution
+- last-targeted player
+- command-based fallback
+- chat-name click target
+- friend-list target
+- opening player action GUI
+
+## 12. Location and island abstraction
+
+Provide typed models for:
+
+- island
+- sub-location
+- world position
+- server identifier
+- dungeon room
+- Kuudra area
+- NPC position
+- shared waypoint destination
+
+Account for island-specific coordinate handling.
+
+## 13. Party service
+
+Expose:
+
+- party members
+- leader
+- party state
+- joins/leaves
+- party activity
+- ready-check state
+- role assignments
+- whether a user has Sidequest
+- group-session state
+
+Do not let features parse party chat independently.
+
+## 14. Activity detection
+
+Detect high-level activities such as:
+
+- Dungeons
+- Kuudra
+- Mining
+- Garden
+- Farming
+- Fishing
+- Slayer
+- Rift
+- Crimson Isle questing
+- Forge management
+- General exploration
+- Idle/unknown
+
+Allow confidence levels and fall back to unknown instead of inventing state.
+
+# Phase 2: persistence and backend
+
+## 15. Persistence layer
+
+Provide typed repositories for:
+
+- global settings references
+- account settings references
+- SkyBlock profile data
+- local cache
+- friend-group data
+- offline event queue
+- achievement progress
+- cosmetics
+- evidence metadata
+- debts
+- waypoints
+- notifications
+- session history
+
+Requirements:
+
+- schema versions
+- migrations
+- atomic writes
+- corruption detection
+- fallback recovery
+- backups
+- validation
+- migration tests
+
+Features must not directly read or write JSON.
+
+## 16. Backend API client
+
+Centralize all HTTP access.
+
+Support:
+
+- authentication
+- typed requests/responses
+- retries
+- timeouts
+- exponential backoff
+- error mapping
+- caching
+- rate limiting
+- request IDs
+- server-time synchronization
+- offline mode
+- queued writes
+- API version negotiation
+
+## 17. Authentication and device pairing
+
+Use a secure pairing flow.
+
+Example:
+
+1. Mod requests a short-lived pairing code.
+2. User logs into the Sidequest dashboard.
+3. User enters the code.
+4. Backend associates the device with the Minecraft UUID.
+5. Mod receives a scoped device token.
+
+Requirements:
+
+- short-lived access tokens
+- refresh tokens
+- device revocation
+- multiple devices
+- session listing
+- scoped permissions
+- no use of Minecraft session tokens
+- secure token storage
+
+## 18. Realtime synchronization
+
+Use one versioned realtime protocol, preferably over WebSocket.
+
+It should carry:
+
+- presence
+- activity status
+- friend updates
+- pings
+- waypoints
+- ready checks
+- debts
+- payments
+- achievements
+- titles
+- currency
+- cosmetics
+- evidence events
+- comments
+- reactions
+- soundboard events
+- dashboard updates
+
+Every message should include:
+
+- protocol version
+- event type
+- message ID
+- sender UUID
+- timestamp
+- payload
+- permission scope
+- optional acknowledgement requirement
+
+Support:
+
+- reconnect
+- replay/resume
+- duplicate suppression
+- acknowledgements
+- offline queue
+- stale-event expiry
+- ordering where required
+
+## 19. Permissions and privacy
+
+Roles:
+
+- owner
+- admin
+- member
+- guest
+
+Per-feature permissions should include:
+
+- view online status
+- view activity
+- view island
+- view exact position
+- send pings
+- send waypoints
+- create ready checks
+- create debts
+- confirm payments
+- upload evidence
+- edit evidence
+- assign titles
+- assign joke cosmetics
+- trigger synchronized sounds
+- moderate group content
+- create achievements
+- manage shop rewards
+
+Support per-user overrides.
+
+# Phase 3: event presentation and automation
+
+## 20. Notification integration
+
+The notification UI already exists elsewhere.
+
+Build the runtime manager that supplies it with:
+
+- category
+- priority
+- icon reference
+- title
+- subtitle
+- progress
+- duration
+- actions
+- sound
+- grouping key
+- deduplication key
+- history entry
+- activity context
+- display policy
+
+Delivery modes:
+
+- toast only
+- inbox only
+- both
+- disabled
+- compact while busy
+- queue until safe
+
+## 21. Cinematic event engine
+
+Build one reusable cinematic runtime.
+
+The visual implementation may consume the existing UI/render framework.
+
+Possible components:
+
+- item model
+- player head or model
+- title
+- subtitle
+- animated number
+- progress bar
+- rarity colour
+- particles
+- shader
+- background
+- letterbox bars
+- sound
+- voice clip
+- screenshot
+- reward reveal
+- friend reactions
+
+Event policies:
+
+- show immediately
+- show compactly
+- queue
+- merge
+- log silently
+- expire
+- discard if stale
+
+Unsafe contexts include:
+
+- active Dungeon run
+- active Kuudra run
+- dangerous boss phase
+- combat
+- low health
+- open inventory
+- another cinematic
+- loading screen
+- disconnected state
+
+Example:
+
+Rare drop during Dungeons:
+- log immediately
+- optionally show compact notification
+- queue full cinematic
+- play after leaving Dungeons
+- merge with other queued run events
+- expire after configurable time
+
+Queued events should support:
+
+- priority
+- maximum queue size
+- expiry
+- grouping
+- deduplication
+- recap mode
+- manual replay
+- skip
+- queue indicator
+
+## 22. Rule engine
+
+Create a generic rule engine for:
+
+- achievements
+- soundboard triggers
+- contracts
+- evidence automation
+- cosmetic rewards
+- titles
+- notifications
+
+Conditions can include:
+
+- event type
+- player
+- activity
+- island
+- item
+- value
+- count
+- time window
+- party state
+- death cause
+- achievement state
+- debt state
+- ping response
+- chat phrase
+- custom friend
+- current title
+- current cosmetic
+
+Actions can include:
+
+- increment progress
+- unlock achievement
+- play sound
+- queue cinematic
+- create evidence
+- grant currency
+- unlock cosmetic
+- assign title
+- create notification
+- create ping
+- create waypoint
+- write stat
+- trigger dashboard event
+
+Support:
+
+- cooldowns
+- per-player state
+- hidden rules
+- tiers
+- resets
+- testing
+- manual admin trigger
+
+## 23. Sound manager
+
+Support:
+
+- local sounds
+- remote approved sounds
+- volume groups
+- per-event volume
+- cooldowns
+- sound pools
+- random selection
+- stop/fade
+- synchronized playback
+- serious mode
+- user mute controls
+- asset fallback
+
+# Phase 4: social, world, and cosmetic infrastructure
+
+## 24. Waypoint and ping engine
+
+One shared marker system should power:
+
+- permanent waypoints
+- shared waypoints
+- temporary pings
+- death markers
+- NPC markers
+- navigation requests
+- “come here” targets
+
+Marker fields:
+
+- ID
+- creator
+- recipients
+- island
+- coordinates
+- name
+- description
+- icon
+- colour
+- type
+- creation time
+- expiry
+- acknowledgement state
+- arrival radius
+- visibility range
+- optional linked NPC/entity/player
+- optional route order
+
+Render options should be exposed to the existing render/HUD system:
+
+- beam
+- floating icon
+- distance label
+- directional arrow
+- outline
+- screen-edge indicator
+
+## 25. Asset manager
+
+Needed for:
+
+- skins
+- capes
+- particles
+- sounds
+- icons
+- profile frames
+- evidence thumbnails
+- cinematic assets
+- themes
+
+Requirements:
+
+- hash-based asset IDs
+- controlled backend domain only
+- size limits
+- MIME validation
+- image-dimension validation
+- audio validation
+- local cache
+- cache eviction
+- preload
+- fallback
+- async loading
+- immutable asset versions
+
+Never render arbitrary user-provided URLs.
+
+## 26. Cosmetic engine
+
+Cosmetic slots:
+
+- skin override
+- cape
+- nametag prefix
+- nametag suffix
+- main title
+- badge
+- particle trail
+- aura
+- join effect
+- death effect
+- profile border
+- notification style
+- cinematic style
+- sound pack
+
+Each cosmetic should define:
+
+- ID
+- owner
+- type
+- asset
+- rarity
+- unlock source
+- visibility
+- duration
+- conflicts
+- conditions
+- render layer
+- fallback
+
+Support:
+
+- loadouts
+- local-only visibility
+- friends-only visibility
+- hide skin overrides
+- hide particles
+- hide joke cosmetics
+- reduced animation mode
+- complete cosmetic disable
+
+# Phase 5: diagnostics and testing
+
+## 27. Structured logging
+
+Include:
+
+- categories
+- levels
+- error IDs
+- rolling files
+- event traces
+- backend request traces
+- parser traces
+- asset traces
+- redaction of tokens and sensitive data
+
+## 28. Developer inspector
+
+Provide:
+
+- current island
+- current activity
+- current server
+- current profile
+- current party
+- raw scoreboard
+- raw tab list
+- recent chat classifications
+- hovered item inspection
+- targeted player inspection
+- backend status
+- WebSocket status
+- pending sync queue
+- queued cinematics
+- loaded assets
+- current cosmetics
+- active permissions
+- recent errors
+
+Buttons/actions:
+
+- copy debug info
+- simulate rare drop
+- simulate achievement
+- simulate death
+- simulate Dungeon end
+- simulate Kuudra end
+- test ping
+- test waypoint
+- test ready check
+- test cosmetic
+- test sound
+- test offline mode
+
+## 29. Testing utilities
+
+Provide:
+
+- fake backend
+- fake player profiles
+- parser fixtures
+- repository migration tests
+- event simulation
+- cinematic preview data
+- cosmetic preview data
+- network-message simulator
+- waypoint test mode
+
+# Feature set
+
+After the utilities are stable, implement the following features.
+
+# Existing features to move from the SkyHanni fork
+
+Move the custom SkyHanni additions where practical.
+
+Anything too tightly coupled to SkyHanni internals may remain there.
+
+## Rare-drop animation system
+
+Features:
+
+- custom center-screen animation
+- optional vanilla Totem-style animation
+- item icon
+- item name
+- estimated price
+- configurable duration
+- configurable scale
+- rarity-coloured flash
+- custom sounds
+- pet-drop support
+- trophy-fish support
+- ignored locations
+- ignored exact items
+- ignored item categories
+- clickable ignore action
+- queued playback during unsafe contexts
+- evidence capture option
+- screenshot option
+- notification history
+
+## Daily playtime tracking
+
+Track:
+
+- daily SkyBlock time
+- rolling average
+- all-time maximum
+- configurable history retention
+- daily/weekly/monthly history
+- account/profile separation
+
+## Animated title-screen background
+
+- custom animated nebula background
+- configurable colour palette
+- compatibility mode for other title-screen mods
+- disable animation option
+- reduced-motion support
+
+## SkyBlock level colour customization
+
+- configurable level colours
+- nametag colours
+- tab-list colours where safe
+- scoreboard colours where supported
+- preview data integration
+
+## Raffle task tracker
+
+Track anniversary raffle tasks and progress.
+
+## Sea Lumies highlighting
+
+- configurable highlight
+- colour
+- distance
+- outline/beam options
+
+## Forge display
+
+- Forge slot status
+- completion timers
+- notification on completion
+
+## Garden view-bobbing control
+
+Contextual control of view bobbing while on the Garden.
+
+## Enchantment parsing and colours
+
+- improved parsing
+- custom colouring
+- better formatting
+- compatibility with multiple enchant text formats
+
+## Visual Words improvements
+
+- more robust text replacement
+- formatted component support
+- better editing support
+- safer matching
+
+## Waypoint format compatibility
+
+Import Skyblocker-compatible waypoints and potentially other common formats.
+
+## Easter eggs and media
+
+- custom sounds
+- secret triggers
+- images
+- video/GIF-based jokes
+- hidden entries
+- secret achievements
+
+# Friend and group features
+
+## Shared waypoints
+
+Support:
+
+- private waypoint
+- selected recipients
+- all custom friends
+- current party
+- named collections
+- folders
+- colours
+- icons
+- notes
+- expiry
+- creator attribution
+- acknowledgement
+- ordered route support
+- import/export
+
+## Fortnite-style ping system
+
+Press a key while looking at:
+
+- block
+- location
+- NPC
+- entity
+- player
+
+Ping types:
+
+- go here
+- look here
+- NPC here
+- item here
+- danger
+- need help
+- come to me
+- custom
+
+Pings should:
+
+- show in-world
+- show direction when off-screen
+- show sender
+- expire
+- allow acknowledgement
+- allow dismissal
+- target selected people
+- optionally become temporary waypoints
+
+## Ready checks
+
+Start through:
+
+- command
+- chat action
+- player action GUI
+- friend/party GUI
+
+Track:
+
+- ready
+- declined
+- no response
+- timeout
+- leader
+- optional role
+- optional gear warning
+
+The leader receives a notification when:
+
+- everyone is ready
+- someone declines
+- timeout occurs
+
+## Debt tracker
+
+Track:
+
+- debtor
+- creditor
+- amount
+- item or currency
+- reason
+- creation date
+- due date
+- partial repayments
+- notes
+- confirmation from both parties
+- settlement history
+- net balance
+
+Extensions:
+
+- shared expense splitting
+- item lending
+- repayment reminders
+- evidence attachment
+- dashboard management
+
+## Custom friend system
+
+Separate from Hypixel friends.
+
+Friend profile fields:
+
+- UUID
+- username
+- nickname
+- online status
+- last seen
+- activity
+- island/server based on permission
+- notes
+- title
+- suffix
+- badge
+- achievements
+- cosmetics
+- debts
+- currency
+- evidence
+- shared stats
+- reputation traits
+
+## Friend hub GUI
+
+Display all custom friends.
+
+Per friend show:
+
+- skin/head
+- online status
+- activity
+- current title
+- recent achievement
+- debt summary
+- current cosmetic
+- last seen
+
+Allow filtering and searching through the existing UI system.
+
+## Player action GUI
+
+Open through:
+
+- keybind while looking at player
+- command
+- friend hub
+- chat-name click
+- party list click
+
+Actions:
+
+- party invite
+- send waypoint
+- send ping
+- request location
+- view profile
+- add note
+- set nickname
+- create debt
+- record payment
+- view debts
+- assign local title
+- preview cosmetics
+- trigger soundboard action
+- view shared evidence
+- add custom incident
+- view achievements
+
+Actions should register as modular providers.
+
+# Achievements, titles, and progression
+
+## Expanded achievements
+
+Categories:
+
+- progression
+- friend-group
+- failure
+- competitive
+- secret
+- seasonal
+- joke
+
+Examples:
+
+- first major RNG
+- first Infernal completion
+- major skill milestone
+- complete many runs together
+- everyone answers ready check quickly
+- die before ready check ends
+- join wrong lobby
+- ignore multiple pings
+- walk past the same NPC repeatedly
+- leave debt unpaid
+- trigger a specific secret event
+
+Support:
+
+- tiers
+- hidden achievements
+- progress bars
+- custom icons
+- custom sounds
+- cinematic unlocks
+- currency rewards
+- cosmetic rewards
+- titles
+- friend leaderboard
+- manual/admin achievements
+- seasonal reset where appropriate
+
+## Titles, prefixes, suffixes, and badges
+
+A profile can have:
+
+- prefix
+- main title
+- suffix
+- badge
+- rarity
+- description
+- unlock source
+- expiry
+
+Examples:
+
+- Andy the NPC Avoider
+- Fabi, Lord of Unpaid Debts
+- Th7bo — VC Terrorist
+- Wrong Lobby Specialist
+- Professional Ping Ignorer
+
+Titles may level up.
+
+## Reputation traits
+
+Separate traits rather than one score:
+
+- reliable
+- helpful
+- chaotic
+- lucky
+- unlucky
+- debt risk
+- mechanic awareness
+- ping responsiveness
+- NPC comprehension
+
+Sources:
+
+- automatic events
+- group votes
+- admin assignment
+- seasonal stats
+
+Temporary joke traits should expire.
+
+# Context-aware cinematics
+
+Use the cinematic engine for:
+
+- rare drops
+- skill levels
+- Slayer levels
+- achievements
+- personal bests
+- expensive purchases
+- first completions
+- goal completion
+- joke deaths
+- friend-group milestones
+- cosmetic unlocks
+- title unlocks
+
+During Dungeons, Kuudra, boss phases, or dangerous combat:
+
+- do not play intrusive cinematics
+- optionally show compact notification
+- queue the full event
+- play after leaving the activity
+- merge similar events
+- expire stale events
+- show recap instead of spam
+
+Example recap:
+
+Dungeon complete
+
+3 queued events:
+- rare drop
+- Catacombs level-up
+- achievement unlocked
+
+# Resume where I left off
+
+On login or reconnect, show a useful resume card only if meaningful state exists.
+
+Possible content:
+
+- previous activity
+- active goal
+- last meaningful action
+- current progress
+- last-used gear/pet
+- active waypoint
+- unfinished timer
+- queued events
+- suggested next action
+- whether the previous session ended unexpectedly
+
+Do not show pointless summaries such as “you were standing in Hub.”
+
+# Custom currency and cosmetics
+
+## Sidequest currency
+
+Earned through:
+
+- achievements
+- challenges
+- personal bests
+- secrets
+- group milestones
+- evidence contributions
+- session awards
+
+No gameplay advantage.
+
+Spend on:
+
+- titles
+- suffixes
+- badges
+- themes
+- notification animations
+- cinematic styles
+- sound packs
+- capes
+- skins
+- particles
+- profile frames
+- join effects
+- death effects
+- hidden features
+
+## Client-sided cosmetics
+
+Visible only to Sidequest users.
+
+Support:
+
+- static capes
+- animated capes
+- group capes
+- seasonal capes
+- achievement capes
+- particle trails
+- auras
+- nametag effects
+- badges
+- join effects
+- death effects
+- profile decorations
+- custom skin variants
+
+Skin examples:
+
+- clown version
+- greyscale
+- gold statue
+- zombie
+- Christmas variant
+- intentionally low-resolution variant
+- achievement-themed variant
+
+All assets must come from the trusted Sidequest backend and use hash-based references.
+
+## Cosmetic loadouts
+
+Examples:
+
+Serious:
+- normal skin
+- minimal cape
+- no particles
+- normal title
+
+Chaos:
+- clown skin
+- VC Terrorist title
+- animated cape
+- particle trail
+- custom death sound
+
+Allow manual and activity-based switching.
+
+# Soundboard integration
+
+Expand the existing VC Terrorist integration.
+
+Rule examples:
+
+When Andy dies in Kuudra:
+- play skill_issue sound
+- 30-second cooldown
+- only while not in serious mode
+
+Possible triggers:
+
+- specific friend dies
+- rare drop
+- failed ready check
+- overdue debt
+- wrong lobby
+- achievement unlock
+- personal best
+- party wipe
+- ignored pings
+- configured chat phrase
+- custom incident
+
+Support:
+
+- per-event toggle
+- cooldown
+- volume
+- random pools
+- local-only playback
+- synchronized playback
+- serious mode
+- user mute controls
+
+# Shared evidence locker
+
+A group-shared collection for moments that would otherwise be sent through Discord.
+
+Entry types:
+
+- screenshot
+- rare drop
+- death
+- chat message
+- achievement
+- debt
+- trade
+- personal best
+- wrong-lobby incident
+- soundboard moment
+- custom incident
+
+Each entry can contain:
+
+- title
+- caption
+- timestamp
+- players involved
+- island/activity
+- screenshot
+- event metadata
+- tags
+- reactions
+- comments
+- linked achievement
+- linked debt
+- linked sound
+
+Features:
+
+- albums
+- search
+- tags
+- player filters
+- activity filters
+- timeline view
+- favourites
+- comments
+- reactions
+- duplicate detection
+- editing permissions
+- thumbnails
+- compressed uploads
+- storage quotas
+- moderation
+- local hiding
+
+Automatic capture can be offered for:
+
+- rare drops
+- major achievements
+- personal bests
+- unusual deaths
+- debt settlements
+- session summaries
+
+Never upload screenshots silently.
+
+# Web dashboard
+
+The self-hosted dashboard should provide:
+
+## Friend overview
+
+- online status
+- activity
+- last seen
+- title
+- cosmetics
+- recent achievements
+- debt balance
+- currency balance
+
+## Achievement management
+
+- browse achievements
+- view progress
+- create custom achievements
+- edit triggers
+- assign icons
+- assign rewards
+- manage secrets
+- leaderboards
+
+## Cosmetics
+
+- browse owned cosmetics
+- equip loadouts
+- upload approved assets
+- preview skins/capes
+- manage visibility
+- configure rewards
+
+## Evidence locker
+
+- browse entries
+- upload screenshots
+- caption
+- tag players
+- comment
+- react
+- create albums
+- search
+- timeline
+
+## Debt management
+
+- create debts
+- confirm debts
+- record payments
+- settle debts
+- split expenses
+- track lent items
+- balance history
+
+## Configuration
+
+- manage synced settings
+- import/export through the existing config system
+- soundboard rules
+- permissions
+- notification policy
+- cinematic policy
+
+## Statistics
+
+- playtime
+- achievements
+- rare drops
+- personal bests
+- group sessions
+- pings
+- ready-check response time
+- deaths
+- soundboard events
+- joke leaderboards
+
+# Unified event pipeline
+
+The systems must not be isolated.
+
+Example flow:
+
+Andy dies during Kuudra.
+
+1. PlayerDeathEvent is emitted.
+2. Game context marks Kuudra as unsafe for cinematics.
+3. A compact notification may appear.
+4. Full cinematic is queued.
+5. Soundboard rule is evaluated.
+6. Achievement progress increases.
+7. Session stats update.
+8. Evidence capture is offered.
+9. A title may unlock.
+10. Currency may be granted.
+11. Cosmetic reward may unlock.
+12. Dashboard receives the update.
+13. Full cinematic plays after Kuudra ends.
+
+Core shared domain models should include:
+
+- SidequestEvent
+- PlayerIdentity
+- FriendProfile
+- GameContext
+- PresentationPolicy
+- Notification
+- Cinematic
+- Achievement
+- AchievementProgress
+- Rule
+- Reward
+- Title
+- Cosmetic
+- CosmeticLoadout
+- SidequestCurrencyTransaction
+- EvidenceEntry
+- Debt
+- Payment
+- Waypoint
+- Ping
+- ReadyCheck
+- GroupSession
+- Permission
+- RemoteAsset
+
+# Implementation order
+
+Implement in this order:
+
+1. Version abstraction
+2. Feature/module registry
+3. Event bus
+4. Scheduler
+5. Game context
+6. Chat/scoreboard/tab parsers
+7. Item/player/location abstractions
+8. Persistence and migrations
+9. Notification manager integration
+10. Cinematic queue
+11. Backend authentication
+12. API client
+13. WebSocket sync
+14. Identity/friends/presence
+15. Permissions
+16. Asset manager
+17. Waypoint/ping engine
+18. Rule engine
+19. Achievement system
+20. Currency system
+21. Cosmetic engine
+22. Evidence system
+23. Debt system
+24. Friend/player GUIs using the existing UI framework
+25. Dashboard
+26. Move existing SkyHanni features
+27. Add joke and secret content
+
+Do not implement the entire project as a single pass.
+
+For every phase:
+
+- define interfaces first
+- implement tests
+- add debug inspection
+- document extension points
+- keep feature code independent
+- avoid raw Minecraft dependencies outside adapters
+- avoid backend calls outside backend services
+- avoid persistence calls outside repositories
+- avoid remote asset loading outside the asset manager
+
+The end result should be a maintainable private mod platform where adding a new feature usually means:
+
+- declaring config through the existing config framework
+- listening to typed events
+- storing typed state
+- optionally registering an existing HUD/UI component
+- optionally defining rules, rewards, cinematics, or sync messages
+
+It should not require rebuilding networking, storage, rendering, or parsing for every new feature.

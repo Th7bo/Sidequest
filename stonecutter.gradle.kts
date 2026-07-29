@@ -40,17 +40,23 @@ tasks.register("runActive") {
 }
 
 // ---------------------------------------------------------------------------
-// Shared configuration for the framework-independent UI modules.
+// Shared configuration for the framework-independent modules.
 //
-// These are ordinary JVM subprojects (:ui-api, :ui-core, :ui-testkit), not
+// These are ordinary JVM subprojects (:ui-api, :ui-core, :platform-api, …), not
 // stonecutter nodes — the stonecutter nodes are named after Minecraft versions
-// ("26.2", "26.1.2"). The UI modules contain no Minecraft code, so they target
-// Java 21 and are compiled once and shared by every Minecraft target.
+// ("26.2", "26.1.2"). None of them contain Minecraft code, so they target Java 21
+// and are compiled once and shared by every Minecraft target.
+//
+// Keeping Minecraft off their classpath is the enforcement mechanism for the
+// architecture, not a convention: feature code physically cannot reach a
+// Minecraft class, so version-specific detail cannot leak out of the adapters.
 // ---------------------------------------------------------------------------
-configure(subprojects.filter { it.name.startsWith("ui-") }) {
+val sharedModulePrefixes = listOf("ui-", "platform-")
+
+configure(subprojects.filter { project -> sharedModulePrefixes.any { project.name.startsWith(it) } }) {
     apply(plugin = "org.jetbrains.kotlin.jvm")
 
-    group = "dev.th7bo.sidequest.ui"
+    group = "dev.th7bo.sidequest." + name.substringBefore('-')
     version = rootProject.version
 
     repositories {
