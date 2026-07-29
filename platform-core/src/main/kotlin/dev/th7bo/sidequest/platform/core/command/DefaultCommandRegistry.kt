@@ -14,11 +14,13 @@ import dev.th7bo.sidequest.platform.lifecycle.Registration
  * `/sq` produces behaviour that depends on load order, which is the kind of bug that
  * only reproduces on someone else's machine.
  *
- * [onChanged] fires whenever the set changes, so the Minecraft adapter can rebuild the
- * game's command tree. The registry itself has no idea Brigadier exists.
+ * [onRegistered] fires when a command is added, so the Minecraft adapter can put it in
+ * the game's command tree. There is no matching removal hook on purpose: the adapter
+ * resolves through this registry when a command runs, so removing it here is already
+ * enough to stop it responding. The registry has no idea Brigadier exists.
  */
 public class DefaultCommandRegistry(
-    private val onChanged: () -> Unit = {},
+    private val onRegistered: (RegisteredCommand) -> Unit = {},
 ) : CommandRegistry {
 
     private val byName = LinkedHashMap<String, RegisteredCommand>()
@@ -34,12 +36,11 @@ public class DefaultCommandRegistry(
         val command = RegisteredCommand(owner, spec)
         registered.add(command)
         for (name in spec.allNames) byName[name.lowercase()] = command
-        onChanged()
+        onRegistered(command)
 
         return Registration {
             if (registered.remove(command)) {
                 for (name in spec.allNames) byName.remove(name.lowercase())
-                onChanged()
             }
         }
     }
@@ -55,6 +56,5 @@ public class DefaultCommandRegistry(
         for (command in removed) {
             for (name in command.spec.allNames) byName.remove(name.lowercase())
         }
-        onChanged()
     }
 }

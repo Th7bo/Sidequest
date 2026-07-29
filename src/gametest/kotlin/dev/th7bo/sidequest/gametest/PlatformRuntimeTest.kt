@@ -79,6 +79,22 @@ class PlatformRuntimeTest : FabricClientGameTest {
             }
         }
 
+        // 4b. And — the assertion the first version of this test was missing — the *game*
+        //     knows about it. The platform registry containing a command says nothing
+        //     about whether typing it does anything, which is how `/sqdiag` shipped as
+        //     "Unknown command" with this test passing.
+        onClient(context) { client ->
+            val dispatcher = client.connection?.commands
+            checkNotNull(dispatcher) { "No command dispatcher; the client is not connected" }
+            val parsed = dispatcher.parse("sqdiag", client.connection!!.suggestionsProvider)
+            check(parsed.reader.canRead().not() || parsed.exceptions.isEmpty()) {
+                "The game cannot parse /sqdiag: ${parsed.exceptions.values.joinToString()}"
+            }
+            checkNotNull(dispatcher.root.getChild("sqdiag")) {
+                "/sqdiag is not in the client's command tree — typing it gives 'Unknown command'"
+            }
+        }
+
         // 5. Sending a client message goes through the adapter without throwing. It is
         //    client-side, so nothing reaches the server.
         onClient(context) { diagnostics.report() }

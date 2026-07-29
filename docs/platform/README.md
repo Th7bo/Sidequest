@@ -187,7 +187,7 @@ What exists now: version, thread checks, client-thread dispatch, local player id
 connection state, screen state, client messages, server commands, tick count. Player,
 world, item, entity and raycast wrappers arrive with the pass that needs them.
 
-### Two things worth knowing
+### Three things worth knowing
 
 **`isScreenOpen` is tracked, not read.** Minecraft 26.x stopped exposing its current
 screen, so the adapter follows the open/close events. On the title screen a screen *is*
@@ -197,6 +197,24 @@ mistook for a bug.
 **Fabric's callbacks cannot be removed**, so the lifecycle adapter registers one of each
 for the session and fans out to its own lists. Without that inversion, "unregister" would
 be a lie and every feature reload would leave another dead callback behind.
+
+**Brigadier nodes cannot be removed either.** A command node therefore holds only a
+*name* and looks the command up in the registry each time it runs, so a disabled feature
+stops answering immediately even though its node is still in the tree. Capturing the
+handler in the node would leave a disabled feature responding to commands, which is the
+one guarantee the ownership design exists to provide.
+
+### The command bridge, and a lesson about tests
+
+`/sqdiag` shipped as "Unknown command" with the in-game test passing. The test asserted
+that the *registry* contained the command; nothing asserted that the *game* would run it,
+and nothing did — the registry was bookkeeping and no adapter had been written.
+
+The test now parses the name against `client.connection.commands`, which is the client's
+real command tree. It was verified to fail without the bridge before being kept.
+
+The general shape of the mistake: **an assertion about the mod's own bookkeeping is not an
+assertion about behaviour.** When something crosses a boundary, test the far side.
 
 ---
 

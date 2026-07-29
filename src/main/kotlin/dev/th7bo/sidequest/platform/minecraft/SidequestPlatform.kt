@@ -64,7 +64,16 @@ class SidequestPlatform(
         log = loggers.create(LogCategory.EVENT, SqId.sidequest("events")),
     )
 
-    val commands: CommandRegistry = DefaultCommandRegistry()
+    // The registry and the bridge refer to each other: the registry notifies the bridge
+    // of a new command, and the bridge resolves through the registry when one runs.
+    // Broken with a late assignment rather than an interface, because the alternative —
+    // a supplier threaded through the bridge — hides a one-line ordering problem behind
+    // a layer of indirection.
+    private var commandBridge: MinecraftCommandBridge? = null
+
+    val commands: CommandRegistry = DefaultCommandRegistry(
+        onRegistered = { command -> commandBridge?.onRegistered(command.spec) },
+    )
 
     val features: FeatureRegistry = DefaultFeatureRegistry(
         gameVersion = version,
@@ -97,6 +106,13 @@ class SidequestPlatform(
 
         minecraftLifecycle.install()
         bridgeLifecycleToEvents()
+
+        // Before the features are enabled, so the commands they register on the way up
+        // are announced to a bridge that exists.
+        commandBridge = MinecraftCommandBridge(
+            registry = commands,
+            log = loggers.create(LogCategory.PLATFORM, SqId.sidequest("commands")),
+        ).also { it.install() }
 
         for (feature in features) this.features.register(feature)
         val refusals = this.features.enableAll()
