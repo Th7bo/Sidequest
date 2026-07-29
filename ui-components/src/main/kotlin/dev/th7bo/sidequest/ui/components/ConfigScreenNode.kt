@@ -8,6 +8,8 @@ import dev.th7bo.sidequest.ui.config.DropdownSetting
 import dev.th7bo.sidequest.ui.config.FloatSliderSetting
 import dev.th7bo.sidequest.ui.config.IntSliderSetting
 import dev.th7bo.sidequest.ui.config.KeybindSetting
+import dev.th7bo.sidequest.ui.config.ListSetting
+import dev.th7bo.sidequest.ui.config.TextAreaSetting
 import dev.th7bo.sidequest.ui.config.NoticeSetting
 import dev.th7bo.sidequest.ui.config.Section
 import dev.th7bo.sidequest.ui.config.Setting
@@ -352,6 +354,12 @@ public fun ComponentRegistry.registerStandardControls(
     }
     register(scope, ColorSetting::class) { setting, context ->
         SettingRowNode(setting, context, ColorControlNode(setting, context))
+    }
+    register(scope, TextAreaSetting::class) { setting, context ->
+        SettingRowNode(setting, context, TextAreaControlNode(setting, context))
+    }
+    register(scope, ListSetting::class) { setting, context ->
+        SettingRowNode(setting, context, ListControlNode(setting, context))
     }
     register(scope, NoticeSetting::class) { setting, context ->
         NoticeRowNode(setting, context)

@@ -14,6 +14,11 @@ import dev.th7bo.sidequest.ui.geometry.Rect
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.geometry.Vec2
 import dev.th7bo.sidequest.ui.ids.UiId
+import dev.th7bo.sidequest.ui.state.UiState
+import dev.th7bo.sidequest.ui.state.constantState
+import dev.th7bo.sidequest.ui.state.derivedStateOf
+import dev.th7bo.sidequest.ui.state.mutableStateOf
+import dev.th7bo.sidequest.ui.input.CharTypedEvent
 import dev.th7bo.sidequest.ui.input.EventPhase
 import dev.th7bo.sidequest.ui.input.InputEvent
 import dev.th7bo.sidequest.ui.input.Key
@@ -183,9 +188,58 @@ public class DropdownPopupNode<T>(
     /** Item nodes in option order, so the keyboard can walk them. */
     private val items = ArrayList<PopupItemNode>()
 
+    private val queryState = mutableStateOf("", "${id.value}.filter")
+
+    /** What the filter box currently holds. Empty when the popup is not searchable. */
+    public val query: UiState<String> get() = queryState
+
+    /** The options passing the current filter, in declaration order. */
+    public var visibleOptions: List<Option<T>> = setting.options.peek()
+        private set
+
+    private val filterLabel = if (setting.isSearchable) {
+        TextNode(
+            id.child("filter"),
+            derivedStateOf("${id.value}.filterLabel") {
+                queryState.value.ifEmpty { "Type to filter…" }
+            },
+            TextRole.SECONDARY,
+        )
+    } else {
+        null
+    }
+
     init {
-        val options = setting.options.peek()
-        options.forEachIndexed { index, option ->
+        // A searchable popup takes the keyboard, so typing goes to the filter rather
+        // than to whatever had focus before the popup opened.
+        focusable = setting.isSearchable
+        filterLabel?.let { body.addChild(it) }
+        rebuildItems()
+    }
+
+    /**
+     * Rebuilds the option list for the current filter.
+     *
+     * Matching is a case-insensitive substring over the option's label. Deliberately not
+     * fuzzy: a dropdown filter that reorders results by score makes the list jump around
+     * as you type, which is worse than a short list you can predict.
+     */
+    private fun rebuildItems() {
+        for (item in items) {
+            body.removeChild(item)
+            item.dispose()
+        }
+        items.clear()
+
+        val query = queryState.peek().trim()
+        val matching = if (query.isEmpty()) {
+            setting.options.peek()
+        } else {
+            setting.options.peek().filter { it.label.peek().contains(query, ignoreCase = true) }
+        }
+        visibleOptions = matching
+
+        matching.forEachIndexed { index, option ->
             val item = PopupItemNode(
                 id = id.child("item_$index"),
                 componentContext = componentContext,
@@ -196,17 +250,69 @@ public class DropdownPopupNode<T>(
             items.add(item)
             body.addChild(item)
         }
+
+        // An empty result says so rather than showing a bare box, for the same reason the
+        // settings list has an empty state: silence looks like a bug.
+        if (matching.isEmpty()) {
+            val none = PopupItemNode(
+                id = id.child("no_match"),
+                componentContext = componentContext,
+                label = constantState("No matches"),
+                isSelected = { false },
+                onChoose = {},
+            ).apply { interactive = false }
+            items.add(none)
+            body.addChild(none)
+        }
+
+        invalidateMeasure()
     }
 
-    /** Number of options shown. */
-    public val itemCount: Int get() = items.size
+    /** Sets the filter. Exposed so a test drives the same path a keystroke does. */
+    public fun setQuery(value: String) {
+        if (!setting.isSearchable || queryState.peek() == value) return
+        queryState.value = value
+        rebuildItems()
+    }
+
+    /** Number of options shown, after filtering. */
+    public val itemCount: Int get() = visibleOptions.size
 
     /** The item for [index], for tests and for keyboard navigation. */
     public fun itemAt(index: Int): UiNode? = items.getOrNull(index)
 
-    /** Index of the option currently selected, or -1. */
-    public fun selectedIndex(): Int =
-        setting.options.peek().indexOfFirst { it.value == setting.value }
+    /** Index of the option currently selected within the visible list, or -1. */
+    public fun selectedIndex(): Int = visibleOptions.indexOfFirst { it.value == setting.value }
+
+    override fun onInputEvent(event: InputEvent) {
+        super.onInputEvent(event)
+        if (!setting.isSearchable) return
+
+        when (event) {
+            is CharTypedEvent -> {
+                setQuery(queryState.peek() + event.char)
+                event.consume()
+            }
+
+            is KeyDownEvent -> when (event.key) {
+                Key.BACKSPACE -> {
+                    setQuery(queryState.peek().dropLast(1))
+                    event.consume()
+                }
+                // Enter takes the only remaining match, which is the whole point of
+                // typing to filter.
+                Key.ENTER -> {
+                    visibleOptions.singleOrNull()?.let {
+                        onChoose(it)
+                        event.consume()
+                    }
+                }
+                else -> Unit
+            }
+
+            else -> Unit
+        }
+    }
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
         // Wide enough for the longest option, so the list does not truncate what the
