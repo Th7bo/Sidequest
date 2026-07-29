@@ -42,7 +42,9 @@ The plan permits this ("unless the existing project explicitly requires alternat
 3. **Two Minecraft versions, not one.** The project was set up for `26.1.2` and `26.2`
    before this plan. The framework absorbs this without cost: **no framework module
    is version-dependent**. Only `ui-minecraft` (Phase 3) sits inside the stonecutter
-   tree, and it is the only place a `//? if >=26.2` conditional may appear.
+   tree, and it is the only place a `//? if >=26.2` conditional may appear. As of phase 6
+   there is exactly one, in `MinecraftWorldProjector.activeCamera`: `getMainCamera()` was
+   renamed to `mainCamera()` in 26.2.
 
 ---
 
@@ -417,5 +419,5 @@ than asserted here, so the committed numbers always carry their own provenance.
 | 3 — Minecraft adapter | complete, verified in-game — see [phase-3.md](phase-3.md) |
 | 4 — HUD runtime | complete, verified in-game — see [phase-4.md](phase-4.md) |
 | 5 — HUD editor | complete, verified in-game — see [phase-5.md](phase-5.md) |
-| 6 — Notifications and world overlays | not started |
+| 6 — Notifications and world overlays | complete, verified in-game — see [phase-6.md](phase-6.md) |
 | 7 — Extended components and tooling | not started |

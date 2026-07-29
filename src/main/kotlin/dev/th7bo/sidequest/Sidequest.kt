@@ -170,6 +170,7 @@ object Sidequest : ClientModInitializer {
         FontReloadListener.register()
         SidequestKeybinds.register()
         SidequestHuds.register()
+        SidequestWorld.register()
         SidequestHudLayer.onLayerReady = { layer -> attachHudPersistence(layer) }
     }
 

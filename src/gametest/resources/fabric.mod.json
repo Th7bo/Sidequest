@@ -17,6 +17,10 @@
       {
         "value": "dev.th7bo.sidequest.gametest.HudEditorRenderTest",
         "adapter": "kotlin"
+      },
+      {
+        "value": "dev.th7bo.sidequest.gametest.WorldOverlayRenderTest",
+        "adapter": "kotlin"
       }
     ]
   },

@@ -4,7 +4,13 @@ import dev.th7bo.sidequest.Sidequest
 import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.hud.HudElementNode
 import dev.th7bo.sidequest.ui.core.hud.HudLayerNode
+import dev.th7bo.sidequest.ui.components.notification.NotificationRegionNode
+import dev.th7bo.sidequest.ui.components.world.WaypointLayerNode
 import dev.th7bo.sidequest.ui.core.icon.IconRegistry
+import dev.th7bo.sidequest.ui.core.layout.BoxNode
+import dev.th7bo.sidequest.ui.core.notification.NotificationQueue
+import dev.th7bo.sidequest.ui.core.world.WorldOverlayLayer
+import dev.th7bo.sidequest.ui.minecraft.world.MinecraftWorldProjector
 import dev.th7bo.sidequest.ui.core.runtime.UiRuntime
 import dev.th7bo.sidequest.ui.extension.RegistrationScope
 import dev.th7bo.sidequest.ui.geometry.Rect
@@ -39,6 +45,16 @@ public object SidequestHudLayer : HudElement {
 
     /** Icons available to HUD content. */
     public val icons: IconRegistry = IconRegistry()
+
+    /** Notifications shown over the game. */
+    public val notifications: NotificationQueue = NotificationQueue()
+
+    /** Waypoints and other world-anchored overlays. */
+    public val worldOverlays: WorldOverlayLayer = WorldOverlayLayer()
+
+    private var notificationRegion: NotificationRegionNode? = null
+    private var waypoints: WaypointLayerNode? = null
+    private var root: BoxNode? = null
 
     private var runtime: UiRuntime? = null
     private var measurer: MinecraftTextMeasurer? = null
@@ -92,11 +108,20 @@ public object SidequestHudLayer : HudElement {
         if (screenSize.width != width || screenSize.height != height) {
             screenSize = Size(width, height)
             runtime?.viewport = screenSize
+            root?.preferredSize = screenSize
         }
 
         val current = runtime ?: build(client)
         val delta = deltaTracker.getRealtimeDeltaTicks() / TICKS_PER_SECOND
         frameIndex++
+
+        // Rebuilt every frame: the camera moves, and a cached projector is a stale basis.
+        waypoints?.projector = MinecraftWorldProjector.forCurrentFrame(client, screenSize)
+        if (worldOverlays.size > 0) waypoints?.invalidatePaint()
+
+        // Timeouts run off the render clock rather than ticks, so a notification lasts the
+        // same wall-clock time whether or not the server is keeping up.
+        if (notifications.tick(delta)) notificationRegion?.invalidateMeasure()
 
         val renderer = MinecraftUiRenderer(
             graphics = graphics,
@@ -136,9 +161,30 @@ public object SidequestHudLayer : HudElement {
         components = context
 
         val built = HudLayerNode(UiId.of(Sidequest.MOD_ID, "hud.layer")) { screenSize }
-        created.root = built
         layer = built
         runtime = created
+
+        // World overlays under the HUD, notifications above it: a waypoint is part of the
+        // scene and a notification is an interruption, so the stacking follows what each
+        // one is for rather than registration order.
+        val waypointLayer = WaypointLayerNode(UiId.of(Sidequest.MOD_ID, "waypoints"), worldOverlays, context)
+        waypoints = waypointLayer
+
+        val region = NotificationRegionNode(
+            UiId.of(Sidequest.MOD_ID, "notifications"),
+            notifications,
+            context,
+        )
+        notificationRegion = region
+
+        // A box fixed to the screen, so all three layers are measured against the full
+        // viewport rather than against each other's sizes.
+        val stack = BoxNode(UiId.of(Sidequest.MOD_ID, "hud.root")).apply {
+            preferredSize = screenSize
+            addChildren(waypointLayer, built, region)
+        }
+        root = stack
+        created.root = stack
 
         onPopulate?.invoke(built, context)
         onLayerReady?.invoke(built)
@@ -159,6 +205,10 @@ public object SidequestHudLayer : HudElement {
     /** Releases everything. For a full teardown. */
     public fun dispose() {
         registrationScope.dispose()
+        notifications.dispose()
+        notificationRegion = null
+        waypoints = null
+        root = null
         runtime?.dispose()
         runtime = null
         layer = null
