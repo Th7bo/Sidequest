@@ -6,7 +6,6 @@ import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.content.TextNode
 import dev.th7bo.sidequest.ui.core.layout.ColumnNode
 import dev.th7bo.sidequest.ui.core.layout.RowNode
-import dev.th7bo.sidequest.ui.core.layout.SpacerNode
 import dev.th7bo.sidequest.ui.core.tree.LayoutContext
 import dev.th7bo.sidequest.ui.core.tree.RenderContext
 import dev.th7bo.sidequest.ui.core.tree.UiNode
@@ -29,6 +28,7 @@ import dev.th7bo.sidequest.ui.rendering.TextStyle
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
 import dev.th7bo.sidequest.ui.state.constantState
 import dev.th7bo.sidequest.ui.state.derivedStateOf
+import kotlin.math.max
 
 /**
  * A multi-line text field.
@@ -58,7 +58,9 @@ public class TextAreaControlNode(
         TextRole.BODY,
     ).apply {
         maxLines = area.visibleLines
-        overflow = TextOverflow.ELLIPSIS
+        // Wrapping, not ellipsis: a line too long for the box belongs on the next line in
+        // a text area. Overflow past the declared line count is still truncated.
+        overflow = TextOverflow.WRAP
     }
 
     init {
@@ -71,6 +73,9 @@ public class TextAreaControlNode(
 
     /** Line count of the current value, for assertions. */
     public val lineCount: Int get() = area.value.count { it == '\n' } + 1
+
+    /** The current value, for assertions. */
+    public val text: String get() = area.value
 
     override fun activate() {
         isEditing = !isEditing
@@ -216,10 +221,15 @@ public class ListControlNode<T>(
         item: T,
     ) : UiNode(list.id.child("entry_$index")) {
 
-        private val row = RowNode(list.id.child("entry_row_$index"), spacing = tokens.spacing.xs).apply {
+        private val label = TextNode(
+            list.id.child("entry_label_$index"),
+            constantState(list.itemLabel(item)),
+            TextRole.BODY,
+        )
+
+        /** The buttons, kept together so they can be placed as one block at the end. */
+        private val actions = RowNode(list.id.child("entry_actions_$index"), spacing = tokens.spacing.xs).apply {
             verticalAlignment = VerticalAlignment.CENTER
-            addChild(TextNode(list.id.child("entry_label_$index"), constantState(list.itemLabel(item)), TextRole.BODY))
-            addChild(SpacerNode(list.id.child("entry_gap_$index")).apply { layoutWeight = 1f })
 
             if (list.isReorderable) {
                 // Disabled at the ends rather than hidden, so the buttons do not shift
@@ -246,14 +256,48 @@ public class ListControlNode<T>(
 
         init {
             interactive = true
-            addChild(row)
+            addChildren(label, actions)
         }
 
-        override fun measureSelf(constraints: Constraints, context: LayoutContext): Size =
-            row.measure(constraints, context)
+        // Placed explicitly rather than with a weighted spacer: the buttons must sit at
+        // the trailing edge of every row, and the label must be told how much room is
+        // left so a long entry ellipsizes instead of pushing them off the end.
+        override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+            val actionsSize = actions.measure(constraints.loosen(), context)
+            val gap = tokens.spacing.small.value
+            val width = if (constraints.hasBoundedWidth) constraints.maxWidth else Float.POSITIVE_INFINITY
+
+            val labelSize = label.measure(
+                Constraints(
+                    maxWidth = max(0f, width - actionsSize.width - gap),
+                    maxHeight = constraints.maxHeight,
+                ),
+                context,
+            )
+
+            return Size(
+                if (width.isFinite()) width else labelSize.width + gap + actionsSize.width,
+                max(labelSize.height, actionsSize.height),
+            )
+        }
 
         override fun arrangeChildren(context: LayoutContext) {
-            row.arrange(Rect.of(Vec2.Zero, row.measuredSize), context)
+            val labelSize = label.measuredSize
+            val actionsSize = actions.measuredSize
+            label.arrange(
+                Rect.of(Vec2(0f, (measuredSize.height - labelSize.height) / 2f), labelSize),
+                context,
+            )
+            actions.arrange(
+                Rect.of(
+                    Vec2(
+                        measuredSize.width - actionsSize.width,
+                        (measuredSize.height - actionsSize.height) / 2f,
+                    ),
+                    actionsSize,
+                ),
+                context,
+            )
         }
 
         override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
@@ -321,8 +365,20 @@ public class ListControlNode<T>(
         }
     }
 
-    override fun measureSelf(constraints: Constraints, context: LayoutContext): Size =
-        rows.measure(constraints, context)
+    override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        // The setting row measures its control with an unbounded main axis, so passing
+        // the constraints straight through would leave every entry row sized to its
+        // content and the weighted spacer with nothing to distribute — which is why the
+        // ↑/↓/× buttons used to sit against the label instead of at the trailing edge.
+        // Committing to a width here is what gives the spacer something to push against.
+        val width = if (constraints.hasBoundedWidth) {
+            constraints.maxWidth.coerceAtMost(PREFERRED_WIDTH)
+        } else {
+            PREFERRED_WIDTH
+        }
+        val size = rows.measure(Constraints(width, width, 0f, constraints.maxHeight), context)
+        return Size(width, size.height)
+    }
 
     override fun arrangeChildren(context: LayoutContext) {
         rows.arrange(Rect.of(Vec2.Zero, rows.measuredSize), context)
@@ -330,6 +386,9 @@ public class ListControlNode<T>(
 
     private companion object {
         const val MIN_ACTION_WIDTH = 14f
+
+        /** Matches the text area, so multi-line controls line up down the screen. */
+        const val PREFERRED_WIDTH = 220f
         val DESTRUCTIVE = dev.th7bo.sidequest.ui.rendering.Color.parse("#FFF87171")
     }
 }

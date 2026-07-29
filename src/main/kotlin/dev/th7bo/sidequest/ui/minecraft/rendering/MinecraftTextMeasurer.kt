@@ -92,14 +92,33 @@ public class MinecraftTextMeasurer(
     ): TextLayout {
         val lineHeight = lineHeight(style)
 
-        if (maxWidth == null || overflow != TextOverflow.WRAP) {
+        if (maxLines <= 1) {
             return singleLine(text, style, maxWidth, overflow, lineHeight)
         }
 
-        val available = maxWidth / style.scale
-        val wrapped = wrap(text, available)
-        val truncated = wrapped.size > maxLines
-        val kept = wrapped.take(maxLines)
+        // A newline always breaks, whatever the overflow mode. [TextOverflow] decides what
+        // happens to a line too *wide* for the box, not whether the text has lines at all
+        // — reading it as "only WRAP is multi-line" is what made the text area render its
+        // first line and silently swallow the rest.
+        val available = if (maxWidth == null) Float.POSITIVE_INFINITY else maxWidth / style.scale
+        val broken = if (overflow == TextOverflow.WRAP && maxWidth != null) {
+            wrap(text, available)
+        } else {
+            text.split('\n')
+        }
+
+        var truncated = broken.size > maxLines
+        val kept = broken.take(maxLines).toMutableList()
+
+        // Only WRAP moves the overflow onto the next line; the other modes shorten each
+        // hard line in place.
+        if (maxWidth != null && overflow != TextOverflow.WRAP) {
+            for (index in kept.indices) {
+                if (font.width(kept[index]) * style.scale <= maxWidth) continue
+                kept[index] = shorten(kept[index], available, overflow)
+                truncated = true
+            }
+        }
 
         val lines = kept.mapIndexed { index, content ->
             TextLayout.Line(
@@ -129,18 +148,7 @@ public class MinecraftTextMeasurer(
         var width = font.width(content) * style.scale
 
         if (maxWidth != null && width > maxWidth) {
-            val available = maxWidth / style.scale
-            content = when (overflow) {
-                TextOverflow.ELLIPSIS -> {
-                    val room = available - font.width(ELLIPSIS)
-                    if (room <= 0f) {
-                        ELLIPSIS
-                    } else {
-                        font.plainSubstrByWidth(content, room.toInt()) + ELLIPSIS
-                    }
-                }
-                else -> font.plainSubstrByWidth(content, available.toInt())
-            }
+            content = shorten(content, maxWidth / style.scale, overflow)
             width = font.width(content) * style.scale
             truncated = true
         }
@@ -153,6 +161,16 @@ public class MinecraftTextMeasurer(
             isTruncated = truncated,
         )
     }
+
+    /** Cuts [content] down to [availableWidth] unscaled units, honouring [overflow]. */
+    private fun shorten(content: String, availableWidth: Float, overflow: TextOverflow): String =
+        when (overflow) {
+            TextOverflow.ELLIPSIS -> {
+                val room = availableWidth - font.width(ELLIPSIS)
+                if (room <= 0f) ELLIPSIS else font.plainSubstrByWidth(content, room.toInt()) + ELLIPSIS
+            }
+            else -> font.plainSubstrByWidth(content, availableWidth.toInt())
+        }
 
     /** Greedy word wrap. Words longer than a line are hard-split rather than overflowing. */
     private fun wrap(text: String, availableWidth: Float): List<String> {

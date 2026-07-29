@@ -6,6 +6,8 @@ import dev.th7bo.sidequest.ui.config.Option
 import dev.th7bo.sidequest.ui.config.SettingMetadata
 import dev.th7bo.sidequest.ui.config.SettingSerializers
 import dev.th7bo.sidequest.ui.config.DropdownSetting
+import dev.th7bo.sidequest.ui.config.Keybind
+import dev.th7bo.sidequest.ui.config.KeybindSetting
 import dev.th7bo.sidequest.ui.config.TextAreaSetting
 import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.component.ComponentRegistry
@@ -218,6 +220,27 @@ class Phase7AcceptanceTest {
     }
 
     @Test
+    fun `a text area draws every line it holds, not just the first`() {
+        // Reported from the game as "I cannot type in the multiline thing": typing did
+        // reach the setting, but the control laid the value out as a single line, so a
+        // caret sitting on line three had nothing visible to show for it.
+        val setting = textArea(initial = "one\ntwo\nthree", visibleLines = 3)
+        val control = TextAreaControlNode(setting, context)
+        runtime.root = control
+        frame()
+
+        // The recorder joins a layout's lines with newlines, so this asserts on what
+        // would actually have been drawn rather than on what was measured.
+        val drawn = renderer.commandsOfType<dev.th7bo.sidequest.ui.testkit.DrawCommand.Text>()
+            .map { it.content }
+
+        assertTrue(
+            drawn.any { it == "one\ntwo\nthree" },
+            "expected all three lines to be drawn, got $drawn",
+        )
+    }
+
+    @Test
     fun `a text area ignores typing when it is not editing`() {
         val setting = textArea()
         focused(TextAreaControlNode(setting, context))
@@ -301,6 +324,95 @@ class Phase7AcceptanceTest {
             setting.searchTerms().any { it.contains("netherite") },
             "a list's contents should be findable, got ${setting.searchTerms()}",
         )
+    }
+
+    @Test
+    fun `every row's buttons line up at the trailing edge`() {
+        // Reported from the game: the ↑ ↓ × buttons sat against the entry's label, so
+        // they moved horizontally from row to row depending on how long the label was.
+        val setting = stringList(listOf("a", "a much longer entry label", "b"))
+        val control = ListControlNode(setting, context)
+        runtime.root = control
+        frame()
+
+        val entries = control.children.first().children.take(setting.value.size)
+        assertEquals(3, entries.size)
+
+        val right = control.absoluteBounds().right
+        for (entry in entries) {
+            val actions = entry.children.last()
+            assertEquals(
+                right,
+                actions.absoluteBounds().right,
+                0.01f,
+                "row '${entry.id.value}' does not have its buttons at the trailing edge",
+            )
+        }
+    }
+
+    @Test
+    fun `a long entry label is truncated rather than pushing the buttons off the end`() {
+        val setting = stringList(listOf("x".repeat(400)))
+        val control = ListControlNode(setting, context)
+        runtime.root = control
+        frame()
+
+        val entry = control.children.first().children.first()
+        val bounds = control.absoluteBounds()
+        assertTrue(
+            entry.children.last().absoluteBounds().right <= bounds.right + 0.01f,
+            "the buttons overflowed the control",
+        )
+    }
+
+    // ---------------------------------------------------------------
+    // Keybind
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `the keybind label refreshes the moment it is bound`() {
+        // The regression this covers: `isCapturing` was a plain field that the label's
+        // derived state read but could not observe, so the text only caught up when
+        // something else rebuilt the control — switching category, in the report.
+        val setting = KeybindSetting(
+            id = id("bind"),
+            metadata = SettingMetadata(constantState("Bind")),
+            binding = mutableStateOf(Keybind(Key.G), "bind").asBinding(),
+            defaultValue = Keybind(Key.G),
+        )
+        val control = focused(KeybindControlNode(setting, context))
+
+        assertTrue(control.bindingLabel.contains("G"), "starts on its current binding")
+
+        press(Key.ENTER)
+        assertTrue(control.isCapturing)
+        assertEquals("Press a key…", control.bindingLabel, "capturing must be visible immediately")
+
+        press(Key.K)
+        assertFalse(control.isCapturing)
+        assertEquals(Key.K, setting.value.key)
+        assertTrue(
+            control.bindingLabel.contains("K"),
+            "the label still reads '${control.bindingLabel}' after binding K",
+        )
+    }
+
+    @Test
+    fun `escape leaves the binding alone and restores the label`() {
+        val setting = KeybindSetting(
+            id = id("bind"),
+            metadata = SettingMetadata(constantState("Bind")),
+            binding = mutableStateOf(Keybind(Key.G), "bind").asBinding(),
+            defaultValue = Keybind(Key.G),
+        )
+        val control = focused(KeybindControlNode(setting, context))
+
+        press(Key.ENTER)
+        press(Key.ESCAPE)
+
+        assertFalse(control.isCapturing)
+        assertEquals(Key.G, setting.value.key)
+        assertTrue(control.bindingLabel.contains("G"))
     }
 
     // ---------------------------------------------------------------

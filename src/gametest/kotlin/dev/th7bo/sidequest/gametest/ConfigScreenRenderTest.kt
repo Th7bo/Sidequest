@@ -2,7 +2,11 @@ package dev.th7bo.sidequest.gametest
 
 import dev.th7bo.sidequest.Sidequest
 import dev.th7bo.sidequest.SidequestGallery
+import dev.th7bo.sidequest.ui.components.KeybindControlNode
+import dev.th7bo.sidequest.ui.components.ListControlNode
+import dev.th7bo.sidequest.ui.components.TextAreaControlNode
 import dev.th7bo.sidequest.ui.core.component.MissingComponentNode
+import dev.th7bo.sidequest.ui.input.Key
 import dev.th7bo.sidequest.ui.components.ColorControlNode
 import dev.th7bo.sidequest.ui.components.DropdownControlNode
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestConfigScreen
@@ -180,6 +184,96 @@ class ConfigScreenRenderTest : FabricClientGameTest {
             context.waitTicks(SETTLE_TICKS)
             context.takeScreenshot("gallery_category_$index")
         }
+
+        // 8. The two controls reported as broken in game: a keybind and a multiline
+        //    text area, driven through the real screen at a real GUI scale rather than
+        //    against a node in isolation, which is where they already passed.
+        //
+        //    Both are filtered to with the search box first. They sit near the bottom of
+        //    a long category, and a click on a row that is scrolled past the fold lands
+        //    on the scroll container's clip rather than on the control — that is the
+        //    harness missing, not the control being broken.
+        onClient(context) { gallery.controller?.search("Keybind") }
+        context.waitTicks(SETTLE_TICKS)
+
+        onClient(context) {
+            val keybind = checkNotNull(findControl<KeybindControlNode>(gallery)) { "No keybind control" }
+            val bounds = keybind.absoluteBounds()
+            val runtime = checkNotNull(gallery.uiRuntime) { "No runtime" }
+            check(runtime.input.hitTest(bounds.center).contains(keybind)) {
+                "The keybind at $bounds is not reachable by a click (viewport ${runtime.viewport})"
+            }
+
+            val before = keybind.bindingLabel
+            runtime.input.pointerPressed(bounds.center)
+            check(keybind.isCapturing) { "Clicking the keybind did not start capturing" }
+            check(keybind.bindingLabel != before) {
+                "The label still reads '$before' while capturing — it did not refresh"
+            }
+
+            runtime.input.keyPressed(Key.K)
+            check(!keybind.isCapturing) { "The keybind is still capturing after a key press" }
+            // The bug the player reported: the value was set but the label kept whatever
+            // text it had until a category switch rebuilt the control.
+            check(keybind.bindingLabel.contains("K")) {
+                "The label reads '${keybind.bindingLabel}' after binding K"
+            }
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("gallery_keybind_bound")
+
+        // The editable list: every row's buttons have to sit at the same trailing edge,
+        // which they did not while the row sized itself to its label.
+        onClient(context) { gallery.controller?.search("Editable") }
+        context.waitTicks(SETTLE_TICKS)
+
+        onClient(context) {
+            val list = checkNotNull(findControl<ListControlNode<*>>(gallery)) { "No list control" }
+            val right = list.absoluteBounds().right
+            val entries = list.children.first().children.dropLast(1)
+            check(entries.isNotEmpty()) { "The list built no entry rows" }
+            for (entry in entries) {
+                val actions = entry.children.last().absoluteBounds()
+                check(kotlin.math.abs(actions.right - right) < 0.5f) {
+                    "Row ${entry.id.value} ends its buttons at ${actions.right}, not $right"
+                }
+            }
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("gallery_list_aligned")
+
+        onClient(context) { gallery.controller?.search("Multiline") }
+        context.waitTicks(SETTLE_TICKS)
+
+        onClient(context) {
+            val area = checkNotNull(findControl<TextAreaControlNode>(gallery)) { "No text area control" }
+            val runtime = checkNotNull(gallery.uiRuntime) { "No runtime" }
+            val bounds = area.absoluteBounds()
+            check(bounds.width > 0f && bounds.height > 0f) { "The text area has no bounds: $bounds" }
+            check(runtime.input.hitTest(bounds.center).contains(area)) {
+                "The text area at $bounds is not reachable by a click (viewport ${runtime.viewport})"
+            }
+
+            runtime.input.pointerPressed(bounds.center)
+            check(area.isEditing) { "Clicking the text area did not start editing" }
+
+            val lengthBefore = area.text.length
+            check(runtime.input.charTyped('Z'.code)) {
+                "The typed character reached nothing — focus did not follow the click"
+            }
+            check(area.isEditing) { "Typing stopped the edit" }
+            check(area.text.length == lengthBefore + 1) {
+                "Typing did not insert: '${area.text}'"
+            }
+
+            runtime.input.keyPressed(Key.ENTER)
+            check(area.lineCount > 1) { "Enter did not insert a newline: '${area.text}'" }
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("gallery_text_area_typed")
+
+        onClient(context) { gallery.controller?.clearSearch() }
+        context.waitTicks(SETTLE_TICKS)
 
         // The harness requires the test to end on the title screen, so the config
         // screen is closed explicitly rather than left open.

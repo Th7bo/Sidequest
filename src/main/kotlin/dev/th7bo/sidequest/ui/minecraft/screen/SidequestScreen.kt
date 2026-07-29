@@ -38,7 +38,9 @@ public abstract class SidequestScreen(
 
     /** The runtime driving this screen. Created on [init], disposed on [removed]. */
     protected var runtime: UiRuntime? = null
-        private set
+
+    /** The live runtime, for diagnostics and in-game tests. */
+    public val uiRuntime: UiRuntime? get() = runtime
 
     private var textMeasurer: MinecraftTextMeasurer? = null
 

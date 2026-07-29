@@ -31,7 +31,9 @@ import dev.th7bo.sidequest.ui.input.PointerDragEvent
 import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.rendering.TextRole
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
+import dev.th7bo.sidequest.ui.state.MutableUiState
 import dev.th7bo.sidequest.ui.state.UiState
+import dev.th7bo.sidequest.ui.state.mutableStateOf
 
 /**
  * Shared behaviour for a control that edits one setting.
@@ -814,39 +816,51 @@ public class KeybindControlNode(
     context: ComponentContext,
 ) : ControlNode<Keybind>(keybindSetting, context, "keybind") {
 
+    // Reactive, not a plain flag: the label below is derived from it, and a derived state
+    // can only recompute for dependencies it can observe. As a `var` this read silently
+    // did nothing, so the label kept whatever text it had until something else rebuilt
+    // the control — which is exactly how the bug presented, the binding updating only
+    // after a category switch.
+    private val capturingState: MutableUiState<Boolean> =
+        mutableStateOf(false, "${keybindSetting.id.value}.capturing")
+
     private val label = TextNode(
         keybindSetting.id.child("binding"),
         dev.th7bo.sidequest.ui.state.derivedStateOf("${keybindSetting.id.value}.binding") {
-            if (isCapturing) "Press a key…" else keybindSetting.state.value.toString()
+            if (capturingState.value) "Press a key…" else keybindSetting.state.value.toString()
         },
         TextRole.LABEL,
     )
 
-    public var isCapturing: Boolean = false
-        private set
+    public val isCapturing: Boolean get() = capturingState.value
+
+    /** What the control currently reads — the rendered text, not the bound value. */
+    public val bindingLabel: String get() = label.text.value
 
     init {
         addChild(label)
         keybindSetting.onChange(scope) { invalidatePaint() }
+        capturingState.observe(scope) { invalidatePaint() }
     }
 
     override fun activate() {
-        isCapturing = true
-        invalidatePaint()
+        capturingState.value = true
     }
 
     override fun onInputEvent(event: InputEvent) {
         if (isCapturing && event.phase == EventPhase.TARGET && event is KeyDownEvent) {
             event.consume()
             when {
-                event.key == Key.ESCAPE -> isCapturing = false
+                event.key == Key.ESCAPE -> capturingState.value = false
                 event.key.isModifier && !keybindSetting.allowModifierOnly -> return
                 else -> {
+                    // Cleared first: while capturing is still set the derived label reads
+                    // the "Press a key…" branch and never touches the binding state, so a
+                    // notification delivered mid-write would drop the dependency on it.
+                    capturingState.value = false
                     keybindSetting.setUnchecked(Keybind(event.key, event.modifiers))
-                    isCapturing = false
                 }
             }
-            invalidatePaint()
             return
         }
         super.onInputEvent(event)

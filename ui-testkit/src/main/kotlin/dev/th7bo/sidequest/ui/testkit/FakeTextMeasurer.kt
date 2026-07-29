@@ -41,14 +41,31 @@ public class FakeTextMeasurer(
         val glyphWidth = charWidth * style.scale
         val lineHeight = lineHeight(style)
 
-        if (maxWidth == null || overflow != TextOverflow.WRAP) {
+        if (maxLines <= 1) {
             return singleLine(text, style, glyphWidth, lineHeight, maxWidth, overflow)
         }
 
-        val charsPerLine = max(1, (maxWidth / glyphWidth).toInt())
-        val wrapped = wrap(text, charsPerLine)
-        val truncated = wrapped.size > maxLines
-        val kept = wrapped.take(maxLines)
+        // Mirrors the real measurer: a newline breaks a line whatever the overflow mode,
+        // and overflow only decides what happens to a line too wide for the box. The fake
+        // has to agree with the game here or a multi-line control passes headlessly and
+        // renders one line in game — which is exactly what happened to the text area.
+        val charsPerLine = if (maxWidth == null) Int.MAX_VALUE else max(1, (maxWidth / glyphWidth).toInt())
+        val broken = if (overflow == TextOverflow.WRAP && maxWidth != null) {
+            wrap(text, charsPerLine)
+        } else {
+            text.split('\n')
+        }
+
+        var truncated = broken.size > maxLines
+        val kept = broken.take(maxLines).toMutableList()
+
+        if (maxWidth != null && overflow != TextOverflow.WRAP) {
+            for (index in kept.indices) {
+                if (kept[index].length * glyphWidth <= maxWidth) continue
+                kept[index] = shorten(kept[index], charsPerLine, overflow)
+                truncated = true
+            }
+        }
 
         val lines = kept.mapIndexed { index, content ->
             TextLayout.Line(
@@ -63,7 +80,7 @@ public class FakeTextMeasurer(
             lines = lines,
             size = Size(
                 lines.maxOfOrNull { it.width } ?: 0f,
-                lineHeight * lines.size,
+                lineHeight * max(1, lines.size),
             ),
             isTruncated = truncated,
         )
@@ -82,13 +99,7 @@ public class FakeTextMeasurer(
         val naturalWidth = content.length * glyphWidth
 
         if (maxWidth != null && naturalWidth > maxWidth) {
-            val fits = max(0, (maxWidth / glyphWidth).toInt())
-            content = when (overflow) {
-                TextOverflow.ELLIPSIS ->
-                    if (fits <= ELLIPSIS.length) ELLIPSIS.take(fits)
-                    else content.take(fits - ELLIPSIS.length) + ELLIPSIS
-                else -> content.take(fits)
-            }
+            content = shorten(content, max(0, (maxWidth / glyphWidth).toInt()), overflow)
             truncated = true
         }
 
@@ -101,6 +112,15 @@ public class FakeTextMeasurer(
             isTruncated = truncated,
         )
     }
+
+    /** Cuts [content] down to [fits] characters, honouring [overflow]. */
+    private fun shorten(content: String, fits: Int, overflow: TextOverflow): String =
+        when (overflow) {
+            TextOverflow.ELLIPSIS ->
+                if (fits <= ELLIPSIS.length) ELLIPSIS.take(fits)
+                else content.take(fits - ELLIPSIS.length) + ELLIPSIS
+            else -> content.take(fits)
+        }
 
     private fun wrap(text: String, charsPerLine: Int): List<String> {
         val result = ArrayList<String>()

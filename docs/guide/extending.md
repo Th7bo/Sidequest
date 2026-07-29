@@ -76,6 +76,24 @@ If your control handles keys while "editing", handle them **before** calling
 `super.onInputEvent`. The base class treats Enter and Space as activation, so calling super
 first means Enter toggles editing off instead of reaching you.
 
+### Text, and the measurer contract
+
+If you implement a `TextMeasurer` — for a different font backend, or a fake in your own
+tests — two rules are not optional, because a component cannot compensate for getting them
+wrong:
+
+- **`maxLines > 1` means a newline breaks a line, whatever the overflow mode.**
+  `TextOverflow` decides what happens to a line too *wide* for the box, not whether the
+  text has lines at all. Reading it as "only `WRAP` is multi-line" is what made the text
+  area render its first line and silently drop the rest — the value was being typed
+  correctly the whole time.
+- **Only `WRAP` moves overflow onto the next line.** `ELLIPSIS` and `CLIP` shorten each
+  hard line in place.
+
+`FakeTextMeasurer` deliberately mirrors `MinecraftTextMeasurer` here. If the fake is more
+permissive than the game, a control passes headlessly and is broken on screen, which is
+the failure mode a testkit exists to prevent.
+
 ---
 
 ## A custom serializer
