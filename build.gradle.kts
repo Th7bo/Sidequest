@@ -47,6 +47,18 @@ repositories {
         forRepository { maven("https://pkgs.dev.azure.com/djtheredstoner/DevAuth/_packaging/public/maven/v1") }
         filter { includeGroup("me.djtheredstoner") }
     }
+
+    // Hypixel's Mod API. The location packet it carries is a far better source of truth
+    // than reading the scoreboard, so it is used when present and scraping is the fallback.
+    exclusiveContent {
+        forRepository { maven("https://repo.hypixel.net/repository/Hypixel/") }
+        filter { includeGroup("net.hypixel") }
+    }
+
+    exclusiveContent {
+        forRepository { maven("https://api.modrinth.com/maven") }
+        filter { includeGroup("maven.modrinth") }
+    }
 }
 
 dependencies {
@@ -64,6 +76,20 @@ dependencies {
     "include"(project(":ui-components"))
     "include"(project(":platform-api"))
     "include"(project(":platform-core"))
+
+    // Compile-only: the classes come from the hypixel-mod-api mod at runtime. Everything
+    // touching them is behind an `isModLoaded` guard, so a missing mod costs the extra
+    // accuracy and nothing else.
+    // Compile-only: the classes are provided at runtime by the `hypixel-mod-api` mod,
+    // which players install alongside Sidequest. Everything touching them sits behind an
+    // `isModLoaded` guard.
+    //
+    // Not added to the dev runtime. Minecraft 26.1+ is unobfuscated, so Loom creates no
+    // `mod*` configurations and there is no supported way to put another mod in the dev
+    // mod list from here — dropping the jar in `run/<version>/mods` is the way to try it
+    // locally. The gametests therefore exercise the *fallback*, which is the path that
+    // has to keep working for anyone without the mod.
+    compileOnly(libs.hypixel.mod.api)
 
     implementation(lib("fabric-api"))
     // Loom takes the dev-launch loader from the runtime classpath. Declared

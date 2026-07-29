@@ -99,11 +99,11 @@ class GameContextTest {
 
     @Test
     fun `formatting codes and invisible padding are removed`() {
-        // Hypixel pads scoreboard lines with private-use characters so two lines that read
-        // the same are distinct entries. Left in, they land in the middle of any match.
-        assertEquals("Purse: 5,000,000", HypixelText.clean("§7Purse: §65,000,000"))
-        assertEquals("Dwarven Mines", HypixelText.clean("§b§lDwarven​Mines".replace("​", " ")))
-        assertEquals("", HypixelText.clean("§7﻿  "))
+        assertEquals("Purse: 5,000,000", HypixelText.clean("§7Purse: §65,000,000"))
+        // Zero-width characters and non-breaking spaces are the padding that genuinely
+        // occupies no space, and they land in the middle of a match if left in.
+        assertEquals("Dwarven Mines", HypixelText.clean("§bDwarven\u200B Mines"))
+        assertEquals("", HypixelText.clean("§7\uFEFF \u00A0 "))
     }
 
     @Test
@@ -130,6 +130,38 @@ class GameContextTest {
         // A different symbol and a different colour. Matching only the overworld one would
         // leave the Rift with no area at all.
         assertEquals(SubLocation("Wizard Tower"), ScoreboardParser.parse(riftScoreboard).subLocation)
+    }
+
+    @Test
+    fun `the area symbol is not assumed, because Hypixel keeps changing it`() {
+        // Hypixel's own texture pack moved the area marker to a private-use glyph. A
+        // parser with the old character hardcoded would silently stop matching — no
+        // error, just a feature that never fires again.
+        val texturePack = scoreboard("§e§lSKYBLOCK", " §7 §bDwarven Mines")
+        assertEquals(SubLocation("Dwarven Mines"), ScoreboardParser.parse(texturePack).subLocation)
+
+        val anythingElse = scoreboard("§e§lSKYBLOCK", " §7◆ §bDwarven Mines")
+        assertEquals(SubLocation("Dwarven Mines"), ScoreboardParser.parse(anythingElse).subLocation)
+    }
+
+    @Test
+    fun `a private-use glyph is content, not padding`() {
+        // Cleaning used to strip the whole private-use range as invisible padding, which
+        // would have deleted every icon in Hypixel's texture pack.
+        assertEquals(" 100/100", HypixelText.clean("§c §f100/100"))
+    }
+
+    @Test
+    fun `a profile symbol Hypixel changes does not break the name`() {
+        val known = tabList("§b§lProfile: §fMango ♲")
+        val unknown = tabList("§b§lProfile: §fMango ")
+
+        assertEquals(SkyBlockProfile("Mango"), TabListParser.parse(known).profile)
+        assertEquals(
+            SkyBlockProfile("Mango"),
+            TabListParser.parse(unknown).profile,
+            "a new game-mode symbol must fall outside the name, not break the match",
+        )
     }
 
     @Test
@@ -255,6 +287,61 @@ class GameContextTest {
 
         assertEquals(Island.PRIVATE_ISLAND_GUEST, service.context.island)
         assertTrue(service.context.isGuest)
+    }
+
+    // ---------------------------------------------------------------
+    // Hypixel's own answer
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `the Mod API names the island and is believed outright`() {
+        service.onHypixelLocation(isSkyBlock = true, islandApiName = "mining_3", serverName = "mini123A", isLobby = false)
+
+        assertEquals(Island.DWARVEN_MINES, service.context.island)
+        assertEquals(ServerId("mini123A"), service.context.serverId)
+        assertEquals(
+            ContextConfidence.CONFIRMED,
+            service.context.confidence,
+            "there is nothing to corroborate when the answer came from the server",
+        )
+    }
+
+    @Test
+    fun `Hypixel's answer beats the scraped one`() {
+        // The scraped sources lag a server hop. When they disagree, the packet is right.
+        service.onScoreboard(hubScoreboard)
+        service.onTabList(tabList("§b§lArea: §fHub"))
+        assertEquals(Island.HUB, service.context.island)
+
+        service.onHypixelLocation(isSkyBlock = true, islandApiName = "mining_3", serverName = "mini9Z", isLobby = false)
+
+        assertEquals(Island.DWARVEN_MINES, service.context.island)
+    }
+
+    @Test
+    fun `a lobby is not SkyBlock even when the game type says so`() {
+        service.onHypixelLocation(isSkyBlock = true, islandApiName = null, serverName = "lobby1", isLobby = true)
+
+        assertFalse(service.context.isInSkyBlock)
+    }
+
+    @Test
+    fun `an island id Hypixel adds resolves to unknown rather than a wrong guess`() {
+        service.onHypixelLocation(isSkyBlock = true, islandApiName = "some_new_mode", serverName = "mini1A", isLobby = false)
+
+        assertEquals(Island.UNKNOWN, service.context.island)
+        assertTrue(service.context.isInSkyBlock, "still in SkyBlock — just somewhere we do not know")
+    }
+
+    @Test
+    fun `without the Mod API the scraped sources still work`() {
+        // The fallback has to keep standing on its own, or the optional dependency
+        // quietly becomes a required one.
+        service.onScoreboard(dwarvenMinesScoreboard)
+        service.onTabList(dwarvenMinesTab)
+
+        assertEquals(Island.DWARVEN_MINES, service.context.island)
+        assertEquals(ContextConfidence.CONFIRMED, service.context.confidence)
     }
 
     // ---------------------------------------------------------------

@@ -122,6 +122,13 @@ class SidequestPlatform(
         minecraftLifecycle.install()
         bridgeLifecycleToEvents()
 
+        // Hypixel's own location packet, when the Mod API is installed. Optional by
+        // design: without it the scraped sources stand on their own at lower confidence.
+        HypixelModApiSource(
+            context = contextService,
+            log = loggers.create(LogCategory.PARSER, SqId.sidequest("hypixel_api")),
+        ).install()
+
         // Before the features are enabled, so the commands they register on the way up
         // are announced to a bridge that exists.
         commandBridge = MinecraftCommandBridge(

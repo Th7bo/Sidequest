@@ -54,6 +54,48 @@ public class DefaultGameContextService(
         if (!isOnHypixel) reset()
     }
 
+    /**
+     * Location as reported by Hypixel itself, over their Mod API.
+     *
+     * The best source there is: the server names the island rather than the client
+     * inferring it, and it arrives when the player moves rather than when a widget
+     * redraws. It therefore overrides the scraped island outright and pins confidence at
+     * [ContextConfidence.CONFIRMED] — there is nothing to corroborate when the answer came
+     * from the authority.
+     *
+     * Optional. Without the Mod API installed this is never called and the scraped
+     * sources stand on their own, which is what the confidence levels exist to express.
+     *
+     * @param islandApiName Hypixel's own island id, e.g. `mining_3`.
+     */
+    public fun onHypixelLocation(
+        isSkyBlock: Boolean,
+        islandApiName: String?,
+        serverName: String?,
+        isLobby: Boolean,
+    ) {
+        authoritative = AuthoritativeLocation(
+            isSkyBlock = isSkyBlock && !isLobby,
+            island = islandApiName?.let(Island::ofApiName),
+            serverId = serverName?.takeIf { it.isNotEmpty() }?.let(::ServerId),
+        )
+        if (islandApiName != null && authoritative?.island == Island.UNKNOWN) {
+            // Worth saying out loud: it means Hypixel shipped an island the enum does not
+            // have, and the fix is one line rather than a debugging session.
+            log.warn { "Hypixel reported an island id we do not know: '$islandApiName'" }
+        }
+        recompute()
+    }
+
+    /** What the Mod API last said, or null when it is not installed. */
+    private var authoritative: AuthoritativeLocation? = null
+
+    private data class AuthoritativeLocation(
+        val isSkyBlock: Boolean,
+        val island: Island?,
+        val serverId: ServerId?,
+    )
+
     /** Feeds a new scoreboard. Cheap to call every tick — an unchanged snapshot returns early. */
     public fun onScoreboard(snapshot: ScoreboardSnapshot) {
         if (snapshot == lastScoreboard) return
@@ -72,23 +114,31 @@ public class DefaultGameContextService(
     public fun reset() {
         lastScoreboard = ScoreboardSnapshot.Empty
         lastTabList = TabListSnapshot.Empty
+        authoritative = null
         update(GameContext.None.copy(isOnHypixel = context.isOnHypixel))
     }
 
     private fun recompute() {
         val scoreboard = ScoreboardParser.parse(lastScoreboard)
         val tabList = TabListParser.parse(lastTabList)
+        val fromServer = authoritative
 
-        val isInSkyBlock = scoreboard.isSkyBlock
+        // Hypixel's own answer wins where it has one. Scraping only decides whether we are
+        // in SkyBlock when nothing better has spoken.
+        val isInSkyBlock = fromServer?.isSkyBlock ?: scoreboard.isSkyBlock
         if (!isInSkyBlock) {
             update(GameContext.None.copy(isOnHypixel = context.isOnHypixel))
             return
         }
 
-        // Only the tab list names the island outright, so it is the sole source for that.
-        // Keeping the previous value when it says nothing is what stops the island
-        // blanking for the second between a server hop and the widget repopulating.
-        val island = tabList.island ?: context.island.takeIf { it.isRealIsland } ?: Island.UNKNOWN
+        // Only the tab list names the island among the scraped sources, so it is the sole
+        // fallback for that. Keeping the previous value when nothing says anything is what
+        // stops the island blanking for the second between a hop and the widget
+        // repopulating.
+        val island = fromServer?.island
+            ?: tabList.island
+            ?: context.island.takeIf { it.isRealIsland }
+            ?: Island.UNKNOWN
         val guestIsland = if (scoreboard.isGuest) island.guestVariant else island
 
         val next = GameContext(
@@ -96,14 +146,18 @@ public class DefaultGameContextService(
             isInSkyBlock = true,
             island = guestIsland,
             subLocation = scoreboard.subLocation ?: context.subLocation,
-            serverId = tabList.serverId ?: scoreboard.serverId ?: context.serverId,
+            serverId = fromServer?.serverId ?: tabList.serverId ?: scoreboard.serverId ?: context.serverId,
             profile = tabList.profile ?: context.profile,
             isGuest = scoreboard.isGuest,
-            confidence = confidenceOf(
-                hasIsland = tabList.island != null,
-                hasArea = scoreboard.subLocation != null,
-                hasProfile = tabList.profile != null,
-            ),
+            confidence = when {
+                // Nothing to corroborate when the answer came from the authority.
+                fromServer?.island != null -> ContextConfidence.CONFIRMED
+                else -> confidenceOf(
+                    hasIsland = tabList.island != null,
+                    hasArea = scoreboard.subLocation != null,
+                    hasProfile = tabList.profile != null,
+                )
+            },
         )
         update(next)
     }

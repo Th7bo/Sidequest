@@ -48,11 +48,18 @@ public object ScoreboardParser {
     /**
      * The area line, e.g. ` §7⏣ §bVillage` or ` §5ф §dWizard Tower`.
      *
-     * Matched on the *formatted* line, because the symbol is what identifies it and a
-     * cleaned line loses the colour codes that separate the symbol from the name. `⏣` is
-     * the overworld marker and `ф` is the Rift's.
+     * Matched on the *formatted* line: the shape — colour, symbol, space, colour, text —
+     * is what identifies it, and a cleaned line has lost the codes that give it that
+     * shape.
+     *
+     * **The symbol is matched as any single character, on purpose.** `⏣` for the
+     * overworld and `ф` for the Rift are what it has been, but Hypixel's texture pack has
+     * been moving symbols to private-use glyphs (`` for this one), and a hardcoded
+     * list stops matching the day they finish. Nothing else on the scoreboard has this
+     * shape, so the loose symbol costs no precision. Copied in spirit from SkyHanni, which
+     * matches it the same way for the same reason.
      */
-    private val AREA = Regex("""\s*§[0-9a-fk-or](?<symbol>[⏣ф]) §[0-9a-fk-or](?<area>.*)""")
+    private val AREA = Regex("""\s*§[0-9a-fk-orA-FK-OR](?<symbol>.) §[0-9a-fk-orA-FK-OR](?<area>.*)""")
 
     /** The server id, tucked on the end of the date line: `07/16/24 §7mini123A`. */
     private val SERVER_ID = Regex("""\d{2}/\d{2}/\d{2}\s+§[0-9a-fk-or](?<server>[\w]+)""")
@@ -119,11 +126,16 @@ public object TabListParser {
     /**
      * `Profile: Mango`, sometimes followed by a game-mode symbol.
      *
-     * The symbols mark Ironman, Bingo and Stranded profiles. They are not part of the
-     * name, and leaving them in would make the same profile read as two different ones
-     * depending on the mode.
+     * The symbols mark Ironman, Bingo and Stranded profiles — `♲ Ⓑ ☀` at the time of
+     * writing. They are not part of the name, and leaving one in would make the same
+     * profile read as two different ones depending on the mode.
+     *
+     * The name is captured as word characters and spaces rather than the trailer being
+     * matched as a fixed symbol set, so a symbol Hypixel changes or adds falls outside the
+     * capture instead of breaking the match. A profile name is `[A-Za-z]` in practice, so
+     * this gives up nothing.
      */
-    private val PROFILE = Regex("""Profile: (?<profile>[\w\s]+?)\s*[♲Ⓑ☀]*$""")
+    private val PROFILE = Regex("""Profile:\s*(?<profile>[\w][\w\s]*?)\s*\W*$""")
 
     public fun parse(snapshot: TabListSnapshot): TabListReading {
         if (snapshot.isEmpty) return TabListReading()

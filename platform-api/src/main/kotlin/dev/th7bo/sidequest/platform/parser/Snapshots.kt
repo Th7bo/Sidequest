@@ -65,12 +65,16 @@ public object HypixelText {
     private const val SECTION = '§'
 
     /**
-     * Removes formatting codes, invisible characters and repeated spaces.
+     * Removes formatting codes, genuinely invisible characters and repeated spaces.
      *
-     * Hypixel pads scoreboard lines with zero-width and other invisible characters to
-     * force unique scoreboard entries — two lines that look identical must differ, or the
-     * scoreboard drops one. Those characters are not part of the text and would otherwise
-     * appear in the middle of anything a pattern tries to match.
+     * **The private-use area is deliberately kept.** Hypixel's own texture pack replaced
+     * many symbols with private-use glyphs — `\uE067` is the scoreboard's area marker,
+     * `\uE010` is health — so they are content, not decoration. An earlier version of this
+     * stripped the whole range as "padding" and would have deleted every one of them,
+     * silently, leaving patterns that matched nothing.
+     *
+     * What is actually stripped is what occupies no space at all: zero-width characters
+     * and the non-breaking spaces Hypixel pads with.
      */
     public fun clean(text: String): String {
         val stripped = stripFormatting(text)
@@ -102,13 +106,11 @@ public object HypixelText {
     /**
      * Characters that occupy no visible space.
      *
-     * Kept as a predicate rather than a set because Hypixel's padding characters change:
-     * anything in the private-use area or a zero-width control is padding by definition,
-     * whichever one they pick next.
+     * Note what is *not* here: the private-use area. Those glyphs render as icons from
+     * Hypixel's texture pack and carry meaning. See [clean].
      */
     private fun isInvisible(character: Char): Boolean = when (character) {
         '\u00A0' -> true // non-breaking space
-        in '\uE000'..'\uF8FF' -> true // private use area, where the padding glyphs live
         '\u200B', '\u200C', '\u200D' -> true // zero-width space, non-joiner, joiner
         '\uFEFF' -> true // byte order mark
         else -> false
