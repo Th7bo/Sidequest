@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "sidequest-gametest",
+  "version": "1.0.0",
+  "name": "Sidequest Client Game Tests",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": [
+      {
+        "value": "dev.th7bo.sidequest.gametest.ConfigScreenRenderTest",
+        "adapter": "kotlin"
+      },
+      {
+        "value": "dev.th7bo.sidequest.gametest.HudRenderTest",
+        "adapter": "kotlin"
+      }
+    ]
+  },
+  "depends": {
+    "sidequest": "*"
+  }
+}
