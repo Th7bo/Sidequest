@@ -193,7 +193,10 @@ public class NotificationRegionNode(
             }
         }
 
-        val ordered = entries.map { entry ->
+        // Defensive: one node per id. The queue guarantees unique ids, and a duplicate
+        // here would add the same node twice and take down the render thread — too sharp
+        // an edge to leave to an invariant held somewhere else.
+        val ordered = entries.distinctBy { it.id }.map { entry ->
             toasts[entry.id] ?: ToastNode(id.child(entry.id.path), entry, componentContext)
                 .also { toasts[entry.id] = it }
         }

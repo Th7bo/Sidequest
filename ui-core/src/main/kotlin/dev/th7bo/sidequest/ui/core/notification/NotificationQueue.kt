@@ -63,7 +63,8 @@ public class NotificationQueue(
         UiThread.check()
 
         // Coalescing first: a repeat of something already showing must not consume a slot
-        // or restart the whole queue's ordering.
+        // or restart the whole queue's ordering, and it is the one case where a repeat
+        // carries meaning (the count) rather than merely being a duplicate.
         notification.coalesceKey?.let { key ->
             val existing = showingState.peek().firstOrNull {
                 !it.isDismissing && it.notification.coalesceKey == key
@@ -78,6 +79,17 @@ public class NotificationQueue(
             }
         }
 
+        // An id is the stable name of one notification, so two live entries cannot share
+        // one. Re-posting an id that is already showing restarts it rather than adding a
+        // second: duplicates make `dismiss(id)` ambiguous, and the region keys its nodes
+        // by id — two entries with one id mapped onto a single node and took down the
+        // render thread with "already has a parent".
+        showingState.peek().firstOrNull { it.id == notification.id }?.let { existing ->
+            existing.elapsedSeconds = 0f
+            bump()
+            return existing
+        }
+
         val current = showingState.peek()
         if (current.size < maxVisible) {
             showingState.value = insertByPriority(current, ActiveNotification(notification))
@@ -88,6 +100,10 @@ public class NotificationQueue(
             OverflowPolicy.QUEUE -> {
                 if (pending.size >= maxPending) {
                     droppedCount++
+                    null
+                } else if (pending.any { it.id == notification.id }) {
+                    // Already waiting; a second copy would surface as a duplicate the
+                    // moment a slot freed up.
                     null
                 } else {
                     pending.addLast(notification)

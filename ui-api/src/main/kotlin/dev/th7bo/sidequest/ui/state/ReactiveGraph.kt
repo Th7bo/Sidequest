@@ -81,7 +81,19 @@ internal object ReactiveGraph {
             }
             val current = pending.toList()
             pending.clear()
-            for (node in current) node.notifyListeners()
+
+            // One listener throwing must not cost every other listener its notification.
+            // `pending` is already cleared, so a bare loop would drop the rest of the wave
+            // permanently and leave the UI stale in ways impossible to trace back here.
+            var failure: Throwable? = null
+            for (node in current) {
+                try {
+                    node.notifyListeners()
+                } catch (thrown: Throwable) {
+                    if (failure == null) failure = thrown else failure.addSuppressed(thrown)
+                }
+            }
+            failure?.let { throw it }
         }
     }
 
