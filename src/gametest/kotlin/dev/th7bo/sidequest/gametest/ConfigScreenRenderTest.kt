@@ -5,8 +5,11 @@ import dev.th7bo.sidequest.SidequestGallery
 import dev.th7bo.sidequest.ui.components.KeybindControlNode
 import dev.th7bo.sidequest.ui.components.ListControlNode
 import dev.th7bo.sidequest.ui.components.TextAreaControlNode
+import dev.th7bo.sidequest.ui.components.TextFieldControlNode
 import dev.th7bo.sidequest.ui.core.component.MissingComponentNode
+import dev.th7bo.sidequest.ui.geometry.Vec2
 import dev.th7bo.sidequest.ui.input.Key
+import dev.th7bo.sidequest.ui.input.Modifiers
 import dev.th7bo.sidequest.ui.components.ColorControlNode
 import dev.th7bo.sidequest.ui.components.DropdownControlNode
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestConfigScreen
@@ -271,6 +274,76 @@ class ConfigScreenRenderTest : FabricClientGameTest {
         }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("gallery_text_area_typed")
+
+        // 8b. Caret navigation, against the real font — the caret's position comes from
+        //     text measurement, so a fake measurer proves nothing about where it lands.
+        onClient(context) {
+            val area = checkNotNull(findControl<TextAreaControlNode>(gallery)) { "No text area control" }
+            val runtime = checkNotNull(gallery.uiRuntime) { "No runtime" }
+
+            runtime.input.keyPressed(Key.HOME, Modifiers.Control)
+            check(area.caret == 0) { "Ctrl+Home left the caret at ${area.caret}" }
+            check(area.firstVisibleLine == 0) { "The view did not scroll back to the top" }
+
+            runtime.input.keyPressed(Key.END)
+            val firstLineEnd = area.caret
+            check(firstLineEnd > 0) { "End on the first line went nowhere" }
+
+            runtime.input.keyPressed(Key.ARROW_DOWN)
+            check(area.caret > firstLineEnd) { "Down did not reach the second line" }
+
+            runtime.input.keyPressed(Key.ARROW_UP)
+            check(area.caret == firstLineEnd) { "Up did not return to where Down started" }
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("gallery_text_area_caret")
+
+        onClient(context) {
+            val area = checkNotNull(findControl<TextAreaControlNode>(gallery)) { "No text area control" }
+            val runtime = checkNotNull(gallery.uiRuntime) { "No runtime" }
+
+            // Ctrl+Backspace from the end of a line takes the word before it, not a letter.
+            val before = area.text
+            runtime.input.keyPressed(Key.BACKSPACE, Modifiers.Control)
+            val removed = before.length - area.text.length
+            check(removed > 1) { "Ctrl+Backspace removed $removed character(s) from '$before'" }
+
+            // And a click lands the caret where it was clicked rather than at the end.
+            val bounds = area.absoluteBounds()
+            runtime.input.pointerPressed(Vec2(bounds.x + 6f, bounds.y + 6f))
+            check(area.caret < area.text.length) {
+                "Clicking near the start left the caret at the end (${area.caret})"
+            }
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("gallery_text_area_word_delete")
+
+        // 8c. The single-line field shares the same editor, so it gets the same caret and
+        //     the same word deletion. Only the drawing differs.
+        onClient(context) { gallery.controller?.search("Single-line") }
+        context.waitTicks(SETTLE_TICKS)
+
+        onClient(context) {
+            val field = checkNotNull(findControl<TextFieldControlNode>(gallery)) { "No text field" }
+            val runtime = checkNotNull(gallery.uiRuntime) { "No runtime" }
+
+            runtime.input.pointerPressed(field.absoluteBounds().center)
+            check(field.isEditing) { "Clicking the field did not start editing" }
+
+            runtime.input.keyPressed(Key.END)
+            for (character in " two words") runtime.input.charTyped(character.code)
+            check(field.text.endsWith("two words")) { "Typing did not land: '${field.text}'" }
+
+            runtime.input.keyPressed(Key.BACKSPACE, Modifiers.Control)
+            check(field.text.endsWith("two ")) {
+                "Ctrl+Backspace did not take the whole word: '${field.text}'"
+            }
+
+            runtime.input.keyPressed(Key.HOME)
+            check(field.caret == 0) { "Home left the caret at ${field.caret}" }
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("gallery_text_field_caret")
 
         onClient(context) { gallery.controller?.clearSearch() }
         context.waitTicks(SETTLE_TICKS)

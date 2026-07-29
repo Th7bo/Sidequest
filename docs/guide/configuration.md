@@ -69,7 +69,30 @@ textArea(id, "Notes", bind(config::notes), visibleLines = 4)
 ```
 
 A text area sizes to `visibleLines` rather than to its content, so the row does not jump
-around as you type. Enter inserts a newline; Escape stops editing.
+around as you type. Longer values scroll behind the box, and the view follows the caret.
+
+Both controls share one editor, so both take the same keys:
+
+| Key | Does |
+| --- | --- |
+| ← → | move one character |
+| Ctrl + ← → | move one word |
+| ↑ ↓ | move one line — text area only |
+| Home / End | start or end of the line |
+| Ctrl + Home / End | start or end of the whole value |
+| Backspace / Delete | remove one character, either side of the caret |
+| Ctrl + Backspace / Delete | remove a whole word |
+| Enter | inserts a newline — text area only |
+| Escape | stops editing |
+| click | places the caret where you clicked — text area only |
+
+The caret is drawn while editing and is **not** animated. A blinking caret would mean the
+screen never reaches an idle frame, and the idle-frame guarantee is worth more than the
+blink — see [performance](performance.md).
+
+A word ends at whitespace *or* punctuation, so Ctrl + ← walks a path one segment at a
+time rather than jumping the whole thing. A newline counts as whitespace, which is what
+makes Ctrl + Backspace at the start of a line join it to the one above.
 
 ### Dropdown
 

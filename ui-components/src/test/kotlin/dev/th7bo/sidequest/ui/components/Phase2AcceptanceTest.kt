@@ -451,6 +451,34 @@ class Phase2AcceptanceTest {
     }
 
     @Test
+    fun `a text field navigates and deletes by word`() {
+        harness = ConfigScreenHarness(buildScreen(toggleCount = 5))
+        harness.frame()
+
+        val field = harness.runtime.focus.focusOrder()
+            .filterIsInstance<TextFieldControlNode>()
+            .first()
+        harness.runtime.focus.requestFocus(field)
+        val setting = harness.controller.screen.typed<String>(id("general.name"))!!
+        setting.set("two words")
+        harness.frame()
+
+        harness.runtime.input.keyPressed(Key.END)
+        assertEquals(setting.value.length, field.caret)
+
+        // Ctrl+Backspace takes the whole word, the way it does outside the game.
+        harness.runtime.input.keyPressed(Key.BACKSPACE, dev.th7bo.sidequest.ui.input.Modifiers.Control)
+        assertEquals("two ", setting.value)
+
+        harness.runtime.input.keyPressed(Key.HOME)
+        assertEquals(0, field.caret)
+
+        harness.runtime.input.keyPressed(Key.DELETE)
+        assertEquals("wo ", setting.value, "Delete removes forwards without moving the caret")
+        assertEquals(0, field.caret)
+    }
+
+    @Test
     fun `escape clears focus`() {
         harness = ConfigScreenHarness(buildScreen(toggleCount = 5))
         harness.frame()

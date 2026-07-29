@@ -18,6 +18,7 @@ import dev.th7bo.sidequest.ui.extension.RegistrationScope
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.input.Key
+import dev.th7bo.sidequest.ui.input.Modifiers
 import dev.th7bo.sidequest.ui.state.constantState
 import dev.th7bo.sidequest.ui.state.mutableStateOf
 import dev.th7bo.sidequest.ui.state.resetReactiveGraphForTesting
@@ -128,9 +129,11 @@ class Phase7AcceptanceTest {
         for (character in text) runtime.input.charTyped(character.code)
     }
 
-    private fun press(key: Key) {
-        runtime.input.keyPressed(key)
+    private fun press(key: Key, modifiers: Modifiers = Modifiers.None) {
+        runtime.input.keyPressed(key, modifiers)
     }
+
+    private fun ctrl(key: Key) = press(key, Modifiers.Control)
 
     /** Walks a subtree looking for a node of a given type. */
     private inline fun <reified T> find(root: UiNode): T? {
@@ -238,6 +241,89 @@ class Phase7AcceptanceTest {
             drawn.any { it == "one\ntwo\nthree" },
             "expected all three lines to be drawn, got $drawn",
         )
+    }
+
+    @Test
+    fun `the arrow keys move the caret between lines`() {
+        val setting = textArea(initial = "alpha\nbet\ngamma", visibleLines = 3)
+        val control = focused(TextAreaControlNode(setting, context))
+        press(Key.SPACE)
+
+        // Starts at the end, on "gamma".
+        assertEquals(setting.value.length, control.caret)
+
+        press(Key.ARROW_UP)
+        assertEquals(1, TextEditing.lineIndexOf(setting.value, control.caret))
+
+        press(Key.ARROW_UP)
+        assertEquals(0, TextEditing.lineIndexOf(setting.value, control.caret))
+
+        press(Key.ARROW_DOWN)
+        press(Key.ARROW_DOWN)
+        assertEquals(2, TextEditing.lineIndexOf(setting.value, control.caret))
+    }
+
+    @Test
+    fun `typing goes in at the caret rather than at the end`() {
+        val setting = textArea(initial = "alpha\ngamma")
+        val control = focused(TextAreaControlNode(setting, context))
+        press(Key.SPACE)
+
+        press(Key.ARROW_UP)
+        press(Key.HOME)
+        type("X")
+
+        assertEquals("Xalpha\ngamma", setting.value)
+        assertEquals(1, control.caret)
+    }
+
+    @Test
+    fun `ctrl backspace deletes a word in the text area`() {
+        val setting = textArea(initial = "delete this word")
+        focused(TextAreaControlNode(setting, context))
+        press(Key.SPACE)
+
+        ctrl(Key.BACKSPACE)
+        assertEquals("delete this ", setting.value)
+
+        ctrl(Key.BACKSPACE)
+        assertEquals("delete ", setting.value)
+    }
+
+    @Test
+    fun `the caret is drawn only while editing`() {
+        val setting = textArea(initial = "abc")
+        val control = focused(TextAreaControlNode(setting, context))
+        runtime.root = control
+        frame()
+
+        val bounds = control.absoluteBounds()
+        fun caretDrawn() = renderer.commandsOfType<dev.th7bo.sidequest.ui.testkit.DrawCommand.FillRect>()
+            .any { it.bounds.width <= 2f && it.bounds.height > 0f && it.bounds.x >= bounds.x }
+
+        assertFalse(caretDrawn(), "an idle field must not draw a caret")
+
+        press(Key.SPACE)
+        frame()
+        assertTrue(control.isEditing)
+        assertTrue(caretDrawn(), "an editing field must show where typing will land")
+    }
+
+    @Test
+    fun `the view scrolls to keep the caret's line visible`() {
+        val setting = textArea(initial = (1..8).joinToString("\n") { "line $it" }, visibleLines = 3)
+        val control = focused(TextAreaControlNode(setting, context))
+        frame()
+
+        // The caret starts at the end, so the last lines are what is on screen.
+        assertTrue(control.firstVisibleLine > 0, "the end of a long value must be in view")
+
+        // Arrow keys only steer the caret while editing; unfocused they belong to whatever
+        // else wants them.
+        press(Key.SPACE)
+        repeat(20) { press(Key.ARROW_UP) }
+        frame()
+        assertEquals(0, control.firstVisibleLine, "moving back to the top scrolls back")
     }
 
     @Test

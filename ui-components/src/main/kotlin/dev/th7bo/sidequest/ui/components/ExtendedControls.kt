@@ -22,6 +22,7 @@ import dev.th7bo.sidequest.ui.input.Key
 import dev.th7bo.sidequest.ui.input.KeyDownEvent
 import dev.th7bo.sidequest.ui.input.PointerDownEvent
 import dev.th7bo.sidequest.ui.rendering.Corners
+import dev.th7bo.sidequest.ui.rendering.TextMeasurer
 import dev.th7bo.sidequest.ui.rendering.TextOverflow
 import dev.th7bo.sidequest.ui.rendering.TextRole
 import dev.th7bo.sidequest.ui.rendering.TextStyle
@@ -43,9 +44,15 @@ public class TextAreaControlNode(
     context: ComponentContext,
 ) : ControlNode<String>(area, context, "text_area") {
 
+    private val editor = TextEditor(
+        text = { area.value },
+        maxLength = { area.maxLength },
+        commit = { area.setUnchecked(it); true },
+        isMultiline = true,
+    )
+
     /** Caret index within the value. Runtime state, never persisted. */
-    public var caret: Int = area.value.length
-        private set
+    public val caret: Int get() = editor.caret
 
     public var isEditing: Boolean = false
         private set
@@ -57,43 +64,151 @@ public class TextAreaControlNode(
         },
         TextRole.BODY,
     ).apply {
-        maxLines = area.visibleLines
-        // Wrapping, not ellipsis: a line too long for the box belongs on the next line in
-        // a text area. Overflow past the declared line count is still truncated.
+        // Every line is laid out, not just the visible ones; the control clips and scrolls
+        // to keep the caret's line on screen. Limiting the layout here instead would make
+        // a caret past the fold impossible to place.
+        maxLines = MAX_LAID_OUT_LINES
+        // Wrapping, not ellipsis: a line too long for the box belongs on the next line.
         overflow = TextOverflow.WRAP
     }
 
+    // -- caret geometry, computed during layout ------------------------------
+
+    /** Visual line the caret sits on, counting wrapped lines separately. */
+    private var caretLine: Int = 0
+
+    /** Caret offset from the left edge of the text, in logical units. */
+    private var caretX: Float = 0f
+
+    private var lineHeight: Float = 0f
+
+    /** First visual line drawn. Advances so the caret stays inside the box. */
+    private var scrollLine: Int = 0
+
+    /** Start offset of each visual line, so a click can be turned into a caret index. */
+    private var lineStarts: List<Int> = listOf(0)
+
+    /** End offset of each visual line, excluding the separator the wrapper consumed. */
+    private var lineEnds: List<Int> = listOf(0)
+
+    /**
+     * The measurer from the last layout pass.
+     *
+     * Held because placing the caret from a click needs to measure text, and input is
+     * dispatched outside a layout pass where no [LayoutContext] exists. A node that has
+     * never been laid out cannot be clicked, so this is set by the time it is read.
+     */
+    private var measurer: TextMeasurer? = null
+
+    /**
+     * The window the text scrolls behind.
+     *
+     * A separate node because the clip has to be the *inner* rectangle: clipping to the
+     * control's own bounds instead lets the first line past the fold show through the
+     * bottom padding, which looks like a rendering glitch rather than a scroll position.
+     */
+    private val window = ClippedWindowNode(area.id.child("window")).apply { addChild(display) }
+
     init {
-        addChild(display)
+        addChild(window)
         area.onChange(scope) {
-            caret = caret.coerceAtMost(it.length)
-            invalidatePaint()
+            editor.clampToText()
+            invalidateMeasure()
         }
     }
 
     /** Line count of the current value, for assertions. */
-    public val lineCount: Int get() = area.value.count { it == '\n' } + 1
+    public val lineCount: Int get() = TextEditing.lineCountOf(area.value)
 
     /** The current value, for assertions. */
     public val text: String get() = area.value
 
+    /** First visual line on screen. Exposed so scrolling can be asserted. */
+    public val firstVisibleLine: Int get() = scrollLine
+
     override fun activate() {
         isEditing = !isEditing
-        invalidatePaint()
+        invalidateMeasure()
     }
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        measurer = context.textMeasurer
+
+        val style = context.theme.textStyle(TextRole.BODY)
         val width = constraints.maxWidth.coerceAtMost(MAX_WIDTH)
-        display.measure(Constraints(maxWidth = width - padding * 2, maxHeight = constraints.maxHeight), context)
+        val inner = width - padding * 2
+
+        lineHeight = context.textMeasurer.lineHeight(style)
+        val innerHeight = lineHeight * area.visibleLines
+
+        window.measure(Constraints(inner, inner, innerHeight, innerHeight), context)
+        updateCaretGeometry(context.textMeasurer, style, inner)
+
+        // Scrolled by translating the whole text block behind the window, rather than by
+        // laying out a slice of lines: one layout, and the caret's coordinates stay in the
+        // same space as the text's.
+        window.contentOffset = Vec2(0f, -scrollLine * lineHeight)
 
         // Sized to the declared visible line count rather than to the content, so the
         // row's height does not jump around as the value is typed.
-        val lineHeight = context.textMeasurer.lineHeight(TextStyle.Default)
-        return Size(width, lineHeight * area.visibleLines + padding * 2)
+        return Size(width, innerHeight + padding * 2)
     }
 
     override fun arrangeChildren(context: LayoutContext) {
-        display.arrange(Rect.of(Vec2(padding, padding), display.measuredSize), context)
+        window.arrange(Rect.of(Vec2(padding, padding), window.measuredSize), context)
+    }
+
+    /**
+     * Locates the caret in the wrapped layout and scrolls it into view.
+     *
+     * Offsets are recovered from the layout's own lines rather than by re-wrapping the
+     * prefix: the wrapper drops the separator it broke on, so consuming each line's
+     * content and then one separator reproduces exactly where each visual line starts.
+     * Measuring the prefix instead would disagree with the real layout whenever the word
+     * under the caret happens to fit on the previous line on its own.
+     */
+    private fun updateCaretGeometry(measurer: TextMeasurer, style: TextStyle, innerWidth: Float) {
+        val value = area.value
+        val layout = measurer.measure(value, style, innerWidth, MAX_LAID_OUT_LINES, TextOverflow.WRAP)
+
+        val starts = ArrayList<Int>(layout.lines.size)
+        val ends = ArrayList<Int>(layout.lines.size)
+        var offset = 0
+        for (line in layout.lines) {
+            starts.add(offset)
+            offset += line.content.length
+            // The end of the *text* on this line, before the separator the wrapper
+            // swallowed. A click past the last glyph belongs here, not after the newline.
+            ends.add(offset)
+            if (offset < value.length && (value[offset] == ' ' || value[offset] == '\n')) offset++
+        }
+        if (starts.isEmpty()) {
+            starts.add(0)
+            ends.add(0)
+        }
+        lineStarts = starts
+        lineEnds = ends
+
+        val caret = editor.caret
+        var index = starts.indexOfLast { it <= caret }
+        if (index < 0) index = 0
+        caretLine = index
+
+        val lineStart = starts[index]
+        caretX = if (caret > lineStart) {
+            measurer.measure(value.substring(lineStart, caret), style, null, 1, TextOverflow.CLIP)
+                .size.width
+                .coerceAtMost(innerWidth)
+        } else {
+            0f
+        }
+
+        // Keep the caret's line inside the window, and never scroll past the last line.
+        val lastPossible = max(0, starts.size - area.visibleLines)
+        scrollLine = scrollLine
+            .coerceAtMost(caretLine)
+            .coerceAtLeast(caretLine - area.visibleLines + 1)
+            .coerceIn(0, lastPossible)
     }
 
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
@@ -108,6 +223,23 @@ public class TextAreaControlNode(
             if (isEditing) palette.accent else palette.border,
         )
         context.diagnostics.drawCalls += 2
+
+        if (!isEditing) return
+
+        // Solid, not blinking. A blink would mean the screen never reaches an idle frame,
+        // and the idle-frame guarantee is worth more than the animation.
+        val row = caretLine - scrollLine
+        if (row < 0 || row >= area.visibleLines) return
+        renderer.fillRect(
+            Rect(
+                bounds.x + padding + caretX,
+                bounds.y + padding + row * lineHeight,
+                tokens.metrics.focusRingWidth.value,
+                lineHeight,
+            ),
+            palette.accent,
+        )
+        context.diagnostics.drawCalls++
     }
 
     override fun onInputEvent(event: InputEvent) {
@@ -116,34 +248,49 @@ public class TextAreaControlNode(
         // editing off instead of inserting — so the order here is the difference between
         // a working text area and one you cannot type a newline into.
         if (!isEditing) {
+            if (event is PointerDownEvent && event.phase == EventPhase.TARGET && isEnabled) {
+                // Start editing *and* land the caret where the click was, rather than
+                // dropping it at the end and making the user arrow back.
+                placeCaretAt(event.position)
+            }
             super.onInputEvent(event)
             return
         }
 
         when (event) {
             is CharTypedEvent -> {
-                insert(event.char.toString())
+                editor.insert(event.char.toString())
+                invalidateMeasure()
                 event.consume()
             }
 
-            is KeyDownEvent -> when (event.key) {
+            is PointerDownEvent -> {
+                if (event.phase == EventPhase.TARGET) {
+                    placeCaretAt(event.position)
+                    invalidateMeasure()
+                    event.consume()
+                }
+            }
+
+            is KeyDownEvent -> when {
                 // The one thing a text area has that a text field does not.
-                Key.ENTER -> {
-                    insert("\n")
+                event.key == Key.ENTER -> {
+                    editor.insert("\n")
+                    invalidateMeasure()
                     event.consume()
                 }
-                Key.BACKSPACE -> {
-                    if (caret > 0) {
-                        val next = StringBuilder(area.value).deleteCharAt(caret - 1).toString()
-                        caret--
-                        area.setUnchecked(next)
-                    }
-                    event.consume()
-                }
-                Key.ESCAPE -> {
+
+                event.key == Key.ESCAPE -> {
                     isEditing = false
+                    invalidatePaint()
                     event.consume()
                 }
+
+                editor.handleKey(event.key, event.modifiers) -> {
+                    invalidateMeasure()
+                    event.consume()
+                }
+
                 else -> Unit
             }
 
@@ -151,18 +298,82 @@ public class TextAreaControlNode(
         }
     }
 
-    private fun insert(text: String) {
-        val current = area.value
-        if (current.length + text.length > area.maxLength) return
-        val next = StringBuilder(current).insert(caret, text).toString()
-        caret += text.length
-        area.setUnchecked(next)
+    /** Turns a click in this control's local space into a caret offset. */
+    private fun placeCaretAt(local: Vec2) {
+        val measurer = this.measurer ?: return
+        val value = area.value
+        if (value.isEmpty()) {
+            editor.moveTo(0)
+            return
+        }
+
+        val row = ((local.y - padding) / lineHeight).toInt().coerceAtLeast(0)
+        val line = (scrollLine + row).coerceIn(0, lineStarts.lastIndex)
+        val start = lineStarts[line]
+        val end = lineEnds[line]
+
+        // Walk the line one character at a time and stop at the gap nearest the click.
+        // Lines here are at most a couple of hundred logical units wide and the measurer
+        // caches, so a scan is cheaper than the machinery a binary search would need.
+        val style = componentContext.theme.textStyle(TextRole.BODY)
+        val targetX = local.x - padding
+        var best = start
+        var bestDistance = Float.MAX_VALUE
+        for (offset in start..end) {
+            val width = if (offset > start) {
+                measurer.measure(value.substring(start, offset), style, null, 1, TextOverflow.CLIP).size.width
+            } else {
+                0f
+            }
+            val distance = kotlin.math.abs(width - targetX)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = offset
+            }
+        }
+        editor.moveTo(best.coerceAtMost(value.length))
     }
 
     private val padding: Float get() = tokens.spacing.small.value
 
+    /**
+     * A fixed-size hole its child is drawn through, at an offset the parent controls.
+     *
+     * Exactly the size it is given, so the clip is the text box's interior rather than
+     * anything the child measured, and the child keeps its full height so lines scrolled
+     * out of view are still laid out and can be scrolled back to.
+     */
+    private class ClippedWindowNode(id: UiId) : UiNode(id) {
+
+        override val clipsChildren: Boolean get() = true
+
+        /** Where the content sits relative to the window's top-left. */
+        var contentOffset: Vec2 = Vec2.Zero
+            set(value) {
+                if (field == value) return
+                field = value
+                invalidateArrange()
+            }
+
+        override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+            children.firstOrNull()?.measure(Constraints(maxWidth = constraints.maxWidth), context)
+            return Size(constraints.maxWidth, constraints.maxHeight)
+        }
+
+        override fun arrangeChildren(context: LayoutContext) {
+            val child = children.firstOrNull() ?: return
+            child.arrange(Rect.of(contentOffset, child.measuredSize), context)
+        }
+    }
+
     private companion object {
         const val MAX_WIDTH = 220f
+
+        /**
+         * Cap on laid-out lines. Generous enough that no realistic setting reaches it, and
+         * finite so a pathological value cannot lay out unboundedly.
+         */
+        const val MAX_LAID_OUT_LINES = 512
     }
 }
 

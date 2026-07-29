@@ -686,18 +686,33 @@ public class TextFieldControlNode(
         TextRole.BODY,
     )
 
+    private val editor = TextEditor(
+        text = { field.value },
+        maxLength = { field.maxLength },
+        // Through `set`, so validation still runs and a refused value leaves the caret
+        // where it was rather than sliding past a character that was never inserted.
+        commit = { field.set(it).isValid },
+        isMultiline = false,
+    )
+
     /** Caret index within the value. Runtime state, never persisted. */
-    public var caret: Int = field.value.length
-        private set
+    public val caret: Int get() = editor.caret
+
+    /** The current value, for assertions. Via [setting]: `field` is taken inside a getter. */
+    public val text: String get() = setting.value
 
     public var isEditing: Boolean = false
         private set
 
+    /** Caret offset from the text's left edge, measured during layout. */
+    private var caretX: Float = 0f
+    private var lineHeight: Float = 0f
+
     init {
         addChild(display)
         field.onChange(scope) {
-            caret = caret.coerceAtMost(it.length)
-            invalidatePaint()
+            editor.clampToText()
+            invalidateMeasure()
         }
     }
 
@@ -709,22 +724,19 @@ public class TextFieldControlNode(
     /** Applies a text edit through the setting, so validation still runs. */
     public fun insert(text: String) {
         if (!isEnabled) return
-        val current = field.value
-        if (current.length + text.length > field.maxLength) return
-        val next = current.substring(0, caret) + text + current.substring(caret)
-        if (field.set(next).isValid) caret += text.length
+        editor.insert(text)
+        invalidateMeasure()
     }
 
     public fun backspace() {
-        if (!isEnabled || caret == 0) return
-        val current = field.value
-        val next = current.substring(0, caret - 1) + current.substring(caret)
-        if (field.set(next).isValid) caret--
+        if (!isEnabled) return
+        editor.backspace(word = false)
+        invalidateMeasure()
     }
 
     public fun moveCaret(delta: Int) {
-        caret = (caret + delta).coerceIn(0, field.value.length)
-        invalidatePaint()
+        editor.moveTo(editor.caret + delta)
+        invalidateMeasure()
     }
 
     override fun onInputEvent(event: InputEvent) {
@@ -735,23 +747,15 @@ public class TextFieldControlNode(
                     event.consume()
                     return
                 }
-                event is KeyDownEvent && event.key == Key.BACKSPACE -> {
-                    backspace()
-                    event.consume()
-                    return
-                }
-                event is KeyDownEvent && event.key == Key.ARROW_LEFT -> {
-                    moveCaret(-1)
-                    event.consume()
-                    return
-                }
-                event is KeyDownEvent && event.key == Key.ARROW_RIGHT -> {
-                    moveCaret(1)
-                    event.consume()
-                    return
-                }
                 event is KeyDownEvent && event.key == Key.ESCAPE && isEditing -> {
                     isEditing = false
+                    event.consume()
+                    return
+                }
+                // Everything else navigational or deleting — including Ctrl+arrow,
+                // Ctrl+Backspace, Delete, Home and End — is the shared editor's job.
+                event is KeyDownEvent && editor.handleKey(event.key, event.modifiers) -> {
+                    invalidateMeasure()
                     event.consume()
                     return
                 }
@@ -761,8 +765,34 @@ public class TextFieldControlNode(
     }
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
-        display.measure(Constraints(maxWidth = FIELD_WIDTH - tokens.spacing.medium.value * 2), context)
+        val inner = FIELD_WIDTH - tokens.spacing.medium.value * 2
+        display.measure(Constraints(maxWidth = inner), context)
+
+        val style = context.theme.textStyle(TextRole.BODY)
+        lineHeight = context.textMeasurer.lineHeight(style)
+        caretX = caretOffset(context, style, inner)
+
         return Size(FIELD_WIDTH, tokens.metrics.controlHeight.value)
+    }
+
+    /**
+     * Where to draw the caret.
+     *
+     * Measured against what is *shown*, so the caret stays under the dots of a masked
+     * field instead of tracking the hidden characters, whose widths differ.
+     */
+    private fun caretOffset(
+        context: LayoutContext,
+        style: dev.th7bo.sidequest.ui.rendering.TextStyle,
+        innerWidth: Float,
+    ): Float {
+        val caret = editor.caret
+        if (caret <= 0 || field.value.isEmpty()) return 0f
+        val shown = if (field.isMasked) "•".repeat(caret) else field.value.take(caret)
+        val width = context.textMeasurer
+            .measure(shown, style, null, 1, dev.th7bo.sidequest.ui.rendering.TextOverflow.CLIP)
+            .size.width
+        return width.coerceAtMost(innerWidth)
     }
 
     override fun arrangeChildren(context: LayoutContext) {
@@ -798,6 +828,21 @@ public class TextFieldControlNode(
             field.value.isEmpty() -> palette.textDisabled
             else -> palette.textPrimary
         }
+
+        if (!isEditing || !isEnabled) return
+
+        // Solid, not blinking: a blinking caret means the screen never reaches an idle
+        // frame, and that guarantee is worth more than the animation.
+        renderer.fillRect(
+            Rect(
+                bounds.x + tokens.spacing.medium.value + caretX,
+                bounds.y + (bounds.height - lineHeight) / 2f,
+                tokens.metrics.focusRingWidth.value,
+                lineHeight,
+            ),
+            palette.accent,
+        )
+        context.diagnostics.drawCalls++
     }
 
     private companion object {
