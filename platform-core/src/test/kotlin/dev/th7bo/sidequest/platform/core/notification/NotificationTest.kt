@@ -326,4 +326,45 @@ class NotificationTest {
         assertEquals(50, queued.size)
         assertFalse(queued.any { it.id == "n0" }) { "the oldest should have gone" }
     }
+
+    /**
+     * An action stays runnable after the toast has gone.
+     *
+     * The whole reason actions are offered in chat: a toast lasts five seconds, and somebody who was looking
+     * at their inventory when it appeared should still be able to act on it. If `choose` only worked while the
+     * toast was on screen, the chat line would be a button that does nothing most of the time.
+     */
+    @Test
+    fun `an action still runs after the notification has timed out`() {
+        var chosen = false
+        manager.notify(
+            drop().copy(actions = listOf(NotificationAction("accept", "Accept") { chosen = true })),
+        )
+
+        // The UI takes the toast down on its own; nothing tells the manager.
+        clock += 60_000
+
+        manager.choose("n1", "accept")
+        assertTrue(chosen)
+    }
+
+    /**
+     * The runnable set is bounded.
+     *
+     * A toast that times out is dismissed by the UI and never tells the manager, so nothing removed it. This
+     * grew for every notification ever shown over a session before it was bounded.
+     */
+    @Test
+    fun `only recent notifications keep their actions runnable`() {
+        var oldRan = false
+        manager.notify(
+            drop(id = "old").copy(actions = listOf(NotificationAction("go", "Go") { oldRan = true })),
+        )
+        repeat(80) { index -> manager.notify(drop(id = "filler$index")) }
+
+        manager.choose("old", "go")
+
+        assertFalse(oldRan) { "an action from eighty notifications ago should have been let go" }
+        assertTrue(manager.history().size <= 200)
+    }
 }

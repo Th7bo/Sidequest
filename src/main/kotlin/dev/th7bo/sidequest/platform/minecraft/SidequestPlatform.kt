@@ -2,6 +2,7 @@ package dev.th7bo.sidequest.platform.minecraft
 
 import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.command.CommandRegistry
+import dev.th7bo.sidequest.platform.command.CommandSpec
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.core.backend.DefaultBackendClient
 import dev.th7bo.sidequest.platform.core.backend.DefaultRealtimeClient
@@ -315,6 +316,27 @@ class SidequestPlatform(
         // The local player's name is needed to tell the player's own public message from a
         // system line shaped like one, and it is not known yet at this point — hence the
         // supplier rather than a value.
+        // Registered by the platform rather than by a feature: a notification's actions have to work whatever
+        // is switched on, and the notification manager is the platform's.
+        adapterScope.add(
+            commands.register(
+                OwnerId.PLATFORM,
+                CommandSpec(
+                    name = ACTION_COMMAND,
+                    description = "Runs a notification action",
+                    // Not for typing. It exists so a chat component has something to click.
+                    isHidden = true,
+                    handler = { arguments ->
+                        if (arguments.size < 2) {
+                            log.debug { "$ACTION_COMMAND needs a notification id and an action id" }
+                        } else {
+                            notificationManager.choose(arguments[0], arguments[1])
+                        }
+                    },
+                ),
+            ),
+        )
+
         partyService.install()
         adapterScope.add(chatParser.registerAll(HypixelChatRules.all { minecraftClient.localPlayerName }, OwnerId.PLATFORM))
         val fixtureFailures = chatParser.verifyFixtures()

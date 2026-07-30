@@ -60,6 +60,38 @@ class DeveloperToolsTest : FabricClientGameTest {
                 check(history.isNotEmpty()) { "no notification survived /sqtest notify" }
             }
 
+            /*
+             * The action path, end to end.
+             *
+             * A HUD toast cannot be clicked — nothing delivers input to the live HUD and the cursor is grabbed
+             * during play — so actions are offered as a clickable chat line running a hidden client command.
+             * This drives that command the way the chat click does and checks the action actually ran.
+             */
+            context.runOnClient<RuntimeException> {
+                var ran = false
+                val withAction = dev.th7bo.sidequest.platform.core.notification.notification(
+                    category = dev.th7bo.sidequest.platform.notification.NotificationCategory.ALERT,
+                    title = "Gametest action",
+                    priority = dev.th7bo.sidequest.platform.notification.NotificationPriority.URGENT,
+                    id = "gametest-action",
+                ).copy(
+                    actions = listOf(
+                        dev.th7bo.sidequest.platform.notification.NotificationAction("go", "Go") { ran = true },
+                    ),
+                )
+                Sidequest.platform.notifications.notify(withAction)
+
+                val action = checkNotNull(Sidequest.platform.commands["sqaction"]) {
+                    "/sqaction is not registered, so a notification's chat action would do nothing"
+                }
+                action.spec.handler(listOf("gametest-action", "go"))
+                check(ran) { "the notification action did not run" }
+
+                // And a click on something that has gone must not throw.
+                action.spec.handler(listOf("no-such-notification", "go"))
+                action.spec.handler(listOf("gametest-action"))
+            }
+
             // Log levels are settable at runtime, which is the difference between a debug line that is written
             // and one that is ever read.
             context.runOnClient<RuntimeException> {

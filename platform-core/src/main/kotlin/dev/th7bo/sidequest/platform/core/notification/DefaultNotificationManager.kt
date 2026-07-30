@@ -46,8 +46,14 @@ public class DefaultNotificationManager(
     /** Dedupe key to when it was last shown. Pruned as it is read; nothing sweeps it. */
     private val lastSeenByKey = HashMap<String, Long>()
 
-    /** Live notifications, for [dismiss] and [choose]. */
-    private val live = HashMap<String, Notification>()
+    /**
+     * Notifications whose actions can still be run, oldest first.
+     *
+     * Bounded, and that is a fix rather than a precaution: a toast that times out is dismissed by the UI and
+     * never tells the manager, so nothing removed it. Over a long session this grew for every notification
+     * ever shown. The bound is generous enough that a chat action offered a few minutes ago still works.
+     */
+    private val live = LinkedHashMap<String, Notification>()
 
     public fun update(settings: NotificationSettings) {
         val wasSerious = this.settings.seriousMode
@@ -131,6 +137,7 @@ public class DefaultNotificationManager(
         }
 
         live[notification.id] = notification
+        while (live.size > LIVE_LIMIT) live.remove(live.keys.first())
         shown.addFirst(notification)
         while (shown.size > HISTORY_LIMIT) shown.removeLast()
         return notification.delivery
@@ -221,6 +228,9 @@ public class DefaultNotificationManager(
 
     private companion object {
         const val HISTORY_LIMIT = 200
+
+        /** How many notifications keep their actions runnable. See [live]. */
+        const val LIVE_LIMIT = 64
         const val QUEUE_LIMIT = 50
         const val DEDUPE_KEYS_LIMIT = 500
 

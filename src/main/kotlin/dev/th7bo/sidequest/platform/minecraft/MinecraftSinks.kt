@@ -5,6 +5,10 @@ import dev.th7bo.sidequest.platform.audio.SoundSink
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.notification.NotificationPriority
 import dev.th7bo.sidequest.platform.skyblock.SqPosition
+import dev.th7bo.sidequest.platform.text.ClickAction
+import dev.th7bo.sidequest.platform.text.ClickActionType
+import dev.th7bo.sidequest.platform.text.SqStyle
+import dev.th7bo.sidequest.platform.text.SqText
 import dev.th7bo.sidequest.ui.core.notification.NotificationQueue
 import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.state.mutableStateOf
@@ -77,11 +81,49 @@ class MinecraftNotificationSink(
                 // deduplication. Handing the grouping key over lets the UI count repeats without the two
                 // layers disagreeing about which notifications are the same.
                 coalesceKey = notification.groupingKey,
-                onActivate = notification.actions.firstOrNull()?.let { action ->
-                    { Sidequest.platform.notifications.choose(notification.id, action.id) }
-                },
+                /*
+                 * Deliberately not interactive, however tempting it looks.
+                 *
+                 * `NotificationRegionNode` does handle a pointer press — but nothing delivers input to the
+                 * *live* HUD, and during gameplay the cursor is grabbed, so there is no pointer to click with.
+                 * A click would swing the player's sword. Setting this would mark the toast interactive and
+                 * make it hover and highlight as though it could be pressed, which is worse than plain: it
+                 * would look broken rather than look like a message.
+                 *
+                 * Actions are offered in chat instead, where a click genuinely works. See `offerActions`.
+                 */
+                onActivate = null,
             ),
         )
+
+        if (notification.actions.isNotEmpty()) offerActions(notification)
+    }
+
+    /**
+     * Puts a notification's actions somewhere they can actually be pressed.
+     *
+     * Chat, with a click event per action running a hidden client command. It is the only surface in the game
+     * that is clickable while the cursor is grabbed, it persists so a player who was looking elsewhere can
+     * still act, and the whole path already exists — `SqText` carries a click action and the command bridge
+     * registers real Fabric client commands, so the click is intercepted client-side rather than sent to
+     * Hypixel.
+     */
+    private fun offerActions(notification: SqNotification) {
+        val parts = mutableListOf(
+            SqText.of(notification.title + " ", SqStyle(color = ACCENT, bold = true)),
+        )
+        for (action in notification.actions) {
+            parts.add(
+                SqText.of("[" + action.label + "] ", SqStyle(color = ACTION, underlined = true))
+                    .copy(
+                        clickAction = ClickAction(
+                            ClickActionType.RUN_COMMAND,
+                            "/" + ACTION_COMMAND + " " + notification.id + " " + action.id,
+                        ),
+                    ),
+            )
+        }
+        Sidequest.platform.client.sendClientMessage(SqText.join(*parts.toTypedArray()))
     }
 
     override fun inbox(notification: SqNotification) {
@@ -127,8 +169,19 @@ class MinecraftNotificationSink(
 
     private companion object {
         const val INBOX_LIMIT = 200
+        const val ACCENT = 0xA78BFA
+        const val ACTION = 0x60A5FA
     }
 }
+
+/**
+ * The command a notification's chat action runs.
+ *
+ * Hidden, because it is not for typing — it exists so a chat component has something to click. Named here
+ * rather than in two places so the sink and the platform cannot disagree about it.
+ */
+const val ACTION_COMMAND: String = "sqaction"
+
 
 /**
  * Plays sounds through Minecraft.

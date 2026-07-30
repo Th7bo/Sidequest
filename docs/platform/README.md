@@ -754,6 +754,25 @@ Island and activity changes are at `INFO` and always on. The activity line carri
 wrong activity is the most likely thing to be reported and "what made you think that" is the only useful
 first question.
 
+### Notification actions are offered in chat, not on the toast
+
+A HUD toast **cannot be clicked**, and this is not a missing wire. Nothing delivers input to the live HUD
+layer, and during gameplay the cursor is grabbed — there is no pointer, and a click swings the player's sword.
+`NotificationRegionNode` does handle a pointer press, which is what makes this easy to get wrong: the code
+looks connected.
+
+So a notification with actions also produces a chat line with one clickable label per action, running a hidden
+`/sqaction` client command. Chat is the only surface that is clickable while the cursor is grabbed, it persists
+so somebody who was looking at their inventory can still act, and the whole path already existed — `SqText`
+carries a click action and the commands are real Fabric client commands, so the click is intercepted
+client-side rather than sent to Hypixel.
+
+The toast is left explicitly non-interactive. Marking it interactive would make it hover and highlight as
+though it could be pressed, which is worse than plain: it would look broken rather than look like a message.
+
+`/sqaction` is registered by the *platform*, not by a feature, because a notification's actions have to work
+whatever is switched on.
+
 ### Two bugs the in-game test caught
 
 `DeveloperToolsTest` drives every one of these commands on a real client, and found two failures that no
