@@ -49,6 +49,73 @@ secret and a secret in a file ends up in a backup, a screenshot or a git reposit
 shipped with the same credential. Unset is a supported state: pairing is then disabled, which is correct
 for a server whose group is already set up — a credential that is not present cannot be stolen.
 
+## Deploying it
+
+There is a `Dockerfile` and a `docker-compose.yml` at the repository root. The image runs as a non-root
+user, holds a JRE and the distribution only, and is about 300 MB.
+
+### Dokploy, Coolify, or anything that builds a Dockerfile
+
+Point the application at this repository with build type **Dockerfile** and the path `./Dockerfile`. Then
+three things, and the first two are not optional:
+
+1. **A persistent volume mounted at `/data`.** Everything the group has ever done is one file in there.
+   Without a volume a redeploy is a factory reset, and the first anybody knows about it is when their
+   debts are gone.
+2. **`SIDEQUEST_OPERATOR_TOKEN`**, set to a long random string:
+   `head -c 32 /dev/urandom | base64`. Without it pairing is disabled and no device can be approved.
+3. **A domain with TLS.** Dokploy's Traefik terminates it and proxies the WebSocket without extra
+   configuration. The container port is `8710`.
+
+TLS is not a nicety here. Every request carries a bearer token, and the WebSocket carries one in its
+query string because browsers cannot set headers on a handshake. The mod's own URL rewrite is
+`https://…` → `wss://…`, so a server configured over `http` would put its tokens on the wire in clear.
+
+### Plain Compose
+
+```bash
+export SIDEQUEST_OPERATOR_TOKEN="$(head -c 32 /dev/urandom | base64)"
+docker compose up -d --build
+```
+
+The compose file binds to `127.0.0.1:8710` on purpose, for a reverse proxy to sit in front of.
+
+### Why the image build needs `--configure-on-demand`
+
+This repository is a Minecraft mod, and Gradle configures every project by default. Configuring the
+Stonecutter version nodes makes Fabric Loom provision Minecraft — several hundred megabytes and a remap —
+to build a server that has nothing to do with the game. On demand, Gradle configures only `:backend` and
+what it depends on, and Loom is never applied.
+
+Gradle still insists that every `include`d project's *directory* exists, even for one it will never
+configure, so the Dockerfile creates the UI modules as empty directories rather than copying them. That
+also keeps a change to a UI component from invalidating the image's build cache.
+
+### The health check
+
+`HEALTHCHECK` runs the application with `--health-check`, which asks a running instance for `/api/info`
+over loopback and exits 0 or 1. In the application rather than as a `curl` because a JRE image has no
+`curl`, and installing one to ask a question the JVM can already answer is another package to keep
+patched. `/api/info` is the right thing to ask: unauthenticated, touches no state, and answering it
+proves the routing is installed rather than only that a port is open.
+
+### Verified
+
+The image was built and run before this was written: health check reports healthy, pairing is refused
+without the operator token and succeeds with it, an authenticated read works and an unauthenticated one
+returns 401, the state file and its backup appear in the volume, the refresh token is **not** in the
+state file, and a paired device still refreshes after `docker restart`.
+
+## Upgrading
+
+The state file is read leniently — unknown fields are ignored — so a newer server reads an older file.
+There is no migration chain on the server yet, because there has been nothing to migrate; when there is,
+it belongs next to `ServerStore.load`.
+
+`Protocol.VERSION` and `Protocol.MINIMUM_VERSION` are what let a group update at different speeds. While
+they differ, a client one version behind is accepted. When they are equal, every client has to match, and
+one that does not is told `PROTOCOL_MISMATCH` and stops rather than retrying.
+
 ## Pairing
 
 The plan's flow, and the trust comes from the approval rather than from the mod:

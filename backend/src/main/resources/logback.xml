@@ -1,0 +1,26 @@
+<!--
+  Logging for the backend.
+
+  The default configuration logs Netty and Ktor at DEBUG, which buries the two lines anybody wants —
+  who paired, and what was refused — under thousands of lines about byte buffers. A log nobody can read
+  is a log nobody reads, so the noisy libraries are turned down and Sidequest's own logger is not.
+-->
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <!-- No colour codes: this goes to a container log, where they are escape sequences. -->
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+    <!-- The transport's internals are only interesting when the transport is the problem. -->
+    <logger name="io.netty" level="WARN"/>
+    <logger name="io.ktor" level="INFO"/>
+
+    <!-- Ours. Set to DEBUG to see every refusal and every permission decision. -->
+    <logger name="dev.th7bo.sidequest" level="INFO"/>
+</configuration>

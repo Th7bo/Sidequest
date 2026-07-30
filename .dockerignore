@@ -1,0 +1,16 @@
+# Everything the backend image has no use for. Most of this repository is a Minecraft mod.
+.git
+.gradle
+build
+*/build
+versions
+run
+docs
+src
+ui-api
+ui-core
+ui-components
+ui-testkit
+tools
+*.md
+*.plan

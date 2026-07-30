@@ -1,0 +1,29 @@
+# The Sidequest backend, for Docker Compose or a PaaS that consumes one — Dokploy, Coolify.
+#
+# Two things here are not optional.
+#
+# The **volume**: everything the group has ever done is in one file under /data. Without a volume a
+# redeploy is a factory reset, and the first anybody knows about it is when their debts are gone.
+#
+# The **operator token**: without it pairing is disabled and no device can be approved. It is read from
+# the environment rather than written here, so the value does not end up in the repository.
+services:
+  sidequest:
+    build: .
+    restart: unless-stopped
+    environment:
+      # Required for pairing. Generate one with: head -c 32 /dev/urandom | base64
+      SIDEQUEST_OPERATOR_TOKEN: ${SIDEQUEST_OPERATOR_TOKEN:?set this to a long random string}
+      # Optional.
+      # SIDEQUEST_OWNER_ACCOUNT: owner
+      # SIDEQUEST_RATE_LIMIT: 240
+    volumes:
+      - sidequest-data:/data
+    ports:
+      # Bound to loopback: a reverse proxy terminates TLS in front of it. The protocol carries bearer
+      # tokens, and the WebSocket carries one in its query string, so this must not be reachable over
+      # plain HTTP from anywhere else.
+      - "127.0.0.1:8710:8710"
+
+volumes:
+  sidequest-data:

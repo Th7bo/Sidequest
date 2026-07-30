@@ -116,6 +116,9 @@ public class DefaultRealtimeClient(
                 continue
             }
 
+            // `http` -> `ws` and, because only the scheme's first four characters are replaced,
+            // `https` -> `wss`. Deliberate: a server behind TLS must not be reached over a plain socket,
+            // and a rewrite that dropped the `s` would silently do exactly that.
             val url = base.trimEnd('/').replaceFirst("http", "ws") + Endpoints.REALTIME + "?token=$token"
 
             val closure = try {
