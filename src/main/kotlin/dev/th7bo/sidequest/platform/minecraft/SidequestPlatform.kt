@@ -32,6 +32,7 @@ import dev.th7bo.sidequest.platform.game.GameClient
 import dev.th7bo.sidequest.platform.game.GameVersion
 import dev.th7bo.sidequest.platform.id.OwnerId
 import dev.th7bo.sidequest.platform.id.SqId
+import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.LogCategory
 import dev.th7bo.sidequest.platform.log.LogLevel
@@ -411,8 +412,18 @@ class SidequestPlatform(
      * features are most of it, and a group without a server should see no errors and no retries.
      */
     fun connectBackend(config: BackendConfig) {
-        backendConfig = config
         val playerId = minecraftClient.localPlayerId?.let { PlayerId.of(it) } ?: return
+
+        // Idempotent. The settings screen calls this every time somebody presses Pair, and rebuilding on an
+        // unchanged configuration would leave the previous realtime loop reconnecting forever while a second
+        // one started beside it.
+        if (config == backendConfig && backendClient != null) return
+
+        backendConfig = config
+        // Whatever was running belongs to the old configuration. Cancelled before anything replaces it, so
+        // there is never a moment with two clients talking to two servers.
+        stopBackendJobs()
+
         if (!config.isConfigured) {
             backendClient = null
             realtimeClient = null
@@ -443,9 +454,25 @@ class SidequestPlatform(
         realtimeClient = realtime
 
         // Both on the scheduler's async side. Neither may touch the game, and both are long-lived — the
-        // realtime loop runs for the session — so they are owned by the platform and cancelled with it.
-        scheduler.async(OwnerId.PLATFORM) { client.start() }
-        scheduler.async(OwnerId.PLATFORM) { realtime.run() }
+        // realtime loop runs for the session — so their handles are kept rather than dropped: a
+        // reconfiguration has to be able to stop them.
+        backendJobs = listOf(
+            scheduler.async(OwnerId.PLATFORM) { client.start() },
+            scheduler.async(OwnerId.PLATFORM) { realtime.run() },
+        )
+    }
+
+    /**
+     * Handles for the backend's two long-lived jobs.
+     *
+     * Kept because a reconfiguration replaces them. Cancelling by owner would take everything else the
+     * platform has scheduled with it.
+     */
+    private var backendJobs: List<Registration> = emptyList()
+
+    private fun stopBackendJobs() {
+        backendJobs.forEach { it.cancel() }
+        backendJobs = emptyList()
     }
 
     /** Disables every feature and unhooks the adapter. Safe to call more than once. */
@@ -454,6 +481,7 @@ class SidequestPlatform(
         started = false
         features.disableAll()
         partyService.close()
+        stopBackendJobs()
         // The realtime loop and the backend's jobs are owned by the platform, so cancelling its scheduler
         // registrations is the whole of their shutdown. Nothing here has to be told to stop.
         scheduler.cancelAll(OwnerId.PLATFORM)

@@ -140,6 +140,31 @@ read is a code they cannot use. Chat persists, so it is still there when they co
 
 ## Pairing
 
+### Approving one today, without a dashboard
+
+Until the dashboard exists, the approval step is a request with the operator token. That is the *only*
+missing piece — everything else already works from in game.
+
+1. Join a world, open **Settings → Network**, press **Pair**. A code appears in chat.
+2. On the server, or anywhere with the operator token:
+
+```bash
+curl -X POST https://sq.api.th7bo.dev/api/pair/approve \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $SIDEQUEST_OPERATOR_TOKEN" \
+  -d '{"code":"8YZEV3","accountId":"chrooted"}'
+```
+
+3. The mod's next poll picks up the tokens and chat says `Paired. Sidequest is connected.`
+
+The code lasts five minutes and is single-use. `accountId` has to be spelled exactly the same way every
+time — it is compared for equality, so `Chrooted` would create a second, separate `MEMBER` account.
+
+Whichever `accountId` matches `SIDEQUEST_OWNER_ACCOUNT` is created as `OWNER`; everybody else becomes a
+`MEMBER`.
+
+### The flow
+
 The plan's flow, and the trust comes from the approval rather than from the mod:
 
 1. the mod asks for a code — unauthenticated, because it has no credentials yet
