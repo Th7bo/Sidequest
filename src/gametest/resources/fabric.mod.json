@@ -33,6 +33,10 @@
       {
         "value": "dev.th7bo.sidequest.gametest.ChatBridgeTest",
         "adapter": "kotlin"
+      },
+      {
+        "value": "dev.th7bo.sidequest.gametest.ItemReaderTest",
+        "adapter": "kotlin"
       }
     ]
   },

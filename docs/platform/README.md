@@ -26,7 +26,7 @@ replaced without touching the other.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 183 tests that take a couple of seconds.
+testable at full speed with no game running — 206 tests that take a couple of seconds.
 
 ---
 
@@ -364,6 +364,82 @@ unfixtured there too — Hypixel documents none of this.
 
 ---
 
+## Items
+
+**Never persist an `ItemStack`.** That is the rule the item model exists to make easy to
+follow. A stack is a live game object: it belongs to a version of Minecraft, it needs a
+registry to mean anything, and the moment Mojang moves a component the saved copy is
+unreadable. A record of a rare drop from eighteen months ago has to still be readable, and so
+does a debt that names the item it is for.
+
+`SqItem` is the snapshot — plain data, fully serialisable, no game type anywhere in it:
+
+```kotlin
+val item = stack.toSq(acquisition = ItemAcquisition.from(gameContext.context, now, DROP))
+item.skyblockId        // "HYPERION" — the kind of item, stable across renames
+item.itemUuid          // this particular one, when Hypixel gave it an identity
+item.rarity            // MYTHIC, read off the last lore line
+item.upgrades.stars    // 10
+item.summary()         // "Withered Hyperion [Mythic] (withered, 10★, recombobulated)"
+```
+
+Two identifiers, and the difference matters. `skyblockId` is the *kind* — Hypixel changes
+display names and has never changed one of these, so anything comparing items compares this.
+`itemUuid` is *this one*, and only items Hypixel considers unique carry one, which is exactly
+the set worth tracking individually: a lent Hyperion has one, a stack of cobblestone does not.
+
+### Where the logic lives
+
+The interpretation is in `platform-core`; only the four things Minecraft knows come from the
+adapter:
+
+```
+ItemStack ──(adapter)──> minecraftId, name, lore, count + ItemDataSource
+                                                              │
+                                          SkyBlockItemReader ──┘   (platform-core, testable)
+```
+
+`ItemDataSource` is a read-only view of Hypixel's item tag. It exists so every attribute name
+— and there are two dozen — sits where a test can drive it from a map:
+
+```kotlin
+SkyBlockItemReader.read(…, data = FakeItemData("id" to "HYPERION", "upgrade_level" to 10))
+```
+
+Without that seam the whole model's logic would be behind a Minecraft type, untestable except
+in a running game. Which is also the reason `ItemReaderTest` exists as a gametest: the headless
+suite would pass unchanged if the adapter read the wrong component.
+
+### Three things that are not obvious
+
+**Rarity has no attribute.** Hypixel writes it as the last lore line, in caps, with the
+category beside it — `MYTHIC DUNGEON SWORD`. It is searched bottom-up, because downwards an
+ability description mentioning "RARE" wins over the real line. `RARE CROP` is excluded by name;
+it appears in Garden lore and is not a rarity.
+
+**Stars live in two attributes.** `upgrade_level` is the modern one; `dungeon_item_level` is the
+old one, still present on items nobody has touched since, and only meaningful on a dungeon item.
+Reading only the first undercounts an old sword to zero stars.
+
+**Gemstone slots arrive in three shapes**, all of them live. A typed slot names its gemstone in
+the key (`JADE_0`). Some slots hold the quality in a nested tag instead of directly. A universal
+slot's key does not name a type at all — that is in a sibling key with `_gem` appended, which is
+why the companion keys have to be skipped as slots.
+
+### Estimated value and the escape hatch
+
+`estimatedValue` is null until a price source exists; null means "nobody has priced this", not
+"worthless". The field is there so a record written today is readable by the feature that adds
+pricing, rather than the model changing shape under every stored snapshot.
+
+`extra` holds every flat attribute that has no field, as strings — the same escape hatch as the
+scoreboard's `values`. An attribute *with* a field is excluded from it, because two sources for
+one value is two sources that can disagree. Nested tags are skipped rather than flattened: a
+flattened `pet_info` blob in a string map is not usable by anything, and pretending otherwise
+invites a feature to parse it.
+
+---
+
 ## Scheduling
 
 ```kotlin
@@ -454,7 +530,8 @@ The in-game tests cover the half no fake can. `PlatformRuntimeTest`: that a tick
 actually fires on a real client, that a command actually registers, and that disabling a
 feature really does stop it. `BoardReaderTest`: that the adapter pulls the right strings out
 of a real scoreboard, team prefixes and all. `ChatBridgeTest`: that a component sent over the
-network comes back out as a typed event.
+network comes back out as a typed event. `ItemReaderTest`: that a stack shaped the way Hypixel
+builds one is read out of the components it actually lives in.
 
 `ChatBridgeTest` is the clearest example of why the far side has to be tested. Every chat
 fixture in the suite would still pass if `toLegacyFormatting` emitted the wrong colour code,
@@ -473,6 +550,7 @@ Feature code must not:
 
 - import a Minecraft class
 - parse raw scoreboard or tab-list text — read `gameContext`, or `TabWidget` for a widget
+- persist, cache or pass around an `ItemStack` — snapshot it as an `SqItem`
 - match a regex against a chat line — declare a `ChatRule` instead
 - perform HTTP requests or open WebSockets
 - read or write JSON files
