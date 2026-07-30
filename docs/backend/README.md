@@ -62,6 +62,11 @@ three things, and the first two are not optional:
 1. **A persistent volume mounted at `/data`.** Everything the group has ever done is one file in there.
    Without a volume a redeploy is a factory reset, and the first anybody knows about it is when their
    debts are gone.
+
+   Use a **Volume Mount**, not a Bind Mount. The container runs as uid 10001, and Docker copies the
+   image's ownership of `/data` into a fresh named volume — so the server can write. A bind mount arrives
+   owned by the host user instead, and the server fails with
+   `AccessDeniedException: /data/state.json.tmp` on its first write. Verified both ways.
 2. **`SIDEQUEST_OPERATOR_TOKEN`**, set to a long random string:
    `head -c 32 /dev/urandom | base64`. Without it pairing is disabled and no device can be approved.
 3. **A domain with TLS.** Dokploy's Traefik terminates it and proxies the WebSocket without extra
