@@ -10,6 +10,7 @@ import dev.th7bo.sidequest.ui.components.world.WaypointLayerNode
 import dev.th7bo.sidequest.ui.core.icon.IconRegistry
 import dev.th7bo.sidequest.ui.core.layout.BoxNode
 import dev.th7bo.sidequest.ui.core.notification.NotificationQueue
+import dev.th7bo.sidequest.ui.core.world.ResolvedOverlay
 import dev.th7bo.sidequest.ui.core.world.WorldOverlayLayer
 import dev.th7bo.sidequest.ui.minecraft.world.MinecraftWorldProjector
 import dev.th7bo.sidequest.ui.core.runtime.UiRuntime
@@ -52,6 +53,15 @@ public object SidequestHudLayer : HudElement {
 
     /** Waypoints and other world-anchored overlays. */
     public val worldOverlays: WorldOverlayLayer = WorldOverlayLayer()
+
+    /**
+     * Where the overlays actually ended up on the last frame.
+     *
+     * For client tests, and it earned its place: the projection was upside down and back to front for a while
+     * because the only thing a test could reach was [worldOverlays], which says what is *registered*. That an
+     * overlay exists is not a claim about where it is drawn, and only this can answer the second question.
+     */
+    public val lastResolvedOverlays: List<ResolvedOverlay> get() = waypoints?.lastResolved.orEmpty()
 
     /**
      * The cinematic stage, once there is a frame to build it on.

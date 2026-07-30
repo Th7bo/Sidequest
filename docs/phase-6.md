@@ -17,7 +17,8 @@ projection was checked against a real camera rather than only against a fake.
 | Waypoint rendering | `ui-components/.../world/WaypointLayerNode.kt` |
 | Distance fading | `DistanceFade` |
 | Screen-edge indicators | `WorldOverlayLayer.edgePosition` |
-| Minecraft projector | `ui/minecraft/world/MinecraftWorldProjector.kt` |
+| Projection arithmetic | `ui-api/.../world/PerspectiveProjector.kt` |
+| Minecraft camera adapter | `ui/minecraft/world/MinecraftWorldProjector.kt` |
 | Waypoint demo | `SidequestWorld.kt` |
 
 ---

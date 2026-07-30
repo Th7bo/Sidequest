@@ -68,27 +68,66 @@ class WorldOverlayRenderTest : FabricClientGameTest {
             SidequestHudLayer.notifications.dismissAll()
         }
 
-        // 3. A waypoint placed in front of the player, which must project on screen.
-        val ahead = computeOnClient(context) { client ->
+        // 3. Face a known direction, so "left" and "right" mean something a test can check.
+        //
+        //    Yaw 0 faces south, which is +Z. Asserted rather than assumed: the whole point of the section
+        //    below is that the projection agrees with the camera, and starting from an unverified premise
+        //    about the camera would just move the assumption somewhere less visible.
+        onClient(context) { client ->
             val player = checkNotNull(client.player) { "No player" }
-            val look = player.lookAngle
-            WorldPosition(
-                player.x + look.x * WAYPOINT_DISTANCE,
-                player.eyeY,
-                player.z + look.z * WAYPOINT_DISTANCE,
-            )
+            player.yRot = 0f
+            player.yHeadRot = 0f
+            player.xRot = 0f
         }
-        onClient(context) { SidequestWorld.placeWaypoint(ahead) }
+        context.waitTicks(SETTLE_TICKS)
+        onClient(context) { client ->
+            val look = checkNotNull(client.player).lookAngle
+            check(look.z > FACING_TOLERANCE && kotlin.math.abs(look.x) < 1 - FACING_TOLERANCE) {
+                "Yaw 0 should look south down +Z, got $look"
+            }
+        }
+
+        // 4. A waypoint dead ahead, which lands in the centre.
+        //
+        //    On its own this proves almost nothing — the centre is the one point a 180° roll of the camera
+        //    basis maps to itself, which is exactly how the basis stayed wrong through an earlier version of
+        //    this test. It is here as the baseline for the two that follow.
+        val eye = computeOnClient(context) { client ->
+            val player = checkNotNull(client.player)
+            WorldPosition(player.x, player.eyeY, player.z)
+        }
+        onClient(context) {
+            SidequestWorld.placeWaypoint(WorldPosition(eye.x, eye.y, eye.z + WAYPOINT_DISTANCE))
+        }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("waypoint_ahead")
+        assertDrawnAt(context, "dead ahead", horizontal = Side.CENTRE, vertical = Side.CENTRE)
 
+        // 5. West, which is the right hand of somebody facing south. This is the assertion that the old
+        //    projector failed: it built the horizontal axis along the camera's *left*, so this drew on the
+        //    wrong side of the screen.
         onClient(context) {
-            val resolved = SidequestHudLayer.worldOverlays
-            check(resolved.size == 1) { "The demo waypoint should be registered" }
+            SidequestWorld.placeWaypoint(
+                WorldPosition(eye.x - WAYPOINT_OFFSET, eye.y, eye.z + WAYPOINT_DISTANCE),
+            )
         }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("waypoint_right")
+        assertDrawnAt(context, "to the west", horizontal = Side.HIGH, vertical = Side.CENTRE)
 
-        // 4. Turn around. The waypoint is now behind the camera and must become an edge
-        //    indicator pointing back at it — not a marker mirrored to the wrong side.
+        // 6. And above, which the old projector also inverted — up was derived from the wrong right, so it
+        //    came out pointing at the ground.
+        onClient(context) {
+            SidequestWorld.placeWaypoint(
+                WorldPosition(eye.x, eye.y + WAYPOINT_OFFSET, eye.z + WAYPOINT_DISTANCE),
+            )
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("waypoint_above")
+        assertDrawnAt(context, "overhead", horizontal = Side.CENTRE, vertical = Side.LOW)
+
+        // 7. Turn around. The waypoint is now behind the camera and must become an edge indicator pointing
+        //    back at it — not a marker mirrored to the wrong side.
         onClient(context) { client ->
             val player = checkNotNull(client.player)
             player.yRot += HALF_TURN
@@ -96,6 +135,14 @@ class WorldOverlayRenderTest : FabricClientGameTest {
         }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("waypoint_behind")
+
+        onClient(context) {
+            val drawn = SidequestHudLayer.lastResolvedOverlays.singleOrNull()
+                ?: error("The waypoint should still be drawn as an indicator, got ${SidequestHudLayer.lastResolvedOverlays}")
+            check(drawn.isEdgeIndicator) {
+                "A waypoint behind the camera must be an edge indicator, not a marker at ${drawn.screenPosition}"
+            }
+        }
 
         // 5. And a scope disposal takes the overlay away, which is the phase's second
         //    acceptance criterion seen end to end rather than in a unit test.
@@ -110,6 +157,56 @@ class WorldOverlayRenderTest : FabricClientGameTest {
 
         context.setScreen { null }
         context.waitTicks(SETTLE_TICKS)
+    }
+
+    /** Which half of the screen something should be in. */
+    private enum class Side { LOW, CENTRE, HIGH }
+
+    /**
+     * Checks where the waypoint was actually painted.
+     *
+     * Reads what the layer resolved on the last frame rather than what is registered. An overlay being in the
+     * registry says nothing about where it landed, and for a long time that was the only thing this test
+     * looked at — which is how a projection that was upside down and back to front went unnoticed.
+     */
+    private fun assertDrawnAt(
+        context: ClientGameTestContext,
+        what: String,
+        horizontal: Side,
+        vertical: Side,
+    ) {
+        onClient(context) { client ->
+            val drawn = SidequestHudLayer.lastResolvedOverlays.singleOrNull()
+                ?: error("A waypoint $what should be on screen, drew ${SidequestHudLayer.lastResolvedOverlays}")
+            check(!drawn.isEdgeIndicator) { "A waypoint $what should be a marker, not an edge indicator" }
+
+            val width = client.window.guiScaledWidth.toFloat()
+            val height = client.window.guiScaledHeight.toFloat()
+            val at = drawn.screenPosition
+
+            check(sideOf(at.x, width) == horizontal) {
+                "A waypoint $what should be $horizontal horizontally, drew x=${at.x} of $width"
+            }
+            check(sideOf(at.y, height) == vertical) {
+                "A waypoint $what should be $vertical vertically, drew y=${at.y} of $height"
+            }
+        }
+    }
+
+    /**
+     * Which side of the middle a coordinate is on.
+     *
+     * The dead band is generous on purpose. This is checking that a waypoint is on the correct side of the
+     * screen, which is the thing that was broken; pinning an exact pixel would only make the test brittle
+     * against the field of view and the window size.
+     */
+    private fun sideOf(value: Float, extent: Float): Side {
+        val fraction = value / extent
+        return when {
+            fraction < HALF - DEAD_BAND -> Side.LOW
+            fraction > HALF + DEAD_BAND -> Side.HIGH
+            else -> Side.CENTRE
+        }
     }
 
     private fun onClient(
@@ -130,6 +227,22 @@ class WorldOverlayRenderTest : FabricClientGameTest {
         const val BASELINE_GUI_SCALE = 2
         const val COALESCE_COUNT = 5
         const val WAYPOINT_DISTANCE = 20.0
+
+        /**
+         * How far to one side the off-centre waypoints go.
+         *
+         * Eight blocks at twenty away is about 22°, comfortably inside a 70° frustum but well clear of the
+         * dead band — so it must resolve as a marker on a definite side rather than as an edge indicator.
+         */
+        const val WAYPOINT_OFFSET = 8.0
+
         const val HALF_TURN = 180f
+        const val HALF = 0.5f
+
+        /** How far from the middle counts as "a side". */
+        const val DEAD_BAND = 0.08f
+
+        /** How close the look vector has to be to a cardinal direction for the premise to hold. */
+        const val FACING_TOLERANCE = 0.99
     }
 }

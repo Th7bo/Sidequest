@@ -159,12 +159,27 @@ on `priority`.
 
 ### Projection
 
-The projector is built from the camera's own basis — position, rotation, field of view —
-rather than from render matrices, which are not reliably available during HUD extraction
-and get rebound between versions. It is rebuilt every frame, because the camera moves and
-a cached projector is a stale basis.
+`PerspectiveProjector` does the arithmetic and has no game anywhere near it.
+`MinecraftWorldProjector` is only the part that reads the camera, and it is rebuilt every
+frame because the camera moves and a cached projector is a stale basis.
 
-For testing, supply your own:
+The camera's basis is **taken, not computed**. `Camera.forwardVector()` and `upVector()`
+are the rotation quaternion applied to constants — exactly what the world is rendered
+with — so a projection built from them cannot disagree with what the player is looking at.
+It also survives a rolled camera, which yaw and pitch cannot express at all.
+
+`ViewBasis` then derives `right` as `forward × up` rather than accepting it, so a basis
+cannot be inconsistent with itself:
+
+```kotlin
+val basis = ViewBasis(
+    forward = WorldDirection(0.0, 0.0, 1.0),   // facing south
+    up = WorldDirection(0.0, 1.0, 0.0),
+)
+basis.right   // (-1, 0, 0) — west, the right hand of somebody facing south
+```
+
+For testing, supply your own projector:
 
 ```kotlin
 val fake = WorldProjector { WorldProjection(Vec2(320f, 180f), distance = 10.0, isBehind = false) }
@@ -172,6 +187,25 @@ val fake = WorldProjector { WorldProjection(Vec2(320f, 180f), distance = 10.0, i
 
 Everything except the projection itself — fading, culling, ordering, edge clamping — is
 arithmetic over the result, so all of it is testable against a fake.
+
+#### The bug that shaped this
+
+For several phases the projector built its own basis out of yaw and pitch, and got the
+handedness backwards: the vector it called `right` was Minecraft's *left*, and deriving
+`up` from it flipped that too. The result was a picture rotated 180° about the view axis —
+every waypoint point-reflected through the centre of the screen.
+
+It survived a full headless suite and a client screenshot test. Two reasons, both worth
+remembering:
+
+- **Every headless test used a fake projector.** A fake agrees with whatever the real one
+  does, including being upside down. The one piece that needed a game was the one piece
+  nothing exercised, which is why the arithmetic now lives in a plain JVM module with
+  fourteen tests against known geometry.
+- **The client test put its waypoint dead ahead at eye level**, and asserted the overlay
+  was *registered*. The centre is the single point a 180° roll maps to itself, and a
+  registry count is not a claim about location. The test now faces a known direction and
+  checks which side of the screen things land on.
 
 ---
 
