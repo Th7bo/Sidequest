@@ -928,12 +928,36 @@ A sink that could not start is **not** a cinematic that played: it returns false
 notification, and the queue is not consumed for nothing. That is the path taken on a loading screen, where the
 HUD layer does not exist yet.
 
-### What the screenshot caught
+### What the screenshots caught, and what a person did
 
 Every vertical position in the stage is a fraction of the viewport. They were fractions mixed with absolute
 pixel offsets, which agree at exactly one size: the fractions scale with the viewport and the offsets do not,
 so the progress label landed on top of the first reveal. Nothing headless would have found it — nothing
 headless renders at the player's GUI scale. `/sqcine play` under the in-game test, captured mid-run, did.
+
+**The counting number flashed**, and a person watching it reported that. The measure pass pre-measured a set of
+values, the paint pass computed its own continuously, and a painted string that had never been measured was
+skipped — so the number was invisible on most frames and appeared only when the two happened to coincide. The
+comment sitting over that skip ("a dropped frame of text rather than a wrong one") was a rationalisation of a
+design that could not work.
+
+The fix is that both passes call the same function, so every string the counter can paint is one that was
+measured. Quantising to those steps is also the better look: the number ticks in readable increments instead of
+blurring through values nobody can see.
+
+`CinematicStageTest` now walks all 240 frames of a run asserting the number is on screen on every one of them
+after it appears. The lesson is the one this codebase keeps relearning: **an assertion about what a node
+intends to draw is not an assertion about what is on screen.** A test of the node's model would have passed
+throughout.
+
+### The entrance is staggered
+
+Everything arriving on one frame reads as a screenshot rather than as something happening. The frame lands
+first, then the title, then the subtitle, then the number and the bar — each fading in over its own window, on
+top of the composition's envelope, which composes because the opacity stack multiplies.
+
+A counter counts from **its own entrance**, not from the start of the cinematic. Counting from the start would
+make it fade in already two fifths of the way up, which reads as having missed the beginning of it.
 
 ---
 

@@ -233,7 +233,11 @@ class DeveloperToolsTest : FabricClientGameTest {
             // Caught partway through, while the bars are in and the counter is still running. The one piece of
             // evidence a headless test cannot produce: that what was drawn is a cinematic and not an empty
             // screen with the gate closed behind it.
-            context.waitTicks(MID_CINEMATIC_TICKS)
+            // Two moments, because one screenshot cannot show a stagger. The first is early — during the
+            // entrance, and the part of the run where the counter used to flash.
+            context.waitTicks(EARLY_CINEMATIC_TICKS)
+            context.takeScreenshot("cinematic_early")
+            context.waitTicks(MID_CINEMATIC_TICKS - EARLY_CINEMATIC_TICKS)
             context.takeScreenshot("cinematic_playing")
 
             // The clock has to actually finish it. A cinematic that never ends is a gate that never reopens,
@@ -348,5 +352,8 @@ class DeveloperToolsTest : FabricClientGameTest {
 
         /** Partway in: the bars have slid, the counter is mid-count, the reveal has landed. */
         const val MID_CINEMATIC_TICKS = 50
+
+        /** During the entrance, where the counter used to be invisible on most frames. */
+        const val EARLY_CINEMATIC_TICKS = 22
     }
 }

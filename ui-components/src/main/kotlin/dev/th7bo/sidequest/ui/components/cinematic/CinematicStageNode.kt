@@ -38,13 +38,31 @@ public sealed interface StageElement {
         public val value: Long,
         public val prefix: String,
         public val suffix: String,
-    ) : StageElement
+    ) : StageElement {
+
+        /**
+         * What the counter reads at a step.
+         *
+         * On the element rather than in the node, so the measure pass and the paint pass cannot compute it
+         * differently — which they did, and the number flashed because almost no painted string had been
+         * measured.
+         */
+        internal fun textAt(step: Int): String =
+            prefix + groupDigits(value * step.coerceIn(0, COUNT_STEPS_INTERNAL) / COUNT_STEPS_INTERNAL) + suffix
+    }
 
     public data class Progress(public val fraction: Float, public val label: String) : StageElement
 
     /** A line that fades in partway through. */
     public data class Reveal(public val label: String, public val atFraction: Float) : StageElement
 }
+
+/** Thousands separators. A seven-figure coin total is unreadable without them. */
+internal fun groupDigits(value: Long): String =
+    value.toString().reversed().chunked(3).joinToString(",").reversed()
+
+/** Shared by [StageElement.Number] and the node, which must agree on every value the counter shows. */
+internal const val COUNT_STEPS_INTERNAL: Int = 40
 
 /**
  * Draws a cinematic over the game.
@@ -104,11 +122,12 @@ public class CinematicStageNode(
                 is StageElement.Progress -> if (element.label.isNotEmpty()) layout(context, element.label, 1f)
                 is StageElement.Reveal -> layout(context, element.label, 1f)
                 is StageElement.Number -> {
-                    // Every width the counter passes through, so a number growing from 1 to 1,000,000 does not
-                    // measure a new string on the frame it gains a digit.
+                    // Every string the counter will ever show, produced by the same function the paint pass
+                    // uses. That shared function is the whole point: measuring a set of values and painting
+                    // values computed a different way meant the paint almost never found a layout, so the
+                    // number vanished on most frames and flashed.
                     for (step in 0..COUNT_STEPS) {
-                        val shown = element.value * step / COUNT_STEPS
-                        layout(context, element.prefix + format(shown) + element.suffix, NUMBER_SCALE)
+                        layout(context, element.textAt(step), NUMBER_SCALE)
                     }
                 }
                 is StageElement.Letterbox, is StageElement.Backdrop -> Unit
@@ -132,15 +151,50 @@ public class CinematicStageNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         if (elements.isEmpty()) return
 
-        // One opacity for the whole composition, so the pieces fade together rather than each doing its own
-        // thing and arriving at slightly different times.
-        val opacity = envelope(progress)
-        renderer.pushOpacity(opacity)
+        // The envelope for the composition as a whole — it fades in, holds, and fades out together.
+        renderer.pushOpacity(envelope(progress))
         try {
-            for (element in elements) draw(renderer, bounds, element)
+            for (element in elements) {
+                // And each piece arrives in its own turn on top of that. Everything appearing at once reads as
+                // a screenshot rather than as something happening; the frame lands first, then the title, then
+                // what it is about. The opacity stack multiplies, so this composes with the envelope above.
+                val entrance = entranceOf(element)
+                if (entrance <= 0f) continue
+
+                if (entrance >= 1f) {
+                    draw(renderer, bounds, element)
+                } else {
+                    renderer.pushOpacity(entrance)
+                    try {
+                        draw(renderer, bounds, element)
+                    } finally {
+                        renderer.popOpacity()
+                    }
+                }
+            }
         } finally {
             renderer.popOpacity()
         }
+    }
+
+    /**
+     * How far into its own entrance this element is, from 0 to 1.
+     *
+     * A reveal keeps the cue it was given; everything else takes the order below, which is the order somebody
+     * reads a cinematic in.
+     */
+    private fun entranceOf(element: StageElement): Float {
+        val at = when (element) {
+            // The frame is the cinematic starting. It has no entrance of its own — the slide is its entrance.
+            is StageElement.Letterbox, is StageElement.Backdrop -> 0f
+            is StageElement.Title -> TITLE_AT
+            is StageElement.Subtitle -> SUBTITLE_AT
+            is StageElement.Number -> NUMBER_AT
+            is StageElement.Progress -> PROGRESS_AT
+            is StageElement.Reveal -> element.atFraction
+        }
+        if (at <= 0f) return 1f
+        return ((progress - at) / ENTRANCE).coerceIn(0f, 1f)
     }
 
     private fun draw(renderer: UiRenderer, bounds: Rect, element: StageElement) {
@@ -184,11 +238,14 @@ public class CinematicStageNode(
             is StageElement.Number -> {
                 // Counted up over the first half, so it has landed by the time the reveals start. A counter
                 // still running at the end reads as the cinematic being cut off.
-                val shown = (element.value * countFraction(progress)).toLong()
+                //
+                // Quantised to the measured steps rather than interpolated continuously, which is both the fix
+                // for the flashing and the better look: the number ticks up in readable increments instead of
+                // blurring through values nobody can see.
                 text(
                     renderer,
                     bounds,
-                    element.prefix + format(shown) + element.suffix,
+                    element.textAt(countStep(progress, NUMBER_AT)),
                     componentContext.theme.tokens.colors.accent,
                     scale = NUMBER_SCALE,
                     y = bounds.height * NUMBER_Y,
@@ -204,7 +261,10 @@ public class CinematicStageNode(
                 renderer.roundedRect(
                     Rect.of(
                         Vec2(left, top),
-                        Size(width * element.fraction.coerceIn(0f, 1f) * countFraction(progress), BAR_HEIGHT),
+                        Size(
+                            width * element.fraction.coerceIn(0f, 1f) * countFraction(progress, PROGRESS_AT),
+                            BAR_HEIGHT,
+                        ),
                     ),
                     Dp(BAR_HEIGHT / 2f),
                     componentContext.theme.tokens.colors.accent,
@@ -222,7 +282,8 @@ public class CinematicStageNode(
             }
 
             is StageElement.Reveal -> {
-                if (progress < element.atFraction) return
+                // No cut-off here: the entrance above already faded it in, and a hard test would make it pop
+                // into place at full opacity a moment after starting to fade.
                 // Each reveal keeps its own place, found from its position in the list, so they stack down the
                 // screen rather than drawing over each other.
                 val index = elements.filterIsInstance<StageElement.Reveal>().indexOf(element)
@@ -278,15 +339,26 @@ public class CinematicStageNode(
         /** Bars slide fully in over the fade and stay. */
         fun slide(progress: Float): Float = (progress / FADE).coerceIn(0f, 1f)
 
-        /** Counters and bars finish by halfway, so the reveals land against something settled. */
-        fun countFraction(progress: Float): Float = (progress / COUNT_END).coerceIn(0f, 1f)
+        /**
+         * Which counting step this progress falls on.
+         *
+         * The one place a counter's value is decided, used by both the measure pass and the paint pass.
+         * Computing it two different ways is what made the number flash: the measured strings and the painted
+         * ones did not match, so almost every frame found no layout and drew nothing.
+         *
+         * Counted from [from] — the point at which the element appears — rather than from the start of the
+         * cinematic. Otherwise a counter that fades in a fifth of the way through would arrive already a fifth
+         * counted, which reads as having missed the beginning of it.
+         */
+        fun countStep(progress: Float, from: Float): Int {
+            val span = COUNT_END - from
+            if (span <= 0f) return COUNT_STEPS
+            return (((progress - from) / span).coerceIn(0f, 1f) * COUNT_STEPS).toInt()
+        }
 
-        /** Thousands separators. A seven-figure coin total is unreadable without them. */
-        fun format(value: Long): String = value.toString()
-            .reversed()
-            .chunked(3)
-            .joinToString(",")
-            .reversed()
+        /** Bars fill over the same span as a counter counts, from the point they appear. */
+        fun countFraction(progress: Float, from: Float): Float =
+            countStep(progress, from).toFloat() / COUNT_STEPS
 
         const val FADE = 0.15f
         const val COUNT_END = 0.5f
@@ -316,8 +388,25 @@ public class CinematicStageNode(
         /** Gap between reveals, as a fraction of the viewport. See the note above. */
         const val REVEAL_SPACING = 0.035f
 
-        /** How many widths of a counting number are measured up front. See [measureSelf]. */
-        const val COUNT_STEPS = 20
+        /**
+         * How many values a counter passes through.
+         *
+         * Every one is measured up front, so this is also the number of distinct strings the number can show.
+         * Forty over two seconds is twenty a second — smooth enough to read as counting, coarse enough that
+         * each value is on screen for more than one frame.
+         */
+        const val COUNT_STEPS = COUNT_STEPS_INTERNAL
+
+        /**
+         * When each piece arrives, as a fraction of the run, and how long its fade takes.
+         *
+         * The order somebody reads a cinematic in: the frame, then what it is, then the detail.
+         */
+        const val TITLE_AT = 0.04f
+        const val SUBTITLE_AT = 0.14f
+        const val NUMBER_AT = 0.20f
+        const val PROGRESS_AT = 0.26f
+        const val ENTRANCE = 0.10f
 
         /** Alpha bits for a colour given as 0xRRGGBB. */
         const val OPAQUE = 0xFF000000.toInt()
