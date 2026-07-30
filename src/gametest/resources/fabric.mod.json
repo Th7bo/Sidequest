@@ -41,6 +41,10 @@
       {
         "value": "dev.th7bo.sidequest.gametest.PlayerTargetingTest",
         "adapter": "kotlin"
+      },
+      {
+        "value": "dev.th7bo.sidequest.gametest.StorageAndPermissionsTest",
+        "adapter": "kotlin"
       }
     ]
   },

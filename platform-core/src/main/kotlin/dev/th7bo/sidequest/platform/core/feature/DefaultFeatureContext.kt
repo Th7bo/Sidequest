@@ -16,6 +16,12 @@ import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.lifecycle.ownedBy
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.party.PartyService
+import dev.th7bo.sidequest.platform.permission.PermissionService
+import dev.th7bo.sidequest.platform.storage.Repository
+import dev.th7bo.sidequest.platform.storage.StorageMigration
+import dev.th7bo.sidequest.platform.storage.StorageProvider
+import dev.th7bo.sidequest.platform.storage.StorageScope
+import kotlinx.serialization.KSerializer
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
@@ -49,6 +55,8 @@ internal class DefaultFeatureContext(
     override val players: PlayerDirectory,
     override val targeting: PlayerTargeting,
     override val party: PartyService,
+    override val storage: StorageProvider,
+    override val permissions: PermissionService,
     override val log: Logger,
 ) : FeatureContext {
 
@@ -102,6 +110,30 @@ internal class DefaultFeatureContext(
     override fun command(spec: CommandSpec): Registration {
         checkAlive()
         return commands.register(owner, spec).ownedBy(scope)
+    }
+
+    override fun <T : Any> store(
+        name: String,
+        scope: StorageScope,
+        serializer: KSerializer<T>,
+        default: () -> T,
+        schemaVersion: Int,
+        migrations: List<StorageMigration>,
+        validate: (T) -> String?,
+    ): Repository<T> {
+        checkAlive()
+        // Namespaced under the feature id, so two features naming a file "data" get two files. Not
+        // added to the scope: storage outlives the feature being disabled, and a repository holds no
+        // resources to release.
+        return storage.repository(
+            id = descriptor.id.child(name),
+            scope = scope,
+            serializer = serializer,
+            default = default,
+            schemaVersion = schemaVersion,
+            migrations = migrations,
+            validate = validate,
+        )
     }
 
     override fun chatRule(rule: ChatRule<*>): Registration {

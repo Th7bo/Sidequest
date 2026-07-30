@@ -7,7 +7,9 @@ import dev.th7bo.sidequest.platform.core.chat.HypixelChatRules
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
+import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
+import dev.th7bo.sidequest.platform.core.storage.JsonFileStorage
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.feature.DefaultFeatureRegistry
 import dev.th7bo.sidequest.platform.core.log.LoggerFactory
@@ -32,9 +34,12 @@ import dev.th7bo.sidequest.platform.log.LogLevel
 import dev.th7bo.sidequest.platform.log.LogSink
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.party.PartyService
+import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
+import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
+import dev.th7bo.sidequest.platform.storage.StorageProvider
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import org.slf4j.LoggerFactory as Slf4jLoggerFactory
 
@@ -50,6 +55,13 @@ import org.slf4j.LoggerFactory as Slf4jLoggerFactory
  */
 class SidequestPlatform(
     minecraftVersion: String,
+    /**
+     * Where feature data is written.
+     *
+     * Passed in rather than derived, so the in-game tests can point it at a temporary directory
+     * instead of at the player's real save.
+     */
+    private val storageRoot: java.nio.file.Path,
     logSink: LogSink = Slf4jLogSink(),
 ) {
 
@@ -145,6 +157,33 @@ class SidequestPlatform(
 
     val party: PartyService get() = partyService
 
+    /**
+     * Durable storage for feature data.
+     *
+     * Separate from the UI framework's configuration store, and separate on purpose: the two
+     * frameworks do not depend on each other, so sharing the implementation would mean one importing
+     * the other. Two atomic-writes is the price of that split.
+     */
+    private val fileStorage = JsonFileStorage(
+        root = storageRoot,
+        log = loggers.create(LogCategory.PERSISTENCE, SqId.sidequest("storage")),
+    )
+
+    val storage: StorageProvider get() = fileStorage
+
+    /**
+     * Who may do what, and what we have agreed to reveal.
+     *
+     * Built before anything that could send data anywhere, which is the point: the gate has to exist
+     * before there is anything to gate.
+     */
+    private val permissionService = DefaultPermissionService(
+        log = loggers.create(LogCategory.PLATFORM, SqId.sidequest("permissions")),
+        localPlayer = { minecraftClient.localPlayerId?.let { PlayerId.of(it) } },
+    )
+
+    val permissions: PermissionService get() = permissionService
+
     val features: FeatureRegistry = DefaultFeatureRegistry(
         gameVersion = version,
         events = events,
@@ -155,6 +194,8 @@ class SidequestPlatform(
         players = playerDirectory,
         targeting = playerTargeting,
         party = partyService,
+        storage = fileStorage,
+        permissions = permissionService,
         loggers = loggers,
     )
 

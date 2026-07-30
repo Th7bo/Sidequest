@@ -26,7 +26,7 @@ replaced without touching the other.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 261 tests that take a couple of seconds.
+testable at full speed with no game running — 322 tests that take a couple of seconds.
 
 ---
 
@@ -553,6 +553,152 @@ alone cannot make: standing in the Crimson Isle is not demanding and being mid-K
 
 ---
 
+## Storage
+
+**Features must not read or write JSON.** Eleven features each inventing an atomic-write is eleven
+chances to get the corruption case wrong, each losing a different user's data.
+
+```kotlin
+val ledger = context.store(
+    name = "ledger",
+    scope = StorageScope.Profile(playerId, profile),
+    serializer = Ledger.serializer(),
+    default = { Ledger() },
+    validate = { if (it.debts.values.any { debt -> debt < 0 }) "a debt cannot be negative" else null },
+)
+
+ledger.update { it.copy(debts = it.debts + (who to amount)) }
+```
+
+### The scope is part of asking
+
+| Scope | One copy per | For |
+| --- | --- | --- |
+| `Global` | installation | keybinds, developer flags |
+| `Account(playerId)` | Minecraft account | friend list, cosmetic loadout |
+| `Profile(playerId, profile)` | SkyBlock profile | progression, ledgers, anything per-profile |
+| `Cache` | installation, disposable | anything that can be deleted without consequence |
+
+Not filing tidiness — correctness. An Ironman profile's ledger has nothing to do with the main
+profile's, and a feature that stored them together would show one profile's numbers on the other.
+Making the scope part of getting a repository means a feature decides once rather than getting it
+wrong per write.
+
+`Profile` is keyed on the account *and* the name, because a profile name is only unique within an
+account — two people can both have a "Mango", and keying on the name alone would merge their data the
+moment files were shared or synced.
+
+### What happens when things go wrong
+
+The plan's whole requirement list lives here, and each item is a specific failure:
+
+- **Atomic writes.** Temp file in the same directory, then an atomic move. A crash mid-write leaves
+  the previous file, never a truncated one.
+- **Backups.** The previous version is kept as `.bak` before each write.
+- **Corruption detection and quarantine.** An unreadable file is moved to `.corrupt-<timestamp>`, not
+  deleted. Somebody whose ledger stopped loading wants the file; a mod that deleted it destroyed the
+  only copy. The timestamp means a second corruption does not erase the evidence of the first.
+- **Fallback recovery.** Live file, then backup, then defaults. A corrupt file with a good backup
+  loses at most the last save.
+- **Validation.** `validate` rejects a value that *parses* and is still wrong. Parsing is not
+  validation: a negative coin count deserialises perfectly. The file is left in place so it can be
+  inspected.
+- **Migrations.** A chain, one version per step, applied in order — so a file from any past version
+  reaches the present by composition rather than a special case per starting version. A **gap** in the
+  chain quarantines rather than guesses: applying the rest of the chain to a document that skipped a
+  step produces plausible nonsense, which is worse than a message somebody can act on.
+
+Every load returns a `StorageReport` rather than throwing. A feature cannot handle "the file was
+corrupt" usefully and the user can — but only if somebody tells them.
+
+### The offline queue
+
+```kotlin
+val outbox = storage.queue(id, scope, DropRecord.serializer())
+outbox.enqueue(record)
+val batch = outbox.peek()      // does not remove
+outbox.acknowledge(batch.map { it.id })
+```
+
+The interesting moments happen while offline: a rare drop at 2am on a flaky connection, an achievement
+earned while the homelab reboots. Holding those in memory loses them on the next crash; dropping them
+leaves holes in the group's history exactly where somebody will look.
+
+**Delivery is at-least-once.** `acknowledge` is a separate call, so a crash between sending and
+acknowledging replays the entry — the receiver discards a repeat by its id, and there is no way to be
+exactly-once across a network boundary without a transaction.
+
+**At capacity the oldest is dropped, not the newest refused.** A queue that refuses new entries when
+full stops recording the present in order to preserve a past nobody has looked at.
+
+The timestamp is when the entry *happened*, not when it is sent, which is the whole point of queueing:
+a drop recorded at 2am and delivered at 9am belongs at 2am in the history, and only the client knows
+that.
+
+### On duplicating the UI store
+
+The UI framework has its own store with the same properties. That is deliberate: the platform and the
+UI framework do not depend on each other, and sharing this would mean one importing the other or a
+third module both import. Two atomic-writes is the price of the split; being able to replace either
+framework without touching the other is what it buys.
+
+---
+
+## Permissions and privacy
+
+Two different questions, and the plan's flat list hides the difference:
+
+```kotlin
+permissions.can(actor, Permission.SEND_PINGS)                    // capability — role decides
+permissions.shares(Permission.VIEW_EXACT_POSITION, viewer)       // disclosure — the subject decides
+```
+
+"Send pings" is about what *I* may do. "View exact position" is about what somebody has allowed to be
+known about *them*. Treating both as one role check produces a privacy gate that is decorative: an
+admin would see a member's exact position because admins can do things, which is not what agreeing to
+share your island agreed to. So `PermissionKind` is on every permission, and asking the wrong method
+returns **false** with a warning rather than a plausible answer — a caller that got there has a bug,
+and a helpful answer would hide it while leaking the thing the split protects.
+
+### Capabilities
+
+`GUEST → MEMBER → ADMIN → OWNER`, ordered so a check reads as "admin or better". An unknown player is
+a `GUEST`: somebody the group has not decided about gets the least, not the default.
+
+The defaults follow one rule — anything that costs somebody else something needs `ADMIN`:
+
+| Permission | Role | Why |
+| --- | --- | --- |
+| send pings, waypoints, ready checks, sounds | `MEMBER` | the point of the mod |
+| create debts, upload evidence | `MEMBER` | adding to the record |
+| confirm payments, edit evidence, moderate | `ADMIN` | settling or rewriting the record |
+| manage shop rewards | `OWNER` | rewards are currency |
+
+Per-user overrides beat the role **in both directions**. "Let them run ready checks" needs a grant
+above the role; "that person cannot be trusted with the soundboard" needs a denial below it. A
+role-only model can do neither.
+
+### Disclosures
+
+Off or on per permission, and the one that reveals *where a person physically is* is treated
+differently:
+
+- online status, activity, island — shared by default
+- **exact position — off until turned on**
+
+Exact position is the one thing here that lets somebody find a person rather than know about them. A
+privacy default that has to be turned off is not a privacy default.
+
+An empty audience is not the same as an absent entry: absent means "the permission's default", empty
+means "explicitly nobody". Somebody who turned a disclosure off has to stay off if the default ever
+changes. And a disclosure is always shared with ourselves, or the local HUD showing our own position
+would be gated on us agreeing to share it with somebody.
+
+The service is built before anything that could send data anywhere — the gate has to exist before
+there is something to gate.
+
+---
+
 ## Scheduling
 
 ```kotlin
@@ -645,7 +791,9 @@ feature really does stop it. `BoardReaderTest`: that the adapter pulls the right
 of a real scoreboard, team prefixes and all. `ChatBridgeTest`: that a component sent over the
 network comes back out as a typed event. `ItemReaderTest`: that a stack shaped the way Hypixel
 builds one is read out of the components it actually lives in. `PlayerTargetingTest`: that the
-raycast and the line-of-sight test run against a real level at all.
+raycast and the line-of-sight test run against a real level at all. `StorageAndPermissionsTest`: that
+the directory the mod really writes to exists and is writable, and that the privacy defaults hold on
+the service the mod really built.
 
 `PlayerTargetingTest` earned its place immediately. It asserted that the local player is in the
 directory, which failed — nothing was feeding the online player list in, and every headless test
@@ -671,9 +819,10 @@ Feature code must not:
 - persist, cache or pass around an `ItemStack` — snapshot it as an `SqItem`
 - watch for party chat lines — read `party`
 - store a player by username — store a `PlayerId`
+- read or write a file — use `store(...)`
+- send or reveal anything without asking `permissions`
 - match a regex against a chat line — declare a `ChatRule` instead
 - perform HTTP requests or open WebSockets
-- read or write JSON files
 - download remote assets
 - resolve a player by username alone for anything durable
 

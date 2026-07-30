@@ -15,8 +15,16 @@ import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.party.PartyService
+import dev.th7bo.sidequest.platform.permission.Permission
+import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
+import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
+import dev.th7bo.sidequest.platform.storage.Repository
+import dev.th7bo.sidequest.platform.storage.StorageMigration
+import dev.th7bo.sidequest.platform.storage.StorageProvider
+import dev.th7bo.sidequest.platform.storage.StorageScope
+import kotlinx.serialization.KSerializer
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import dev.th7bo.sidequest.platform.scheduler.Debounced
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
@@ -145,6 +153,50 @@ public interface FeatureContext {
      * it.
      */
     public val party: PartyService
+
+    // -- storage ------------------------------------------------------------
+
+    /**
+     * Durable storage, for anything [store] does not cover.
+     *
+     * **Features must not read or write JSON.** Eleven features each inventing an atomic-write is
+     * eleven chances to get the corruption case wrong, each losing a different user's data.
+     */
+    public val storage: StorageProvider
+
+    /**
+     * A repository for this feature's own data.
+     *
+     * Namespaced under the feature's id, so two features cannot collide however they name their files.
+     *
+     * @param default used on a first run and when a stored value fails [validate].
+     * @param validate a reason to reject a value that parses and is still wrong. Parsing is not
+     *   validation: a negative coin count deserialises perfectly.
+     */
+    public fun <T : Any> store(
+        name: String,
+        scope: StorageScope,
+        serializer: KSerializer<T>,
+        default: () -> T,
+        schemaVersion: Int = 1,
+        migrations: List<StorageMigration> = emptyList(),
+        validate: (T) -> String? = { null },
+    ): Repository<T>
+
+    // -- permissions --------------------------------------------------------
+
+    /**
+     * Who may do what, and what the local player has agreed to reveal.
+     *
+     * Ask before acting and before revealing. A permission check copied into a feature is one that does
+     * not get updated when the rules change, and the failure is silent — the feature keeps working, it
+     * just stops asking.
+     */
+    public val permissions: PermissionService
+
+    /** Whether the local player has agreed to share [permission] with [viewer]. */
+    public fun shares(permission: Permission, viewer: PlayerId): Boolean =
+        permissions.shares(permission, viewer)
 
     // -- chat ---------------------------------------------------------------
 

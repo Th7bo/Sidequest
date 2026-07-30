@@ -203,7 +203,15 @@ object Sidequest : ClientModInitializer {
      * on purpose — the UI framework knows nothing about features, and the platform knows
      * nothing about rendering — so either can be worked on without the other.
      */
-    val platform: SidequestPlatform by lazy { SidequestPlatform(MINECRAFT) }
+    val platform: SidequestPlatform by lazy {
+        SidequestPlatform(
+            minecraftVersion = MINECRAFT,
+            // Alongside the configuration rather than inside it: configuration is what the player
+            // edits and this is what features record, and a user clearing one should not lose the
+            // other.
+            storageRoot = loader.configDir.resolve(MOD_ID).resolve("data"),
+        )
+    }
 
     /** Held for the developer inspector and for the in-game tests. */
     lateinit var sessionDiagnostics: SessionDiagnostics

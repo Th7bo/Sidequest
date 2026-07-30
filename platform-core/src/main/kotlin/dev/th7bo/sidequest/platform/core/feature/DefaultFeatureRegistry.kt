@@ -16,6 +16,8 @@ import dev.th7bo.sidequest.platform.game.GameVersion
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.log.LogCategory
 import dev.th7bo.sidequest.platform.party.PartyService
+import dev.th7bo.sidequest.platform.permission.PermissionService
+import dev.th7bo.sidequest.platform.storage.StorageProvider
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
@@ -44,6 +46,8 @@ public class DefaultFeatureRegistry(
     private val players: PlayerDirectory,
     private val targeting: PlayerTargeting,
     private val party: PartyService,
+    private val storage: StorageProvider,
+    private val permissions: PermissionService,
     private val loggers: LoggerFactory,
     /** Whether a feature should start. Backed by config once the config bridge exists. */
     private val isEnabledByUser: (FeatureDescriptor) -> Boolean = { it.enabledByDefault },
@@ -127,6 +131,8 @@ public class DefaultFeatureRegistry(
             players = players,
             targeting = targeting,
             party = party,
+            storage = storage,
+            permissions = permissions,
             log = loggers.create(LogCategory.FEATURE, descriptor.id),
         )
 

@@ -4,6 +4,8 @@ import dev.th7bo.sidequest.platform.command.CommandCollisionException
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.context.DefaultGameContextService
 import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
+import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
+import dev.th7bo.sidequest.platform.core.storage.JsonFileStorage
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.api.assertThrows
 import kotlin.time.Duration.Companion.seconds
 
@@ -49,6 +52,9 @@ class FeatureRegistryTest {
     private lateinit var chat: DefaultChatParser
     private lateinit var gameContext: DefaultGameContextService
     private lateinit var players: DefaultPlayerDirectory
+
+    @TempDir
+    lateinit var storageRoot: java.nio.file.Path
     private lateinit var sink: RecordingLogSink
     private lateinit var loggers: LoggerFactory
 
@@ -79,6 +85,8 @@ class FeatureRegistryTest {
         players = players,
         targeting = PlayerTargeting.None,
         party = DefaultPartyService(bus, players, NoopLogger),
+        storage = JsonFileStorage(storageRoot, NoopLogger),
+        permissions = DefaultPermissionService(NoopLogger, localPlayer = { null }),
         loggers = loggers,
         isEnabledByUser = enabledByUser,
     )
