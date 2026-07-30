@@ -1,5 +1,7 @@
 package dev.th7bo.sidequest.platform.feature
 
+import dev.th7bo.sidequest.platform.chat.ChatParser
+import dev.th7bo.sidequest.platform.chat.ChatRule
 import dev.th7bo.sidequest.platform.command.CommandRegistry
 import dev.th7bo.sidequest.platform.command.CommandSpec
 import dev.th7bo.sidequest.platform.event.DispatchMode
@@ -103,6 +105,22 @@ public interface FeatureContext {
 
     /** Registers a client command for as long as this feature is enabled. */
     public fun command(spec: CommandSpec): Registration
+
+    // -- chat ---------------------------------------------------------------
+
+    /** The chat parser, for anything [chatRule] does not cover. */
+    public val chat: ChatParser
+
+    /**
+     * Registers a chat rule for as long as this feature is enabled.
+     *
+     * A feature declares the shape of a line and the event it means, and never touches a
+     * chat string again. Reading chat any other way — subscribing to
+     * [dev.th7bo.sidequest.platform.chat.ChatMessageEvent] and matching a private regex —
+     * is what the parser exists to stop, because those copies are the ones nobody fixes
+     * when Hypixel rewords a message.
+     */
+    public fun chatRule(rule: ChatRule<*>): Registration
 }
 
 /** Subscribes to [T], inferring the type. The form feature code uses. */

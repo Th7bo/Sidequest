@@ -1,6 +1,7 @@
 package dev.th7bo.sidequest.platform.core.feature
 
 import dev.th7bo.sidequest.platform.command.CommandCollisionException
+import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.log.LoggerFactory
@@ -23,6 +24,7 @@ import dev.th7bo.sidequest.platform.game.VersionRange
 import dev.th7bo.sidequest.platform.id.OwnerId
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.log.LogCategory
+import dev.th7bo.sidequest.platform.testkit.NoopLogger
 import dev.th7bo.sidequest.platform.testkit.RecordingLogSink
 import dev.th7bo.sidequest.platform.testkit.TestScheduler
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -40,6 +42,7 @@ class FeatureRegistryTest {
     private lateinit var scheduler: TestScheduler
     private lateinit var bus: DefaultEventBus
     private lateinit var commands: DefaultCommandRegistry
+    private lateinit var chat: DefaultChatParser
     private lateinit var sink: RecordingLogSink
     private lateinit var loggers: LoggerFactory
 
@@ -50,12 +53,13 @@ class FeatureRegistryTest {
         loggers = LoggerFactory(sink)
         bus = DefaultEventBus(scheduler, loggers.create(LogCategory.EVENT, SqId.sidequest("bus")))
         commands = DefaultCommandRegistry()
+        chat = DefaultChatParser(bus, NoopLogger)
     }
 
     private fun registry(
         version: GameVersion = GameVersion(26, 2),
         enabledByUser: (FeatureDescriptor) -> Boolean = { it.enabledByDefault },
-    ) = DefaultFeatureRegistry(version, bus, scheduler, commands, loggers, enabledByUser)
+    ) = DefaultFeatureRegistry(version, bus, scheduler, commands, chat, loggers, enabledByUser)
 
     // ---------------------------------------------------------------
     // Declaration

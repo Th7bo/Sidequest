@@ -1,5 +1,7 @@
 package dev.th7bo.sidequest.platform.core.feature
 
+import dev.th7bo.sidequest.platform.chat.ChatParser
+import dev.th7bo.sidequest.platform.chat.ChatRule
 import dev.th7bo.sidequest.platform.command.CommandRegistry
 import dev.th7bo.sidequest.platform.command.CommandSpec
 import dev.th7bo.sidequest.platform.event.DispatchMode
@@ -38,6 +40,7 @@ internal class DefaultFeatureContext(
     override val events: EventBus,
     override val scheduler: Scheduler,
     override val commands: CommandRegistry,
+    override val chat: ChatParser,
     override val log: Logger,
 ) : FeatureContext {
 
@@ -93,6 +96,11 @@ internal class DefaultFeatureContext(
         return commands.register(owner, spec).ownedBy(scope)
     }
 
+    override fun chatRule(rule: ChatRule<*>): Registration {
+        checkAlive()
+        return chat.register(rule, owner).ownedBy(scope)
+    }
+
     /** Undoes everything this feature registered. Safe to call more than once. */
     fun tearDown() {
         if (!scope.isClosed) {
@@ -110,6 +118,7 @@ internal class DefaultFeatureContext(
         events.unsubscribeAll(owner)
         scheduler.cancelAll(owner)
         commands.unregisterAll(owner)
+        chat.unregisterAll(owner)
     }
 
     private fun checkAlive() {

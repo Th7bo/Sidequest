@@ -26,7 +26,7 @@ replaced without touching the other.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 62 tests that take under a second.
+testable at full speed with no game running — 151 tests that take a couple of seconds.
 
 ---
 
@@ -142,12 +142,131 @@ from "the event never fired".
 
 ### Which events exist
 
-Only the client lifecycle so far: `MinecraftJoinEvent`, `MinecraftDisconnectEvent`,
-`ClientTickEvent`, `ClientShutdownEvent`, `FeatureStateChangedEvent`.
+The client lifecycle: `MinecraftJoinEvent`, `MinecraftDisconnectEvent`, `ClientTickEvent`,
+`ClientShutdownEvent`, `FeatureStateChangedEvent`.
 
-The rest of the catalogue in `mod.plan` — SkyBlock, dungeon, achievement, social — is
-defined alongside the service that emits it. An event whose payload nobody fills is a
-guess at a data model, and guesses are what migrations are made of.
+The game context: `SkyBlockJoinEvent`, `SkyBlockLeaveEvent`, `IslandChangedEvent`,
+`SubLocationChangedEvent`, `ServerChangedEvent`, `ProfileChangedEvent`.
+
+Chat, from the parser: `ChatMessageEvent` plus the derived family under
+`ChatDerivedEvent` — see [Chat](#chat).
+
+The rest of the catalogue in `mod.plan` — dungeon, achievement, social — is defined
+alongside the service that emits it. An event whose payload nobody fills is a guess at a
+data model, and guesses are what migrations are made of.
+
+---
+
+## Chat
+
+One place classifies chat. A feature declares the shape of a line and the event it means,
+and never touches a chat string again:
+
+```kotlin
+context.chatRule(
+    chatRule(
+        id = SqId.sidequest("myfeature.debt_paid"),
+        regex = """§aDebt settled by (?<who>.*)§a\.""",
+        fixtures = listOf("§aDebt settled by §b[MVP§d+§b] Notch§a."),
+    ) { match ->
+        match.playerName("who")?.let { DebtSettledEvent(it, match.message) }
+    },
+)
+```
+
+The built-in rules cover the channels (party, guild, co-op, private, public), party
+membership, rare drops, skill level-ups, dungeon and Kuudra completion, and auctions. They
+live in `HypixelChatRules` and are registered by the platform, not by a feature — a feature
+being switched off must not stop the mod knowing it joined a party.
+
+### Three views of a line, and why
+
+`ChatMessage` exposes the same text three ways, and a pattern says which it wants. Getting
+this wrong fails silently and looks like Hypixel changed a message.
+
+| Target | What it is | Use it when |
+| --- | --- | --- |
+| `FORMATTED` (default) | codes intact, `§r` removed | colour carries meaning: `§6§lRARE DROP!`, `§9Party §8>` |
+| `PLAIN` | codes removed, layout intact | leading whitespace matters: the dungeon banner, the level-up indent |
+| `CLEAN` | trimmed, spaces collapsed, invisibles gone | the words are all that matter |
+
+**Why `§r` is removed.** How many resets a component serialises to depends on how the
+message was assembled, so the same visible line can arrive as `§r§b[MVP§r§c+§r§b] Notch` or
+as `§b[MVP§c+§b] Notch`. A pattern written against one silently fails on the other. Resets
+carry no information a pattern can use — `§r` means "back to plain", and nothing keys off a
+run *lacking* a colour — so dropping them costs nothing and removes a whole class of
+almost-working pattern.
+
+### Patterns carry their own fixtures
+
+Every pattern ships the real lines it was written against, and `verifyFixtures()` runs them:
+
+```kotlin
+val failures = platform.chat.verifyFixtures()
+```
+
+Checked in the headless suite, again at startup, and again in the in-game test. Not
+redundant — patterns can be replaced at runtime, and a replacement has not been through the
+test suite. A pattern with no fixture is a pattern nobody has seen work; `ChatRulesTest`
+asserts the exact set of those, so adding one is deliberate rather than accidental.
+
+`ChatRulesTest` also asserts that **each fixture is classified by exactly one rule**. The
+parser gives every rule a look rather than stopping at the first match — first-match-wins
+would mean the second feature to register on a line silently stops working — and that is
+only safe if the patterns do not overlap.
+
+### Versioning
+
+A rule whose pattern id is already registered replaces it if its `version` is higher, and is
+refused if it is not. That is how a corrected pattern can arrive from anywhere — including
+the backend, later — without the caller knowing what it is competing with.
+
+### Duplicate suppression
+
+Hypixel sends the same line twice. `ChatMessageEvent` is posted for every line including
+repeats, with `isDuplicate` set; rule-derived events are **not** posted for a repeat. A
+feature mirroring chat wants what the player saw; a feature counting loot must not count the
+same drop twice.
+
+The window is 150 ms, deliberately short. Hypixel's duplicates arrive within a tick or two,
+and a window long enough to catch a slow one is long enough to swallow two genuine drops in
+a row. Losing a real event is the worse failure.
+
+### Click actions are the durable half
+
+The most reliable thing about a Hypixel prompt is not its wording:
+
+```kotlin
+match.message.commandStartingWith("/party accept")
+```
+
+`/party accept Notch` behind the invite prompt has outlived several rewordings of the
+prompt. That is why `SqText` keeps the click event rather than the parser matching a
+flattened string.
+
+### Where the patterns come from
+
+Every pattern and every fixture was taken from SkyHanni's `RepoPattern` groups, and the
+fixtures are their `REGEX-TEST` lines verbatim. Hypixel's chat is documented nowhere, years
+of corrections live in those formats, and rediscovering the exact shape of the guild rank
+suffix by observation would take the same years. The implementation, the event model and the
+matching strategy are ours.
+
+Two things follow from that, and both are rules:
+
+**Never write a Hypixel pattern from memory.** Check `../SkyHanni` first. An earlier version
+of the scoreboard cleaner deleted Hypixel's texture-pack glyphs as "padding" and would have
+broken every pattern that matched one, silently.
+
+**A fixture is an observation, not a derivation.** Synthesising one from the pattern it is
+meant to test proves nothing and reads as evidence. Where no recorded line exists, the
+pattern is marked unverified and named in the test.
+
+### Debugging
+
+`/sqchat` toggles tracing and prints the counters. When a rule stops firing the question is
+whether Hypixel changed the message or the line never arrived at all, and only the log
+distinguishes them — they look identical from the outside and have nothing in common.
 
 ---
 
@@ -237,9 +356,17 @@ drives the dispatcher to idle when the body returns, and a repeating job never b
 idle. Leaving one running hangs the whole test run instead of failing one test. Cancel the
 owner in a `finally`.
 
-The in-game test (`PlatformRuntimeTest`) covers the half no fake can: that a tick event
+The in-game tests cover the half no fake can. `PlatformRuntimeTest`: that a tick event
 actually fires on a real client, that a command actually registers, and that disabling a
-feature really does stop it.
+feature really does stop it. `BoardReaderTest`: that the adapter pulls the right strings out
+of a real scoreboard, team prefixes and all. `ChatBridgeTest`: that a component sent over the
+network comes back out as a typed event.
+
+`ChatBridgeTest` is the clearest example of why the far side has to be tested. Every chat
+fixture in the suite would still pass if `toLegacyFormatting` emitted the wrong colour code,
+or dropped the codes, or put them after the text — and every rule in the mod would silently
+stop matching. So the test asserts the exact rendered string, not just that something
+arrived.
 
 ---
 
@@ -252,6 +379,7 @@ Feature code must not:
 
 - import a Minecraft class
 - parse raw scoreboard or tab-list text
+- match a regex against a chat line — declare a `ChatRule` instead
 - perform HTTP requests or open WebSockets
 - read or write JSON files
 - download remote assets

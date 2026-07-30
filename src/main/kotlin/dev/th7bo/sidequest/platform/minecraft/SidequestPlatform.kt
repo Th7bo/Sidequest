@@ -1,6 +1,9 @@
 package dev.th7bo.sidequest.platform.minecraft
 
+import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.command.CommandRegistry
+import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
+import dev.th7bo.sidequest.platform.core.chat.HypixelChatRules
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.feature.DefaultFeatureRegistry
@@ -18,6 +21,7 @@ import dev.th7bo.sidequest.platform.feature.FeatureRefusal
 import dev.th7bo.sidequest.platform.feature.FeatureRegistry
 import dev.th7bo.sidequest.platform.game.GameClient
 import dev.th7bo.sidequest.platform.game.GameVersion
+import dev.th7bo.sidequest.platform.id.OwnerId
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.LogCategory
@@ -77,11 +81,26 @@ class SidequestPlatform(
         onRegistered = { command -> commandBridge?.onRegistered(command.spec) },
     )
 
+    /**
+     * The one place chat is classified.
+     *
+     * The built-in rules are registered in [start] under the platform's own owner, so they
+     * outlive every feature: a feature being switched off must not stop the mod knowing it
+     * joined a party.
+     */
+    private val chatParser = DefaultChatParser(
+        events = events,
+        log = loggers.create(LogCategory.PARSER, SqId.sidequest("chat")),
+    )
+
+    val chat: ChatParser get() = chatParser
+
     val features: FeatureRegistry = DefaultFeatureRegistry(
         gameVersion = version,
         events = events,
         scheduler = scheduler,
         commands = commands,
+        chat = chatParser,
         loggers = loggers,
     )
 
@@ -121,6 +140,22 @@ class SidequestPlatform(
 
         minecraftLifecycle.install()
         bridgeLifecycleToEvents()
+
+        MinecraftChatBridge(
+            parser = chatParser,
+            log = loggers.create(LogCategory.PARSER, SqId.sidequest("chat")),
+        ).install()
+
+        // The local player's name is needed to tell the player's own public message from a
+        // system line shaped like one, and it is not known yet at this point — hence the
+        // supplier rather than a value.
+        adapterScope.add(chatParser.registerAll(HypixelChatRules.all { minecraftClient.localPlayerName }, OwnerId.PLATFORM))
+        val fixtureFailures = chatParser.verifyFixtures()
+        if (fixtureFailures.isNotEmpty()) {
+            // Loud, because it means a built-in pattern does not do what its own recorded
+            // line says it does, and every feature above it is quietly broken.
+            log.error { "Chat patterns failed their own fixtures:\n" + fixtureFailures.joinToString("\n") }
+        }
 
         // Hypixel's own location packet, when the Mod API is installed. Optional by
         // design: without it the scraped sources stand on their own at lower confidence.
@@ -169,6 +204,7 @@ class SidequestPlatform(
                 // Before the event, so a listener reacting to the disconnect does not read
                 // an island from a server it has just left.
                 contextService.reset()
+                chatParser.reset()
                 contextService.setOnHypixel(false)
                 events.post(MinecraftDisconnectEvent(), EventSource.GAME)
             }.asRegistration(),

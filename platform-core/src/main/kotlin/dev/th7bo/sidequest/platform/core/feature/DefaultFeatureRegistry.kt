@@ -1,5 +1,6 @@
 package dev.th7bo.sidequest.platform.core.feature
 
+import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.command.CommandRegistry
 import dev.th7bo.sidequest.platform.event.EventBus
 import dev.th7bo.sidequest.platform.event.EventSource
@@ -34,6 +35,7 @@ public class DefaultFeatureRegistry(
     private val events: EventBus,
     private val scheduler: Scheduler,
     private val commands: CommandRegistry,
+    private val chat: ChatParser,
     private val loggers: LoggerFactory,
     /** Whether a feature should start. Backed by config once the config bridge exists. */
     private val isEnabledByUser: (FeatureDescriptor) -> Boolean = { it.enabledByDefault },
@@ -112,6 +114,7 @@ public class DefaultFeatureRegistry(
             events = events,
             scheduler = scheduler,
             commands = commands,
+            chat = chat,
             log = loggers.create(LogCategory.FEATURE, descriptor.id),
         )
 

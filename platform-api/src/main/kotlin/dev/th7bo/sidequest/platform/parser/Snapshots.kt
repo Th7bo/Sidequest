@@ -104,6 +104,30 @@ public object HypixelText {
     }
 
     /**
+     * Removes `§r` and leaves every other code alone.
+     *
+     * For chat, where the count of resets is an artefact of how the message was assembled
+     * rather than anything about the message. See [ChatMessage.formatted][
+     * dev.th7bo.sidequest.platform.chat.ChatMessage.formatted] for why that matters enough
+     * to normalise.
+     */
+    public fun withoutResets(text: String): String {
+        if (SECTION !in text) return text
+        val builder = StringBuilder(text.length)
+        var index = 0
+        while (index < text.length) {
+            val character = text[index]
+            if (character == SECTION && index + 1 < text.length && (text[index + 1] == 'r' || text[index + 1] == 'R')) {
+                index += 2
+                continue
+            }
+            builder.append(character)
+            index++
+        }
+        return builder.toString()
+    }
+
+    /**
      * Characters that occupy no visible space.
      *
      * Note what is *not* here: the private-use area. Those glyphs render as icons from

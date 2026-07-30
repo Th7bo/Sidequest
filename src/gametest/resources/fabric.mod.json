@@ -29,6 +29,10 @@
       {
         "value": "dev.th7bo.sidequest.gametest.BoardReaderTest",
         "adapter": "kotlin"
+      },
+      {
+        "value": "dev.th7bo.sidequest.gametest.ChatBridgeTest",
+        "adapter": "kotlin"
       }
     ]
   },

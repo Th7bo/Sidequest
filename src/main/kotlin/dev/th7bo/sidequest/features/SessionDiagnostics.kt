@@ -1,5 +1,6 @@
 package dev.th7bo.sidequest.features
 
+import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.event.ClientTickEvent
 import dev.th7bo.sidequest.platform.event.MinecraftDisconnectEvent
 import dev.th7bo.sidequest.platform.event.MinecraftJoinEvent
@@ -53,7 +54,11 @@ class SessionDiagnostics(
     var lastServer: String? = null
         private set
 
+    /** Set on enable so the report can read the parser's counters. */
+    private var chat: ChatParser? = null
+
     override fun onEnable(context: FeatureContext) {
+        chat = context.chat
         context.listen<ClientTickEvent> { ticks = it.tick }
 
         context.listen<MinecraftJoinEvent> { event ->
@@ -71,6 +76,31 @@ class SessionDiagnostics(
         context.every(1.seconds) { uptimeSeconds++ }
 
         context.command("sqdiag", "Prints Sidequest session diagnostics") { report() }
+
+        // Turning chat tracing on from in game is worth a command of its own: when a rule
+        // stops firing, the question is whether Hypixel changed the message or the line
+        // never arrived, and only the log distinguishes them.
+        context.command("sqchat", "Toggles chat parser debug logging") { reportChat(context) }
+    }
+
+    /** Toggles chat tracing and reports the parser's counters. */
+    private fun reportChat(context: FeatureContext) {
+        val parser = context.chat
+        parser.isDebugLogging = !parser.isDebugLogging
+        val stats = parser.stats
+        client.sendClientMessage(
+            SqText.join(
+                SqText.of("[Sidequest] ", SqStyle(color = ACCENT, bold = true)),
+                SqText.of(
+                    "chat tracing ${if (parser.isDebugLogging) "on" else "off"} — " +
+                        "${parser.patterns().size} pattern(s), " +
+                        "${stats.received} line(s), " +
+                        "${stats.classified} classified, " +
+                        "${stats.unclassified} not, " +
+                        "${stats.duplicates} duplicate(s)",
+                ),
+            ),
+        )
     }
 
     /** Writes the current numbers to the local chat. Client-side only. */
@@ -88,6 +118,7 @@ class SessionDiagnostics(
         append("$ticks tick(s), ")
         append("$joins join(s)")
         lastServer?.let { append(", last server $it") }
+        chat?.let { append(", ${it.stats.received} chat line(s)") }
     }
 
     private companion object {
