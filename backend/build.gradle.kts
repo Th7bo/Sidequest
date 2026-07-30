@@ -32,6 +32,10 @@ dependencies {
     implementation(libs.logback.classic)
 
     testImplementation(libs.ktor.server.test.host)
+    // The real client, against the real server. The point of `:protocol` existing is that these two
+    // cannot disagree about the wire format, and this is the test that proves it rather than asserting it.
+    testImplementation(project(":platform-core"))
+    testImplementation(project(":platform-testkit"))
     testImplementation(libs.ktor.client.websockets)
     testImplementation(libs.kotlinx.coroutines.test)
 }

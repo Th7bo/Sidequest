@@ -23,6 +23,15 @@ public interface Logger {
 
     public fun debug(message: () -> String): Unit = log(LogLevel.DEBUG, null, message)
 
+    /**
+     * A debug line with a cause.
+     *
+     * Needed more often than it looks: a failure that is *expected* — an unreachable server, an
+     * unreadable frame — is worth the stack trace at debug and not worth a warning, because at warning
+     * level a mod used on hotel wifi produces a log nobody reads.
+     */
+    public fun debug(thrown: Throwable?, message: () -> String): Unit = log(LogLevel.DEBUG, thrown, message)
+
     public fun info(message: () -> String): Unit = log(LogLevel.INFO, null, message)
 
     public fun warn(thrown: Throwable? = null, message: () -> String): Unit =

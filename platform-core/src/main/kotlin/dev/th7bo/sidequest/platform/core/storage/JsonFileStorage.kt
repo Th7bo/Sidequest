@@ -1,7 +1,6 @@
 package dev.th7bo.sidequest.platform.core.storage
 
 import dev.th7bo.sidequest.platform.id.SqId
-import dev.th7bo.sidequest.platform.log.LogLevel
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.storage.OfflineQueue
 import dev.th7bo.sidequest.platform.storage.QueuedEntry
@@ -265,7 +264,7 @@ public class JsonFileStorage(
             }
 
             StoredValue(value, StorageReport(migrationsApplied = applied))
-        }.onFailure { thrown -> log.log(LogLevel.DEBUG, thrown) { "Could not read $path" } }.getOrNull()
+        }.onFailure { thrown -> log.debug(thrown) { "Could not read $path" } }.getOrNull()
 
         /** Walks the migration chain to the current version. */
         private fun migrate(document: JsonObject, from: Int): Pair<JsonObject, List<String>> {

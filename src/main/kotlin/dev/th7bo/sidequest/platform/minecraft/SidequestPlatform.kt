@@ -2,6 +2,10 @@ package dev.th7bo.sidequest.platform.minecraft
 
 import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.command.CommandRegistry
+import dev.th7bo.sidequest.platform.backend.BackendConfig
+import dev.th7bo.sidequest.platform.core.backend.DefaultBackendClient
+import dev.th7bo.sidequest.platform.core.backend.DefaultRealtimeClient
+import dev.th7bo.sidequest.platform.core.backend.StoredTokenStore
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.chat.HypixelChatRules
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
@@ -40,6 +44,8 @@ import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
 import dev.th7bo.sidequest.platform.storage.StorageProvider
+import dev.th7bo.sidequest.platform.storage.StorageScope
+import dev.th7bo.sidequest.protocol.RealtimeMessage
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import org.slf4j.LoggerFactory as Slf4jLoggerFactory
 
@@ -184,6 +190,30 @@ class SidequestPlatform(
 
     val permissions: PermissionService get() = permissionService
 
+    /**
+     * The backend, when one is configured.
+     *
+     * Built lazily, and *not* started here. Everything it needs — the local player's account scope for its
+     * token store — only exists after login, and a client built at mod-init would have nowhere to keep its
+     * credentials. [connectBackend] is called once the player is known.
+     */
+    private var backendClient: DefaultBackendClient? = null
+
+    private var realtimeClient: DefaultRealtimeClient? = null
+
+    val backend: DefaultBackendClient? get() = backendClient
+
+    val realtime: DefaultRealtimeClient? get() = realtimeClient
+
+    /**
+     * The backend configuration.
+     *
+     * Replaceable at runtime, because it comes from the settings screen. A change of server drops the
+     * session with it — see [DefaultBackendClient.reconfigure].
+     */
+    var backendConfig: BackendConfig = BackendConfig.None
+        private set
+
     val features: FeatureRegistry = DefaultFeatureRegistry(
         gameVersion = version,
         events = events,
@@ -279,6 +309,8 @@ class SidequestPlatform(
         )
         adapterScope.add(
             minecraftLifecycle.onJoin { address ->
+                // The account is known now, which is what the backend's token store is scoped to.
+                if (backendClient == null) connectBackend(backendConfig)
                 contextService.setOnHypixel(isHypixel(address))
                 events.post(MinecraftJoinEvent(address), EventSource.GAME)
             }.asRegistration(),
@@ -357,12 +389,63 @@ class SidequestPlatform(
         return host == HYPIXEL_DOMAIN || host.endsWith(".$HYPIXEL_DOMAIN")
     }
 
+    /**
+     * Builds and starts the backend client for the signed-in account.
+     *
+     * Called after login, because the token store is scoped to the account: two Minecraft accounts on one
+     * machine are two devices to the backend, and sharing one credential would mean one signing the other
+     * out.
+     *
+     * Does nothing when no server is configured, which is the default and not a problem — Sidequest's local
+     * features are most of it, and a group without a server should see no errors and no retries.
+     */
+    fun connectBackend(config: BackendConfig) {
+        backendConfig = config
+        val playerId = minecraftClient.localPlayerId?.let { PlayerId.of(it) } ?: return
+        if (!config.isConfigured) {
+            backendClient = null
+            realtimeClient = null
+            return
+        }
+
+        val client = DefaultBackendClient(
+            config = config,
+            transport = JdkHttpTransport(),
+            tokens = StoredTokenStore(fileStorage, StorageScope.Account(playerId)),
+            events = events,
+            log = loggers.create(LogCategory.BACKEND, SqId.sidequest("backend")),
+            outbox = fileStorage.queue(
+                id = SqId.sidequest("backend.outbox"),
+                // Account-scoped, like the credentials: one account's unsent events are not another's.
+                scope = StorageScope.Account(playerId),
+                serializer = RealtimeMessage.serializer(),
+            ),
+        )
+        backendClient = client
+
+        val realtime = DefaultRealtimeClient(
+            client = client,
+            transport = JdkRealtimeTransport(),
+            events = events,
+            log = loggers.create(LogCategory.REALTIME, SqId.sidequest("realtime")),
+        )
+        realtimeClient = realtime
+
+        // Both on the scheduler's async side. Neither may touch the game, and both are long-lived — the
+        // realtime loop runs for the session — so they are owned by the platform and cancelled with it.
+        scheduler.async(OwnerId.PLATFORM) { client.start() }
+        scheduler.async(OwnerId.PLATFORM) { realtime.run() }
+    }
+
     /** Disables every feature and unhooks the adapter. Safe to call more than once. */
     fun stop() {
         if (!started) return
         started = false
         features.disableAll()
         partyService.close()
+        // The realtime loop and the backend's jobs are owned by the platform, so cancelling its scheduler
+        // registrations is the whole of their shutdown. Nothing here has to be told to stop.
+        scheduler.cancelAll(OwnerId.PLATFORM)
         if (!adapterScope.isClosed) adapterScope.cancel()
         log.info { "Platform stopped" }
     }

@@ -21,12 +21,17 @@ replaced without touching the other.
 | `platform-api` | interfaces, declarations, events, models | no |
 | `platform-core` | the bus, scheduler, registries | no |
 | `platform-testkit` | fakes for all of it | no |
+| `protocol` | the wire format, shared with the backend | no |
 | `src/main/.../platform/minecraft` | the adapters | yes, exclusively |
+
+The backend is in this build too, and is documented in [../backend](../backend/README.md). Nothing in the
+mod depends on it — both depend on `:protocol`, so a wire-format change breaks both sides at compile time
+rather than at runtime on somebody else's machine.
 
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 322 tests that take a couple of seconds.
+testable at full speed with no game running — 348 tests that take a couple of seconds.
 
 ---
 
@@ -821,6 +826,7 @@ Feature code must not:
 - store a player by username — store a `PlayerId`
 - read or write a file — use `store(...)`
 - send or reveal anything without asking `permissions`
+- make an HTTP request — submit through the backend client, which queues when offline
 - match a regex against a chat line — declare a `ChatRule` instead
 - perform HTTP requests or open WebSockets
 - download remote assets

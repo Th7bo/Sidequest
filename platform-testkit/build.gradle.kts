@@ -5,6 +5,8 @@
 // a cycle. It sits on :platform-api like the code under test does.
 dependencies {
     api(project(":platform-api"))
+    // The fakes speak the wire format: a scripted response is a real payload.
+    api(project(":protocol"))
     api(platform(libs.junit.bom))
     api(libs.junit.jupiter)
     api(libs.kotlinx.coroutines.test)
