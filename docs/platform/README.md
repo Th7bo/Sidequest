@@ -1334,9 +1334,31 @@ The first version of this screen was a demonstration of the framework, with half
 properties nothing read. A settings screen whose switches do nothing is worse than none, because somebody will
 change one and believe it.
 
+That was claimed once before it was true: the accent picker still bound to a property nothing read, which a
+screenshot showed as a colour field set to red while every button stayed purple. `activeTheme()` now applies
+it, with a worn cosmetic style taking precedence.
+
 The layout follows what a person is trying to do rather than how the code is arranged: rare drops are their
 own category because that is what someone comes to adjust, not filed under "chat" because that is where the
 message happens to be parsed.
+
+### Four categories, folding sections
+
+A category per feature turned the sidebar into a list of the code's own structure. Now: **General**,
+**Features**, **Network**, **Advanced** — and each feature is a collapsible section inside Features, folded by
+default, so the screen opens as a short list of headings rather than a wall of switches.
+
+`Section.isCollapsible` and the DSL's `collapsible` parameter had both existed since phase 2 and **the
+renderer ignored them** — a screen could declare a folding section and get a permanently open one. Nothing
+caught it because every test asserted on the model, which was correct the whole time. The same shape of bug as
+the world projector: the description was right and the thing that drew it was not.
+
+Two details that are decisions rather than defaults:
+
+- **Search opens everything.** A result hidden inside a folded section is a search that appears to have found
+  nothing, which is worse than no search.
+- **Fold state lives on the provider, not the section.** A `Section` describes the screen and is shared by
+  every window showing it; folding one place must not fold it elsewhere.
 
 ### `list`, finally
 

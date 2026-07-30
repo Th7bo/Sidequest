@@ -99,7 +99,12 @@ public class ConfigRowProvider(
     override fun createRow(index: Int): UiNode {
         val row = rows[index]
         val content = when (row) {
-            is ConfigRow.Header -> SectionCardHeaderNode(row.section, context)
+            is ConfigRow.Header -> SectionCardHeaderNode(
+                section = row.section,
+                componentContext = context,
+                isCollapsed = if (row.section.isCollapsible) ({ isCollapsed(row.section) }) else null,
+                onToggle = { toggleCollapsed(row.section) },
+            )
             is ConfigRow.Entry -> registry.createNode(row.setting, context)
         }
         return CardSliceNode(
@@ -111,8 +116,48 @@ public class ConfigRowProvider(
         )
     }
 
+    /**
+     * Which sections are folded away.
+     *
+     * Held here rather than on the [Section], because a section is a *description* of the screen and is
+     * shared by every window that shows it — folding one in a screen must not fold it somewhere else. Seeded
+     * from `startsCollapsed` the first time each section is seen.
+     */
+    private val collapsed = HashMap<UiId, Boolean>()
+
+    private var isSearching = false
+
+    private fun isCollapsed(section: Section): Boolean =
+        collapsed.getOrPut(section.id) { section.startsCollapsed }
+
+    /**
+     * Called when a fold changes, so the screen can re-run its own rebuild.
+     *
+     * A callback rather than the provider rebuilding itself: it is a [RowProvider], not a node, so it cannot
+     * invalidate the list it feeds — and reaching for the list from here would invert the ownership that
+     * makes the provider testable without one.
+     */
+    public var onFoldChanged: (() -> Unit)? = null
+
+    /** Folds a section by id. For tests, which have no pointer to click the header with. */
+    public fun foldForTesting(sectionId: UiId) {
+        collapsed[sectionId] = !(collapsed[sectionId] ?: false)
+        onFoldChanged?.invoke()
+    }
+
+    private fun toggleCollapsed(section: Section) {
+        collapsed[section.id] = !isCollapsed(section)
+        onFoldChanged?.invoke()
+    }
+
+    private var lastCategory: Category? = null
+    private var lastVisibleIds: Set<UiId>? = null
+
     /** Rebuilds the row list for [category], keeping only settings in [visibleIds] if given. */
     public fun rebuild(category: Category?, visibleIds: Set<UiId>? = null) {
+        lastCategory = category
+        lastVisibleIds = visibleIds
+        isSearching = visibleIds != null
         val target = category ?: run { rows = emptyList(); return }
 
         val built = ArrayList<ConfigRow>()
@@ -123,6 +168,13 @@ public class ConfigRowProvider(
             }
             // A section with nothing left after filtering contributes no header either.
             if (settings.isEmpty()) continue
+
+            // Searching opens everything. A result hidden inside a folded section is a search that appears
+            // to have found nothing, which is worse than no search at all.
+            if (section.isCollapsible && isCollapsed(section) && !isSearching) {
+                built.add(ConfigRow.Header(section, CardSegment.SINGLE))
+                continue
+            }
 
             built.add(ConfigRow.Header(section, CardSegment.TOP))
             settings.forEachIndexed { index, setting ->
@@ -168,6 +220,7 @@ public class ConfigScreenController(
     public val searchIndex: SearchIndex = SearchIndex().apply { addAll(screen) }
 
     private val provider = ConfigRowProvider(screen, registry, context)
+        .also { it.onFoldChanged = { rebuild() } }
 
     /** The scrolling list of rows. Attach this to a runtime, or nest it in a layout. */
     public val list: VirtualListNode = VirtualListNode(screen.id.child("list"), provider)

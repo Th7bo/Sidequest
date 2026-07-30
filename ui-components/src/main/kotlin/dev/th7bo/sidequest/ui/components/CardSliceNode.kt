@@ -12,6 +12,12 @@ import dev.th7bo.sidequest.ui.geometry.Rect
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.geometry.Vec2
 import dev.th7bo.sidequest.ui.ids.UiId
+import dev.th7bo.sidequest.ui.input.EventPhase
+import dev.th7bo.sidequest.ui.input.InputEvent
+import dev.th7bo.sidequest.ui.input.Key
+import dev.th7bo.sidequest.ui.input.KeyDownEvent
+import dev.th7bo.sidequest.ui.input.PointerDownEvent
+import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.rendering.Corners
 import dev.th7bo.sidequest.ui.rendering.Edges
 import dev.th7bo.sidequest.ui.rendering.TextRole
@@ -146,6 +152,14 @@ public class CardSliceNode(
 public class SectionCardHeaderNode(
     private val section: Section,
     private val componentContext: ComponentContext,
+    /**
+     * Whether the section is folded away, or null when it cannot be.
+     *
+     * Null rather than a `false` state, so a header that is not collapsible draws no chevron and swallows no
+     * clicks — a control that looks pressable and does nothing is worse than no control.
+     */
+    private val isCollapsed: (() -> Boolean)? = null,
+    private val onToggle: () -> Unit = {},
 ) : UiNode(section.id.child("card_header")) {
 
     private val tokens = componentContext.theme.tokens
@@ -189,6 +203,27 @@ public class SectionCardHeaderNode(
         )
     }
 
+    /**
+     * The whole header is the hit target, not just the chevron.
+     *
+     * A twelve-pixel arrow is a hard thing to click, and every part of the header means the same thing — so
+     * the row folds wherever it is pressed.
+     */
+    override fun onInputEvent(event: InputEvent) {
+        if (isCollapsed == null) return
+        if (event.phase != EventPhase.TARGET) return
+        when {
+            event is PointerDownEvent -> {
+                onToggle()
+                event.consume()
+            }
+            event is KeyDownEvent && (event.key == Key.ENTER || event.key == Key.SPACE) -> {
+                onToggle()
+                event.consume()
+            }
+        }
+    }
+
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
 
@@ -196,6 +231,13 @@ public class SectionCardHeaderNode(
         // their titles on the same left edge. The *block* is only drawn when there is a
         // glyph to put in it: an empty tinted square reads as a missing icon rather than
         // as a deliberate absence.
+        // The fold indicator, on the right. Drawn before the early return below, because a collapsible
+        // section with no icon still has to say it can be folded.
+        isCollapsed?.let { collapsed ->
+            drawChevron(renderer, bounds, palette.textSecondary, pointsDown = !collapsed())
+            context.diagnostics.drawCalls += 2
+        }
+
         val icon = section.icon ?: return
 
         val block = Rect(
@@ -222,6 +264,34 @@ public class SectionCardHeaderNode(
         context.diagnostics.drawCalls += 3
     }
 
+    /**
+     * A chevron, from two spans.
+     *
+     * The renderer has no polygon primitive, and an arrow built from two rotated-looking rectangles is
+     * cheaper than adding one for a shape this small — the same trade the world-overlay edge indicator makes.
+     * Down means open, right means folded, which is the convention every file tree uses.
+     */
+    private fun drawChevron(renderer: UiRenderer, bounds: Rect, colour: Color, pointsDown: Boolean) {
+        val size = CHEVRON_SIZE
+        val centreX = bounds.right - horizontalPadding - size / 2f
+        val centreY = bounds.y + bounds.height / 2f
+        val thickness = CHEVRON_THICKNESS
+
+        if (pointsDown) {
+            // Two short bars forming a V.
+            renderer.fillRect(Rect(centreX - size / 2f, centreY - thickness / 2f, size / 2f, thickness), colour)
+            renderer.fillRect(Rect(centreX, centreY - thickness / 2f, size / 2f, thickness), colour)
+            renderer.fillRect(
+                Rect(centreX - thickness / 2f, centreY, thickness, size / 3f),
+                colour,
+            )
+        } else {
+            // A vertical bar reads as "there is more, folded away".
+            renderer.fillRect(Rect(centreX - thickness / 2f, centreY - size / 2f, thickness, size), colour)
+            renderer.fillRect(Rect(centreX - size / 3f, centreY - thickness / 2f, size / 3f, thickness), colour)
+        }
+    }
+
     private val horizontalPadding: Float get() = tokens.spacing.large.value
     private val verticalPadding: Float get() = tokens.spacing.large.value
     private val iconBlock: Float get() = ICON_BLOCK_SIZE
@@ -232,5 +302,7 @@ public class SectionCardHeaderNode(
         const val ICON_TINT = 0.18f
         const val ICON_BORDER_TINT = 0.45f
         const val ICON_GLYPH_INSET = 0.2f
+        const val CHEVRON_SIZE = 8f
+        const val CHEVRON_THICKNESS = 1.5f
     }
 }

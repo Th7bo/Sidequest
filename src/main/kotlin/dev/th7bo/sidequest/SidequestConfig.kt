@@ -42,7 +42,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
 
     return configScreen(id("config"), "Sidequest", "Configure how Sidequest looks and behaves.") {
         category(id("general"), "General", description = "Appearance and the master switches", icon = Icons.gear) {
-            section("Appearance", description = "How every Sidequest screen looks", icon = Icons.palette) {
+            section("Appearance", description = "How every Sidequest screen looks", icon = Icons.palette, collapsible = true) {
                 dropdown(
                     id = id("general.theme"),
                     title = "Theme",
@@ -79,7 +79,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 )
             }
 
-            section("Serious mode", description = "When you would rather it stayed out of the way", icon = Icons.bell) {
+            section("Serious mode", description = "When you would rather it stayed out of the way", icon = Icons.bell, collapsible = true) {
                 toggle(
                     id = id("general.serious_mode"),
                     title = "Serious mode",
@@ -96,8 +96,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
             }
         }
 
-        category(id("notifications"), "Notifications", description = "Toasts and their timing", icon = Icons.bell) {
-            section("Toasts", icon = Icons.bell) {
+        category(id("features"), "Features", description = "What the mod does, and how loudly", icon = Icons.sliders) {
+            section("Notifications", description = "Toasts and their timing", icon = Icons.bell, collapsible = true) {
                 toggle(
                     id = id("notifications.enabled"),
                     title = "Show notifications",
@@ -134,10 +134,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     visibleWhen = notificationsOn
                 }
             }
-        }
 
-        category(id("sound"), "Sound", description = "Volumes and mutes", icon = Icons.bell) {
-            section("Volume", icon = Icons.sliders) {
+            section("Sound", description = "Volumes, and who may make one", icon = Icons.sliders, collapsible = true, startsCollapsed = true) {
                 decimalSlider(
                     id = id("sound.master"),
                     title = "Master",
@@ -190,10 +188,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     format = ::percent,
                 )
             }
-        }
 
-        category(id("cinematics"), "Cinematics", description = "The things worth stopping for", icon = Icons.monitor) {
-            section("Playback", icon = Icons.monitor) {
+            section("Cinematics", description = "The things worth stopping for", icon = Icons.monitor, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("cinematics.enabled"),
                     title = "Play cinematics",
@@ -252,10 +248,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     visibleWhen = cinematicsOn
                 }
             }
-        }
 
-        category(id("drops"), "Rare drops", description = "What gets announced", icon = Icons.eye) {
-            section("When", icon = Icons.sliders) {
+            section("Rare drops", description = "What is worth interrupting you for", icon = Icons.eye, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("drops.enabled"),
                     title = "Announce rare drops",
@@ -282,9 +276,6 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     visibleWhen = dropsOn
                 }
-            }
-
-            section("How", icon = Icons.palette) {
                 toggle(
                     id = id("drops.totem"),
                     title = "Use Minecraft's totem animation",
@@ -334,9 +325,6 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     visibleWhen = dropsOn
                 }
-            }
-
-            section("Ignored", description = "Things you would rather not hear about", icon = Icons.wrench) {
                 list(
                     id = id("drops.ignored_items"),
                     title = "Items",
@@ -373,10 +361,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     visibleWhen = dropsOn
                 }
             }
-        }
 
-        category(id("cosmetics"), "Cosmetics", description = "What you are willing to look at", icon = Icons.palette) {
-            section("What you see", description = "These beat what other people chose", icon = Icons.palette) {
+            section("Cosmetics", description = "What you are willing to look at. These beat what other people chose.", icon = Icons.palette, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("cosmetics.enabled"),
                     title = "Show cosmetics",
@@ -438,7 +424,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
         }
 
         category(id("network"), "Network", description = "The group's backend", icon = Icons.monitor) {
-            section("Server", description = "Where Sidequest syncs to", icon = Icons.monitor) {
+            section("Server", description = "Where Sidequest syncs to", icon = Icons.monitor, collapsible = true) {
                 textField(
                     id = id("network.url"),
                     title = "Server address",
@@ -482,7 +468,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
         }
 
         category(id("advanced"), "Advanced", icon = Icons.wrench) {
-            section("Diagnostics", description = "Developer tools and troubleshooting", icon = Icons.wrench) {
+            section("Diagnostics", description = "Developer tools and troubleshooting", icon = Icons.wrench, collapsible = true) {
                 warning(
                     id = id("advanced.notice"),
                     title = "These settings are for debugging",

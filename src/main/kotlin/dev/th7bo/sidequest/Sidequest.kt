@@ -150,7 +150,12 @@ object Sidequest : ClientModInitializer {
      * light or high-contrast, which is a legibility setting rather than a decoration.
      */
     private fun styled(base: Theme): Theme {
-        val accent = platformOrNull?.cosmetics?.personalStyle()?.accentColour ?: return base
+        // The user's own choice first, then a worn cosmetic style on top of it. Both, in that order — the
+        // accent picker reached nothing at all until a screenshot showed the field set to red while every
+        // button stayed purple, which is exactly the "switch that does nothing" this screen is supposed not
+        // to have.
+        val chosen = SidequestSettings.accentColor.takeIf { it != DEFAULT_ACCENT }?.argb
+        val accent = platformOrNull?.cosmetics?.personalStyle()?.accentColour ?: chosen ?: return base
         // Opaque: a cosmetic names a colour, not a transparency, and an accent that could be made invisible
         // would let somebody wear a style that hides every button in the mod.
         val colour = Color(accent or ALPHA_OPAQUE)
@@ -174,8 +179,11 @@ object Sidequest : ClientModInitializer {
     private const val HOVER_LIFT = 0.15f
     private const val PRESS_DROP = 0.15f
 
-    /** Forces full opacity on a cosmetic's colour. */
+    /** Forces full opacity on a colour that names a hue rather than a transparency. */
     private const val ALPHA_OPAQUE = 0xFF000000.toInt()
+
+    /** The theme's own accent. Choosing this means "leave the theme alone" rather than "override with this". */
+    private val DEFAULT_ACCENT = Color.parse("#8B5CF6")
 
     /** Creates the configuration screen, ready to hand to `Minecraft.setScreen`. */
     fun createConfigScreen(): SidequestConfigScreen =
