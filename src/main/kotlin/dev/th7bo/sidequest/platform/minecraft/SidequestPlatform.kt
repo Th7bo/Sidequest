@@ -214,6 +214,15 @@ class SidequestPlatform(
     var backendConfig: BackendConfig = BackendConfig.None
         private set
 
+    /**
+     * Called on the first join of a session, so the mod can apply its settings.
+     *
+     * A callback rather than the platform reading configuration directly: the platform has no idea what a
+     * settings screen is, and giving it one would be the first crack in the boundary the whole module
+     * split exists to keep.
+     */
+    var onFirstJoin: (() -> Unit)? = null
+
     val features: FeatureRegistry = DefaultFeatureRegistry(
         gameVersion = version,
         events = events,
@@ -309,8 +318,10 @@ class SidequestPlatform(
         )
         adapterScope.add(
             minecraftLifecycle.onJoin { address ->
-                // The account is known now, which is what the backend's token store is scoped to.
-                if (backendClient == null) connectBackend(backendConfig)
+                // The account is known now, which is what the backend's token store is scoped to. The
+                // configuration comes from the settings, so the mod applies it rather than the platform
+                // guessing — the platform has no idea what the user typed.
+                if (backendClient == null) onFirstJoin?.invoke()
                 contextService.setOnHypixel(isHypixel(address))
                 events.post(MinecraftJoinEvent(address), EventSource.GAME)
             }.asRegistration(),

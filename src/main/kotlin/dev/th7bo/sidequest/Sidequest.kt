@@ -1,7 +1,11 @@
 package dev.th7bo.sidequest
 
 import dev.th7bo.sidequest.features.SessionDiagnostics
+import dev.th7bo.sidequest.platform.backend.BackendConfig
+import dev.th7bo.sidequest.platform.backend.PairingStatus
 import dev.th7bo.sidequest.platform.minecraft.SidequestPlatform
+import dev.th7bo.sidequest.platform.text.SqStyle
+import dev.th7bo.sidequest.platform.text.SqText
 import dev.th7bo.sidequest.ui.config.ConfigScreen
 import dev.th7bo.sidequest.ui.core.persistence.ConfigPersistenceController
 import dev.th7bo.sidequest.ui.core.persistence.JsonFileConfigStore
@@ -20,6 +24,7 @@ import dev.th7bo.sidequest.ui.theme.HighContrastDarkTheme
 import dev.th7bo.sidequest.ui.theme.LightTheme
 import dev.th7bo.sidequest.ui.theme.Theme
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import net.fabricmc.api.ClientModInitializer
@@ -213,12 +218,103 @@ object Sidequest : ClientModInitializer {
         )
     }
 
+    /**
+     * Applies the configured server address to the platform.
+     *
+     * Called after login and whenever the setting changes. A blank address means no backend, which is a
+     * supported state and not a misconfiguration — the local features are most of the mod, and somebody
+     * who clears it should see no errors and no retries.
+     */
+    /** Wires the platform's first-join hook to the configured server. Called once from the initializer. */
+    fun installBackendHook() {
+        platform.onFirstJoin = { applyBackendConfig() }
+    }
+
+    fun applyBackendConfig() {
+        val url = SidequestSettings.backendUrl.trim()
+        platform.connectBackend(
+            BackendConfig(
+                baseUrl = url.takeIf { it.isNotEmpty() },
+                // The device name shows up in the session list, so it has to say which machine this is.
+                // The player's own name is the only thing available that they will recognise.
+                deviceName = platform.client.localPlayerName?.let { "$it (Minecraft)" } ?: "Minecraft",
+            ),
+        )
+    }
+
+    /**
+     * Runs the pairing flow and reports it in chat.
+     *
+     * In chat rather than on the config screen, because the whole point of the flow is that the user goes
+     * somewhere else to approve the code — and a code on a screen they have to close to read it is a code
+     * they cannot use. Chat persists, so the code is still there when they come back.
+     */
+    fun startPairing() {
+        applyBackendConfig()
+        val backend = platform.backend
+        if (backend == null) {
+            tell("No server is configured. Set one in the Network settings first.", isError = true)
+            return
+        }
+
+        val uuid = platform.client.localPlayerId?.toString()
+        val name = platform.client.localPlayerName
+        if (uuid == null || name == null) {
+            tell("Join a world first — pairing needs to know who you are.", isError = true)
+            return
+        }
+
+        ioScope.launch {
+            backend.pair(uuid, name) { progress ->
+                // Back onto the client thread: chat is the game's, and this callback arrives on an IO
+                // dispatcher.
+                Minecraft.getInstance().execute {
+                    when (progress.status) {
+                        PairingStatus.WAITING -> tell(
+                            "Pairing code: ${progress.code} — approve it within " +
+                                "${progress.secondsRemaining(System.currentTimeMillis())}s",
+                        )
+                        PairingStatus.APPROVED -> tell("Paired. Sidequest is connected.")
+                        PairingStatus.DENIED -> tell("The pairing was declined.", isError = true)
+                        PairingStatus.EXPIRED -> tell("The pairing code expired. Try again.", isError = true)
+                        PairingStatus.FAILED -> tell(
+                            "Could not reach the server" + (progress.detail?.let { ": $it" } ?: "."),
+                            isError = true,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** Forgets this device's credentials, revoking them on the server if it can be reached. */
+    fun signOutOfBackend() {
+        val backend = platform.backend ?: return
+        ioScope.launch {
+            backend.signOut()
+            Minecraft.getInstance().execute { tell("Signed out. This device is no longer paired.") }
+        }
+    }
+
+    /** One line in the player's chat, prefixed so it is obvious where it came from. */
+    private fun tell(message: String, isError: Boolean = false) {
+        platform.client.sendClientMessage(
+            SqText.join(
+                SqText.of("[Sidequest] ", SqStyle(color = if (isError) ERROR_COLOR else ACCENT_COLOR, bold = true)),
+                SqText.of(message),
+            ),
+        )
+    }
+
     /** Held for the developer inspector and for the in-game tests. */
     lateinit var sessionDiagnostics: SessionDiagnostics
         private set
 
     private fun startPlatform() {
         sessionDiagnostics = SessionDiagnostics(platform.client)
+
+        // Before `start`, so the hook is in place by the time the first join fires.
+        installBackendHook()
 
         val refusals = platform.start(sessionDiagnostics)
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
@@ -230,3 +326,9 @@ object Sidequest : ClientModInitializer {
     /** Bumped when the persisted shape of a HUD placement changes. */
     const val HUD_LAYOUT_SCHEMA_VERSION: Int = 1
 }
+
+/** The accent the mod prefixes its chat with. Matches the default accent in the settings. */
+private const val ACCENT_COLOR = 0xA78BFA
+
+/** For anything the user has to act on. */
+private const val ERROR_COLOR = 0xF87171

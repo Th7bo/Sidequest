@@ -9,6 +9,8 @@ import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.state.mutableStateOf
 import dev.th7bo.sidequest.ui.state.not
+import dev.th7bo.sidequest.ui.validation.ValidationResult
+import dev.th7bo.sidequest.ui.validation.Validator
 import dev.th7bo.sidequest.ui.validation.Validators
 
 /**
@@ -27,6 +29,19 @@ public object SidequestSettings {
     public var playerName: String = ""
     public var hudScale: Float = 1.0f
     public var debugOverlay: Boolean = false
+
+    /**
+     * Where the group's backend is.
+     *
+     * Defaulted to the group's own server rather than left blank, because this is a private mod for one
+     * friend group and asking every member to type a URL is asking for one of them to type it wrong. Blank
+     * is still supported and means "no backend": the local features are most of the mod, and somebody who
+     * clears this should get no errors and no retries rather than a broken-looking client.
+     */
+    public var backendUrl: String = DEFAULT_BACKEND_URL
+
+    /** The group's server. Overridable, but this is the one anybody actually wants. */
+    public const val DEFAULT_BACKEND_URL: String = "https://sq.api.th7bo.dev"
 }
 
 /**
@@ -117,6 +132,50 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     placeholder = "Your name",
                     validator = Validators.length(0..32),
                 )
+            }
+        }
+
+        category(id("network"), "Network", description = "The group's backend", icon = Icons.monitor) {
+            section("Server", description = "Where Sidequest syncs to", icon = Icons.monitor) {
+                textField(
+                    id = id("network.url"),
+                    title = "Server address",
+                    description = "Leave empty to use Sidequest entirely offline",
+                    value = bind(SidequestSettings::backendUrl),
+                    placeholder = SidequestSettings.DEFAULT_BACKEND_URL,
+                    // Refused rather than accepted-and-broken. A URL over plain http would put this
+                    // device's bearer token on the wire in clear, and the realtime socket carries one in
+                    // its query string — so an address that is not https is not a typo to tolerate.
+                    validator = Validator { field, value ->
+                        when {
+                            value.isBlank() -> ValidationResult.valid()
+                            value.startsWith("https://") -> ValidationResult.valid()
+                            value.startsWith("http://") -> ValidationResult.error(
+                                field,
+                                "A plain http server would put this device's token on the wire in clear",
+                                remediation = "Use https://",
+                            )
+                            else -> ValidationResult.error(field, "Must start with https://")
+                        }
+                    },
+                )
+                button(
+                    id = id("network.pair"),
+                    title = "Pair this device",
+                    label = "Pair",
+                    description = "Shows a code to approve from the dashboard",
+                ) {
+                    Sidequest.startPairing()
+                }
+                button(
+                    id = id("network.sign_out"),
+                    title = "Sign out",
+                    label = "Sign out",
+                    description = "Forgets this device's credentials",
+                    destructive = true,
+                ) {
+                    Sidequest.signOutOfBackend()
+                }
             }
         }
 

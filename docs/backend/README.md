@@ -116,6 +116,23 @@ it belongs next to `ServerStore.load`.
 they differ, a client one version behind is accepted. When they are equal, every client has to match, and
 one that does not is told `PROTOCOL_MISMATCH` and stops rather than retrying.
 
+## Configuring the mod
+
+The mod defaults to the group's own server — `https://sq.api.th7bo.dev` — rather than shipping blank. This
+is a private mod for one friend group, and asking every member to type a URL is asking for one of them to
+type it wrong.
+
+**Settings → Network → Server address** overrides it. Blank means no backend at all, which is a supported
+state: the local features are most of the mod, and clearing the address should produce no errors and no
+retries rather than a client that looks broken.
+
+The field **refuses a plain `http://` address**. Every request carries a bearer token and the WebSocket
+carries one in its query string, so an unencrypted server is not a typo worth tolerating.
+
+**Settings → Network → Pair** runs the flow and reports it *in chat*, not on the screen. The point of the
+flow is that the user goes somewhere else to approve the code, and a code they have to close the screen to
+read is a code they cannot use. Chat persists, so it is still there when they come back.
+
 ## Pairing
 
 The plan's flow, and the trust comes from the approval rather than from the mod:
