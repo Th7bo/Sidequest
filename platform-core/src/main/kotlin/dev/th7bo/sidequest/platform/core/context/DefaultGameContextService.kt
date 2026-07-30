@@ -4,8 +4,11 @@ import dev.th7bo.sidequest.platform.core.parser.ScoreboardParser
 import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.event.EventBus
 import dev.th7bo.sidequest.platform.event.EventSource
+import dev.th7bo.sidequest.platform.parser.ScoreboardChangedEvent
 import dev.th7bo.sidequest.platform.parser.ScoreboardSnapshot
+import dev.th7bo.sidequest.platform.parser.TabListChangedEvent
 import dev.th7bo.sidequest.platform.parser.TabListSnapshot
+import dev.th7bo.sidequest.platform.parser.TabWidget
 import dev.th7bo.sidequest.platform.skyblock.ContextConfidence
 import dev.th7bo.sidequest.platform.skyblock.GameContext
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
@@ -46,6 +49,19 @@ public class DefaultGameContextService(
 
     private var lastScoreboard = ScoreboardSnapshot.Empty
     private var lastTabList = TabListSnapshot.Empty
+
+    /**
+     * The last parsed readings, kept so the board change events can diff against them.
+     *
+     * The diffs live here rather than in a separate poller because this is already the one
+     * place both boards arrive. A second polling path would be a second thing to keep in
+     * step, and the two could disagree about what "changed" means.
+     */
+    private var lastScoreboardLines: List<String> = emptyList()
+    private var lastWidgets: Map<TabWidget, List<String>> = emptyMap()
+
+    /** The tab list as [recompute] last read it, so the diff does not parse it a second time. */
+    private var widgets: Map<TabWidget, List<String>> = emptyMap()
 
     /** Set from the client adapter. False means everything below is meaningless. */
     public fun setOnHypixel(isOnHypixel: Boolean) {
@@ -101,6 +117,7 @@ public class DefaultGameContextService(
         if (snapshot == lastScoreboard) return
         lastScoreboard = snapshot
         recompute()
+        announceScoreboardChange(snapshot)
     }
 
     /** Feeds a new tab list. Same contract as [onScoreboard]. */
@@ -108,19 +125,83 @@ public class DefaultGameContextService(
         if (snapshot == lastTabList) return
         lastTabList = snapshot
         recompute()
+        announceTabListChange(snapshot)
+    }
+
+    /**
+     * Posts what changed on the sidebar, comparing cleaned lines.
+     *
+     * Cleaned, not raw: Hypixel animates the colours on several lines, so a raw diff reports
+     * a change a few times a second on a board that says exactly the same thing.
+     *
+     * After [recompute], so a listener reading [context] during the event sees the state the
+     * new lines describe rather than the state before them.
+     */
+    private fun announceScoreboardChange(snapshot: ScoreboardSnapshot) {
+        val lines = snapshot.lines
+        val added = lines - lastScoreboardLines.toSet()
+        val removed = lastScoreboardLines - lines.toSet()
+        lastScoreboardLines = lines
+        if (added.isEmpty() && removed.isEmpty()) return
+        events.post(ScoreboardChangedEvent(snapshot, added, removed), EventSource.PARSER)
+    }
+
+    /** Posts which widgets came, went, or changed inside. See [TabListChangedEvent]. */
+    private fun announceTabListChange(snapshot: TabListSnapshot) {
+        val added = widgets.keys - lastWidgets.keys
+        val removed = lastWidgets.keys - widgets.keys
+        val changed = widgets.keys.intersect(lastWidgets.keys)
+            .filterTo(HashSet()) { widgets[it] != lastWidgets[it] }
+        lastWidgets = widgets
+        if (added.isEmpty() && removed.isEmpty() && changed.isEmpty()) return
+        events.post(TabListChangedEvent(snapshot, added, removed, changed), EventSource.PARSER)
     }
 
     /** Clears everything. Called on disconnect, so a stale island cannot survive a session. */
     public fun reset() {
         lastScoreboard = ScoreboardSnapshot.Empty
         lastTabList = TabListSnapshot.Empty
+        lastScoreboardLines = emptyList()
+        lastWidgets = emptyMap()
+        widgets = emptyMap()
         authoritative = null
         update(GameContext.None.copy(isOnHypixel = context.isOnHypixel))
     }
 
+    /**
+     * Renders both boards and both readings.
+     *
+     * Raw lines as well as cleaned: a line that looks right and does not match almost always
+     * has an invisible character or a formatting code where nobody expected one, and only the
+     * raw form shows that. The `§` is replaced with `&` so the output survives being printed
+     * into chat, which would otherwise eat it as formatting.
+     */
+    override fun describeSources(): List<String> = buildList {
+        val scoreboard = ScoreboardParser.parse(lastScoreboard)
+        val tabList = TabListParser.parse(lastTabList)
+
+        add("context: $context")
+        add("scoreboard title: ${lastScoreboard.rawTitle.printable()}")
+        add("scoreboard reading: $scoreboard")
+        for ((index, raw) in lastScoreboard.rawLines.withIndex()) {
+            add("  [$index] ${raw.printable()}")
+        }
+        add("tab list reading: island=${tabList.island} server=${tabList.serverId} " +
+            "profile=${tabList.profile} players=${tabList.playerCount}")
+        add("tab widgets (${tabList.widgets.size}):")
+        for ((widget, lines) in tabList.widgets) {
+            add("  $widget: ${lines.drop(1).joinToString(" | ")}")
+        }
+        if (tabList.partyMembers.isNotEmpty()) add("party: ${tabList.partyMembers.joinToString(", ")}")
+    }
+
+    /** Formatting codes made visible, so a dump can be printed into chat unchanged. */
+    private fun String.printable(): String = replace('§', '&')
+
     private fun recompute() {
         val scoreboard = ScoreboardParser.parse(lastScoreboard)
         val tabList = TabListParser.parse(lastTabList)
+        widgets = tabList.widgets
         val fromServer = authoritative
 
         // Hypixel's own answer wins where it has one. Scraping only decides whether we are
@@ -149,6 +230,12 @@ public class DefaultGameContextService(
             serverId = fromServer?.serverId ?: tabList.serverId ?: scoreboard.serverId ?: context.serverId,
             profile = tabList.profile ?: context.profile,
             isGuest = scoreboard.isGuest,
+            // Only the scoreboard says these, and only while they apply, so "did not say"
+            // and "not in one" are the same answer here — unlike the island, which has to
+            // survive a widget reloading.
+            dungeonFloor = scoreboard.dungeonFloor,
+            kuudraTier = scoreboard.kuudraTier,
+            profileType = scoreboard.profileType ?: context.profileType,
             confidence = when {
                 // Nothing to corroborate when the answer came from the authority.
                 fromServer?.island != null -> ContextConfidence.CONFIRMED

@@ -2,6 +2,7 @@ package dev.th7bo.sidequest.platform.core.feature
 
 import dev.th7bo.sidequest.platform.command.CommandCollisionException
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
+import dev.th7bo.sidequest.platform.core.context.DefaultGameContextService
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.log.LoggerFactory
@@ -43,6 +44,7 @@ class FeatureRegistryTest {
     private lateinit var bus: DefaultEventBus
     private lateinit var commands: DefaultCommandRegistry
     private lateinit var chat: DefaultChatParser
+    private lateinit var gameContext: DefaultGameContextService
     private lateinit var sink: RecordingLogSink
     private lateinit var loggers: LoggerFactory
 
@@ -54,12 +56,13 @@ class FeatureRegistryTest {
         bus = DefaultEventBus(scheduler, loggers.create(LogCategory.EVENT, SqId.sidequest("bus")))
         commands = DefaultCommandRegistry()
         chat = DefaultChatParser(bus, NoopLogger)
+        gameContext = DefaultGameContextService(bus, NoopLogger)
     }
 
     private fun registry(
         version: GameVersion = GameVersion(26, 2),
         enabledByUser: (FeatureDescriptor) -> Boolean = { it.enabledByDefault },
-    ) = DefaultFeatureRegistry(version, bus, scheduler, commands, chat, loggers, enabledByUser)
+    ) = DefaultFeatureRegistry(version, bus, scheduler, commands, chat, gameContext, loggers, enabledByUser)
 
     // ---------------------------------------------------------------
     // Declaration

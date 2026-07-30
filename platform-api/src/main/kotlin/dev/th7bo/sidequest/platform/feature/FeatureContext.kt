@@ -14,6 +14,7 @@ import dev.th7bo.sidequest.platform.id.OwnerId
 import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.Logger
+import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import dev.th7bo.sidequest.platform.scheduler.Debounced
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
 import dev.th7bo.sidequest.platform.scheduler.SchedulerThread
@@ -105,6 +106,18 @@ public interface FeatureContext {
 
     /** Registers a client command for as long as this feature is enabled. */
     public fun command(spec: CommandSpec): Registration
+
+    // -- game context -------------------------------------------------------
+
+    /**
+     * Where the player is, as one authoritative value.
+     *
+     * A feature asks this instead of deciding for itself what "in a dungeon" means — which
+     * is how a mod ends up with four slightly different answers to the same question, three
+     * of them wrong in different situations. Anything that *acts* should check
+     * [dev.th7bo.sidequest.platform.skyblock.GameContext.isReliable] first.
+     */
+    public val gameContext: GameContextService
 
     // -- chat ---------------------------------------------------------------
 

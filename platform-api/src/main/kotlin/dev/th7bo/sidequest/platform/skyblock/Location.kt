@@ -212,3 +212,29 @@ public value class SkyBlockProfile(public val name: String) {
         public val Unknown: SkyBlockProfile = SkyBlockProfile("")
     }
 }
+
+/**
+ * A profile's game mode.
+ *
+ * Worth knowing because it changes what a feature should do rather than only what it shows:
+ * an Ironman profile cannot trade, so a debt or a lending feature has nothing to offer there,
+ * and a Bingo profile's progression is not the account's.
+ *
+ * Read from the **word** Hypixel prints, not the symbol beside it. The symbols — `♲ ☀ Ⓑ` —
+ * are exactly the sort of thing their texture pack has been moving into private-use glyphs;
+ * the words have not changed.
+ */
+@Serializable
+public enum class ProfileType(public val displayName: String) {
+    NORMAL("Normal"),
+    IRONMAN("Ironman"),
+    STRANDED("Stranded"),
+    BINGO("Bingo"),
+    ;
+
+    public companion object {
+        /** Reads Hypixel's own wording. Null when it is not one of them. */
+        public fun ofWording(wording: String): ProfileType? =
+            entries.firstOrNull { it.displayName.equals(wording.trim(), ignoreCase = true) }
+    }
+}

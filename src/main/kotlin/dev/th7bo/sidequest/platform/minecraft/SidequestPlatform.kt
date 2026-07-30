@@ -95,15 +95,6 @@ class SidequestPlatform(
 
     val chat: ChatParser get() = chatParser
 
-    val features: FeatureRegistry = DefaultFeatureRegistry(
-        gameVersion = version,
-        events = events,
-        scheduler = scheduler,
-        commands = commands,
-        chat = chatParser,
-        loggers = loggers,
-    )
-
     /**
      * The authority on where the player is.
      *
@@ -116,6 +107,16 @@ class SidequestPlatform(
     )
 
     val gameContext: GameContextService get() = contextService
+
+    val features: FeatureRegistry = DefaultFeatureRegistry(
+        gameVersion = version,
+        events = events,
+        scheduler = scheduler,
+        commands = commands,
+        chat = chatParser,
+        gameContext = contextService,
+        loggers = loggers,
+    )
 
     /** The adapter's own hooks into the game, released on [stop]. */
     private val adapterScope = RegistrationScope("platform.adapter")

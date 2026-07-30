@@ -7,13 +7,17 @@ import dev.th7bo.sidequest.platform.event.on
 import dev.th7bo.sidequest.platform.id.OwnerId
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.parser.HypixelText
+import dev.th7bo.sidequest.platform.parser.ScoreboardChangedEvent
 import dev.th7bo.sidequest.platform.parser.ScoreboardSnapshot
+import dev.th7bo.sidequest.platform.parser.TabListChangedEvent
+import dev.th7bo.sidequest.platform.parser.TabWidget
 import dev.th7bo.sidequest.platform.parser.TabListSnapshot
 import dev.th7bo.sidequest.platform.skyblock.ContextConfidence
 import dev.th7bo.sidequest.platform.skyblock.ContextEvent
 import dev.th7bo.sidequest.platform.skyblock.Island
 import dev.th7bo.sidequest.platform.skyblock.IslandChangedEvent
 import dev.th7bo.sidequest.platform.skyblock.ProfileChangedEvent
+import dev.th7bo.sidequest.platform.skyblock.ProfileType
 import dev.th7bo.sidequest.platform.skyblock.ServerChangedEvent
 import dev.th7bo.sidequest.platform.skyblock.ServerId
 import dev.th7bo.sidequest.platform.skyblock.SkyBlockJoinEvent
@@ -24,6 +28,7 @@ import dev.th7bo.sidequest.platform.testkit.NoopLogger
 import dev.th7bo.sidequest.platform.testkit.TestScheduler
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -448,5 +453,108 @@ class GameContextTest {
 
         assertFalse(service.context.isBusy)
         assertFalse(service.context.isHazardous)
+    }
+
+    // ---------------------------------------------------------------
+    // Board change events
+    // ---------------------------------------------------------------
+
+    /**
+     * The diff is over the *cleaned* lines.
+     *
+     * Hypixel animates the colours on several sidebar lines. A diff over the raw text would
+     * report a change a few times a second on a board that says exactly the same thing, and
+     * anything listening would fire that often.
+     */
+    @Test
+    fun `a scoreboard whose only change is colour reports no change`() {
+        val changes = mutableListOf<ScoreboardChangedEvent>()
+        events.on<ScoreboardChangedEvent>(owner) { changes.add(it) }
+
+        service.setOnHypixel(true)
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §bVillage", "Purse: §61,000"))
+        changes.clear()
+
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §aVillage", "Purse: §a1,000"))
+        assertEquals(emptyList<String>(), changes.map { it.describe() })
+    }
+
+    @Test
+    fun `a new scoreboard line is reported as added`() {
+        val changes = mutableListOf<ScoreboardChangedEvent>()
+        events.on<ScoreboardChangedEvent>(owner) { changes.add(it) }
+
+        service.setOnHypixel(true)
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §bVillage"))
+        changes.clear()
+
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §bVillage", "Purse: §61,000"))
+        assertEquals(1, changes.size)
+        assertEquals(listOf("Purse: 1,000"), changes.single().added)
+        assertEquals(emptyList<String>(), changes.single().removed)
+    }
+
+    @Test
+    fun `a widget appearing and disappearing is announced`() {
+        val changes = mutableListOf<TabListChangedEvent>()
+        events.on<TabListChangedEvent>(owner) { changes.add(it) }
+
+        service.setOnHypixel(true)
+        service.onTabList(TabListSnapshot(listOf("Info", " Area: Dwarven Mines")))
+        changes.clear()
+
+        service.onTabList(TabListSnapshot(listOf("Info", " Area: Dwarven Mines", "Commissions:", " Titanium: 40%")))
+        assertEquals(setOf(TabWidget.COMMISSIONS), changes.single().addedWidgets)
+
+        changes.clear()
+        service.onTabList(TabListSnapshot(listOf("Info", " Area: Dwarven Mines")))
+        assertEquals(setOf(TabWidget.COMMISSIONS), changes.single().removedWidgets)
+    }
+
+    /** A widget whose values moved is a change, not an arrival. */
+    @Test
+    fun `a widget changing inside is reported as changed`() {
+        val changes = mutableListOf<TabListChangedEvent>()
+        events.on<TabListChangedEvent>(owner) { changes.add(it) }
+
+        service.setOnHypixel(true)
+        service.onTabList(TabListSnapshot(listOf("Commissions:", " Titanium: 40%")))
+        changes.clear()
+
+        service.onTabList(TabListSnapshot(listOf("Commissions:", " Titanium: 60%")))
+        assertEquals(setOf(TabWidget.COMMISSIONS), changes.single().changedWidgets)
+        assertEquals(emptySet<TabWidget>(), changes.single().addedWidgets)
+    }
+
+    // ---------------------------------------------------------------
+    // Dungeon and Kuudra state
+    // ---------------------------------------------------------------
+
+    @Test
+    fun `the context carries the dungeon floor while in a run`() {
+        service.setOnHypixel(true)
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §cThe Catacombs §8(F7)"))
+        assertEquals("F7", service.context.dungeonFloor)
+        assertTrue(service.context.isInDungeon)
+        assertFalse(service.context.isInKuudra)
+    }
+
+    @Test
+    fun `leaving the run clears the floor rather than remembering it`() {
+        service.setOnHypixel(true)
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §cThe Catacombs §8(F7)"))
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §bDungeon Hub"))
+        assertNull(service.context.dungeonFloor)
+        assertFalse(service.context.isInDungeon)
+    }
+
+    @Test
+    fun `the game mode survives a board that stops mentioning it`() {
+        service.setOnHypixel(true)
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §bVillage", " §7♲ §7Ironman"))
+        assertEquals(ProfileType.IRONMAN, service.context.profileType)
+
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §bVillage"))
+        assertEquals(ProfileType.IRONMAN, service.context.profileType)
     }
 }

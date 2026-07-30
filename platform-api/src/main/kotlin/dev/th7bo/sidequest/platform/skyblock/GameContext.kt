@@ -23,6 +23,16 @@ public data class GameContext(
     public val profile: SkyBlockProfile = SkyBlockProfile.Unknown,
     /** Visiting someone else's island. */
     public val isGuest: Boolean = false,
+    /**
+     * Dungeon floor as Hypixel words it — `F7`, `M3`, `E` — or null when not in one.
+     *
+     * A string rather than a number because `Entrance` is not one, and converting loses it.
+     */
+    public val dungeonFloor: String? = null,
+    /** Kuudra tier, or null when not in Kuudra. */
+    public val kuudraTier: Int? = null,
+    /** The profile's game mode, when the scoreboard has named one. */
+    public val profileType: ProfileType = ProfileType.NORMAL,
     /** How much of the above is believed, and why. */
     public val confidence: ContextConfidence = ContextConfidence.NONE,
 ) {
@@ -38,6 +48,12 @@ public data class GameContext(
 
     /** Whether interrupting could cost the player something. Stricter than [isBusy]. */
     public val isHazardous: Boolean get() = island.isHazardous
+
+    /** In a dungeon run. Distinct from standing in the Dungeon Hub. */
+    public val isInDungeon: Boolean get() = dungeonFloor != null
+
+    /** In a Kuudra fight. */
+    public val isInKuudra: Boolean get() = kuudraTier != null
 
     /**
      * Whether the context is trustworthy enough to act on.
@@ -99,6 +115,19 @@ public interface GameContextService {
 
     /** Convenience for the second-most-asked. */
     public val island: Island get() = context.island
+
+    /**
+     * The boards as last read, and what was made of them.
+     *
+     * The parser debug output the plan asks for, and the first thing to look at when the
+     * context is wrong. Raw lines included: a line that looks right and does not match
+     * almost always has an invisible character or a formatting code where nobody expected
+     * one, and only the raw form shows that.
+     *
+     * A list of lines rather than one string so a caller can print it to chat, to a log, or
+     * into an inspector panel without re-splitting it.
+     */
+    public fun describeSources(): List<String>
 }
 
 // -- events ---------------------------------------------------------------

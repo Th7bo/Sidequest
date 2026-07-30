@@ -26,7 +26,7 @@ replaced without touching the other.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 151 tests that take a couple of seconds.
+testable at full speed with no game running — 183 tests that take a couple of seconds.
 
 ---
 
@@ -151,6 +151,8 @@ The game context: `SkyBlockJoinEvent`, `SkyBlockLeaveEvent`, `IslandChangedEvent
 Chat, from the parser: `ChatMessageEvent` plus the derived family under
 `ChatDerivedEvent` — see [Chat](#chat).
 
+The boards: `ScoreboardChangedEvent`, `TabListChangedEvent` — see [The boards](#the-boards).
+
 The rest of the catalogue in `mod.plan` — dungeon, achievement, social — is defined
 alongside the service that emits it. An event whose payload nobody fills is a guess at a
 data model, and guesses are what migrations are made of.
@@ -270,6 +272,98 @@ distinguishes them — they look identical from the outside and have nothing in 
 
 ---
 
+## The boards
+
+The scoreboard and the tab list are polled every tick, parsed into readings, and merged into
+the game context. A feature reads the context, not the boards.
+
+```kotlin
+val context = context.gameContext.context
+if (context.isInDungeon && context.isReliable) { … }
+```
+
+### The scoreboard
+
+`ScoreboardReading` names what the board says: area, server, guest state, dungeon floor,
+Kuudra tier, game mode, purse, bits, date, time. Anything it does not name is in `values`,
+keyed by the `Key:` on the line:
+
+```kotlin
+reading.value("Sowdust")      // "6.5k (+912)" — exactly what the board said
+reading.number("Purse")       // separators removed, or null if it was not a plain number
+```
+
+`values` is the escape hatch that stops a feature growing its own scoreboard pattern.
+
+**The floor and the tier come from the area line, not from a second pattern.** `The Catacombs
+(F7)` and `Kuudra's Hollow (T5)` are one shape, and reading the suffix off the area we already
+parsed cannot disagree with the area — which a separate dungeon pattern could, and eventually
+would.
+
+**An abbreviated amount reads as null, not as a wrong number.** `6.5k` with the punctuation
+stripped is 65, and a purse off by a factor of a hundred is worse than an unknown purse.
+
+### The tab list
+
+Not a list of lines — a board of widgets. A header line names the widget, its value lines
+follow, and the next header ends it:
+
+```kotlin
+reading.has(TabWidget.COMMISSIONS)        // in the Dwarven Mines, doing commissions
+reading.linesOf(TabWidget.POWDER)         // ["Mithril: 1,000", …]
+reading.partyMembers                      // ["Alice", "Bob"]
+reading.playerCount                       // Players (N) + Guests (N)
+```
+
+**Which widgets are present is the most useful thing on the board.** A `Commissions:` widget
+means the player is doing commissions; `Visitors: (3)` means the Garden. That is a better
+activity signal than any single value, and it is what §14's activity detection will be built
+on.
+
+Two layout quirks are handled in `TabListLayout.normalise`, and both bite hard if they are
+not:
+
+- **The tab list is 80 entries in four columns of twenty**, and `Players (N)` / `Info` are
+  repeated at the top of each column. Read as widget headers, each repeat starts a fresh
+  widget and every widget after it is attributed to the wrong one.
+- **A widget split across a column boundary repeats its header.** Treating the repeat as a
+  new widget throws away the first half — for the party widget, half the party.
+
+Player names come out with rank tags, guild tags, level brackets and emblems stripped, by
+shape rather than by a list of known tags (`HypixelNames`). A line with nothing name-shaped in
+it yields nothing rather than a guess.
+
+### Change events
+
+```kotlin
+context.listen<ScoreboardChangedEvent> { event -> event.added.forEach { … } }
+context.listen<TabListChangedEvent> { event -> event.addedWidgets… }
+```
+
+Both carry what changed rather than only the new state. "A line appeared saying the run
+started" is a different question from "the board contains that line", and the second stays
+true for as long as the line is up — a listener written against it fires on every poll.
+
+The scoreboard diff is over the **cleaned** lines. Hypixel animates the colours on several of
+them, and a raw diff would report a change several times a second on a board that says exactly
+the same thing.
+
+### Debugging
+
+`/sqboard` writes both boards and both readings to the log — raw lines included, with `§`
+rendered as `&`. A line that looks right and does not match almost always has an invisible
+character or a formatting code where nobody expected one, and only the raw form shows that.
+
+### What is a fixture and what is not
+
+The scoreboard lines in the tests are recorded Hypixel output, taken from SkyHanni's
+`REGEX-TEST` comments. The tab lists are **constructed**: they exercise a splitting algorithm
+that is ours rather than an observation about Hypixel, and hand-building one is the only way to
+cover a column boundary at all. The widget header patterns come from SkyHanni and are
+unfixtured there too — Hypixel documents none of this.
+
+---
+
 ## Scheduling
 
 ```kotlin
@@ -378,7 +472,7 @@ are repeated here because this is where they get broken.
 Feature code must not:
 
 - import a Minecraft class
-- parse raw scoreboard or tab-list text
+- parse raw scoreboard or tab-list text — read `gameContext`, or `TabWidget` for a widget
 - match a regex against a chat line — declare a `ChatRule` instead
 - perform HTTP requests or open WebSockets
 - read or write JSON files

@@ -81,6 +81,25 @@ class SessionDiagnostics(
         // stops firing, the question is whether Hypixel changed the message or the line
         // never arrived, and only the log distinguishes them.
         context.command("sqchat", "Toggles chat parser debug logging") { reportChat(context) }
+
+        // The board parsers' debug output. Written to the log rather than to chat: it is
+        // dozens of lines, and the raw forms are what make it useful — which is exactly what
+        // chat would mangle.
+        context.command("sqboard", "Dumps the scoreboard and tab list as the parsers see them") {
+            reportBoards(context)
+        }
+    }
+
+    /** Writes what the board parsers currently see to the log, and says where to look. */
+    private fun reportBoards(context: FeatureContext) {
+        val lines = context.gameContext.describeSources()
+        for (line in lines) context.log.info { line }
+        client.sendClientMessage(
+            SqText.join(
+                SqText.of("[Sidequest] ", SqStyle(color = ACCENT, bold = true)),
+                SqText.of("wrote ${lines.size} line(s) of board state to the log"),
+            ),
+        )
     }
 
     /** Toggles chat tracing and reports the parser's counters. */

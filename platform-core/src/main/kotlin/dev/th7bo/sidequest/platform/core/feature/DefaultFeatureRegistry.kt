@@ -15,6 +15,7 @@ import dev.th7bo.sidequest.platform.feature.FeatureRegistry
 import dev.th7bo.sidequest.platform.game.GameVersion
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.log.LogCategory
+import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
 import dev.th7bo.sidequest.platform.core.log.LoggerFactory
 
@@ -36,6 +37,7 @@ public class DefaultFeatureRegistry(
     private val scheduler: Scheduler,
     private val commands: CommandRegistry,
     private val chat: ChatParser,
+    private val gameContext: GameContextService,
     private val loggers: LoggerFactory,
     /** Whether a feature should start. Backed by config once the config bridge exists. */
     private val isEnabledByUser: (FeatureDescriptor) -> Boolean = { it.enabledByDefault },
@@ -115,6 +117,7 @@ public class DefaultFeatureRegistry(
             scheduler = scheduler,
             commands = commands,
             chat = chat,
+            gameContext = gameContext,
             log = loggers.create(LogCategory.FEATURE, descriptor.id),
         )
 
