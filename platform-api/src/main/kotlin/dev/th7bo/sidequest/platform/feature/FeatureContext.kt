@@ -1,5 +1,6 @@
 package dev.th7bo.sidequest.platform.feature
 
+import dev.th7bo.sidequest.platform.audio.SoundManager
 import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.chat.ChatRule
 import dev.th7bo.sidequest.platform.command.CommandRegistry
@@ -14,6 +15,7 @@ import dev.th7bo.sidequest.platform.id.OwnerId
 import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.Logger
+import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.party.PartyService
 import dev.th7bo.sidequest.platform.permission.Permission
 import dev.th7bo.sidequest.platform.permission.PermissionService
@@ -153,6 +155,25 @@ public interface FeatureContext {
      * it.
      */
     public val party: PartyService
+
+    // -- telling the player something ---------------------------------------
+
+    /**
+     * Notifications.
+     *
+     * A feature says what happened; the manager decides whether to show it, how, and whether now is a bad
+     * moment. A feature that drew its own toast would be one the "serious mode" switch does not reach.
+     */
+    public val notifications: NotificationManager
+
+    /**
+     * Sounds.
+     *
+     * Cooldowns, volume groups, mute controls and asset fallback come with it. A feature that asked the game
+     * directly would have none of them — and the one that most needs them is anything playing a sound in
+     * somebody else's ears.
+     */
+    public val sounds: SoundManager
 
     // -- storage ------------------------------------------------------------
 

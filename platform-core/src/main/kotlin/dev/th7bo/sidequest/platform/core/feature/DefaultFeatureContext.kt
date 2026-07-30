@@ -15,6 +15,8 @@ import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.lifecycle.ownedBy
 import dev.th7bo.sidequest.platform.log.Logger
+import dev.th7bo.sidequest.platform.audio.SoundManager
+import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.party.PartyService
 import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.storage.Repository
@@ -55,6 +57,8 @@ internal class DefaultFeatureContext(
     override val players: PlayerDirectory,
     override val targeting: PlayerTargeting,
     override val party: PartyService,
+    override val notifications: NotificationManager,
+    override val sounds: SoundManager,
     override val storage: StorageProvider,
     override val permissions: PermissionService,
     override val log: Logger,

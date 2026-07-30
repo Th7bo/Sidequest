@@ -5,7 +5,10 @@ import dev.th7bo.sidequest.platform.command.CommandRegistry
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.core.backend.DefaultBackendClient
 import dev.th7bo.sidequest.platform.core.backend.DefaultRealtimeClient
+import dev.th7bo.sidequest.platform.core.audio.DefaultSoundManager
+import dev.th7bo.sidequest.platform.core.backend.PresencePublisher
 import dev.th7bo.sidequest.platform.core.backend.StoredTokenStore
+import dev.th7bo.sidequest.platform.core.notification.DefaultNotificationManager
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.chat.HypixelChatRules
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
@@ -39,11 +42,19 @@ import dev.th7bo.sidequest.platform.log.LogLevel
 import dev.th7bo.sidequest.platform.log.LogSink
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.party.PartyService
+import dev.th7bo.sidequest.platform.audio.SoundManager
+import dev.th7bo.sidequest.platform.audio.SoundSink
+import dev.th7bo.sidequest.platform.notification.NotificationManager
+import dev.th7bo.sidequest.platform.notification.NotificationSink
 import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
+import dev.th7bo.sidequest.platform.scheduler.SchedulerThread
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import dev.th7bo.sidequest.platform.storage.StorageProvider
 import dev.th7bo.sidequest.platform.storage.StorageScope
 import dev.th7bo.sidequest.protocol.RealtimeMessage
@@ -62,6 +73,16 @@ import org.slf4j.LoggerFactory as Slf4jLoggerFactory
  */
 class SidequestPlatform(
     minecraftVersion: String,
+    /**
+     * Where notifications are drawn.
+     *
+     * Supplied rather than built, because the UI framework lives on the other side of a boundary the platform
+     * cannot see across. [NotificationSink.None] is the default, so a platform with no UI attached still has
+     * a working manager — which is what the headless tests use.
+     */
+    notificationSink: NotificationSink = NotificationSink.None,
+    /** Where sounds come out. Same reasoning as the notification sink. */
+    soundSink: SoundSink = SoundSink.None,
     /**
      * Where feature data is written.
      *
@@ -192,6 +213,27 @@ class SidequestPlatform(
     val permissions: PermissionService get() = permissionService
 
     /**
+     * Notifications, and the policy over them.
+     *
+     * Built after the context service, because deciding whether now is a bad moment is the whole of its
+     * policy and the context is what knows.
+     */
+    private val notificationManager = DefaultNotificationManager(
+        sink = notificationSink,
+        context = contextService,
+        log = loggers.create(LogCategory.FEATURE, SqId.sidequest("notifications")),
+    )
+
+    val notifications: NotificationManager get() = notificationManager
+
+    private val soundManager = DefaultSoundManager(
+        sink = soundSink,
+        log = loggers.create(LogCategory.AUDIO, SqId.sidequest("sounds")),
+    )
+
+    val sounds: SoundManager get() = soundManager
+
+    /**
      * The backend, when one is configured.
      *
      * Built lazily, and *not* started here. Everything it needs — the local player's account scope for its
@@ -234,6 +276,8 @@ class SidequestPlatform(
         players = playerDirectory,
         targeting = playerTargeting,
         party = partyService,
+        notifications = notificationManager,
+        sounds = soundManager,
         storage = fileStorage,
         permissions = permissionService,
         loggers = loggers,
@@ -315,6 +359,8 @@ class SidequestPlatform(
                 events.post(ClientTickEvent(minecraftClient.tickCount), EventSource.GAME)
                 pollBoards()
                 pollPlayers()
+                // Cheap: returns immediately unless something is waiting and the moment is safe.
+                notificationManager.releaseQueuedIfSafe()
             }.asRegistration(),
         )
         adapterScope.add(
@@ -456,11 +502,36 @@ class SidequestPlatform(
         // Both on the scheduler's async side. Neither may touch the game, and both are long-lived — the
         // realtime loop runs for the session — so their handles are kept rather than dropped: a
         // reconfiguration has to be able to stop them.
+        // Presence closes the loop: the context knows what the player is doing and this is what carries it to
+        // the group. Built here rather than at construction because it needs the realtime client.
+        val presence = PresencePublisher(
+            client = client,
+            realtime = realtime,
+            context = contextService,
+            permissions = permissionService,
+            players = playerDirectory,
+            events = events,
+            log = loggers.create(LogCategory.REALTIME, SqId.sidequest("presence")),
+        ).also { it.install() }
+        presencePublisher = presence
+
         backendJobs = listOf(
             scheduler.async(OwnerId.PLATFORM) { client.start() },
             scheduler.async(OwnerId.PLATFORM) { realtime.run() },
+            // The group listing feeds the account-to-player mapping presence needs, and is re-fetched rather
+            // than diffed — see RealtimePayload.GroupChanged.
+            scheduler.every(OwnerId.PLATFORM, GROUP_REFRESH, thread = SchedulerThread.ASYNC) {
+                scheduler.async(OwnerId.PLATFORM) {
+                    client.fetchGroup().valueOrNull()?.let { presence.onGroup(it) }
+                }
+            },
+            scheduler.every(OwnerId.PLATFORM, PRESENCE_TICK, thread = SchedulerThread.ASYNC) {
+                scheduler.async(OwnerId.PLATFORM) { presence.publishIfDue() }
+            },
         )
     }
+
+    private var presencePublisher: PresencePublisher? = null
 
     /**
      * Handles for the backend's two long-lived jobs.
@@ -473,6 +544,8 @@ class SidequestPlatform(
     private fun stopBackendJobs() {
         backendJobs.forEach { it.cancel() }
         backendJobs = emptyList()
+        presencePublisher?.close()
+        presencePublisher = null
     }
 
     /** Disables every feature and unhooks the adapter. Safe to call more than once. */
@@ -500,6 +573,17 @@ class SidequestPlatform(
 
         /** How often the online player list is read. Once a second. */
         const val PLAYER_POLL_TICKS = 20L
+
+        /**
+         * How often presence is considered for sending.
+         *
+         * The publisher's own throttle decides whether anything goes out; this only has to be more frequent
+         * than that, and a second is cheap.
+         */
+        val PRESENCE_TICK: Duration = 1.seconds
+
+        /** How often the group listing is re-fetched, for names and roles that changed. */
+        val GROUP_REFRESH: Duration = 5.minutes
     }
 }
 

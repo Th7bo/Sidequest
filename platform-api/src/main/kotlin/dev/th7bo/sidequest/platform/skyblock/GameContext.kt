@@ -63,13 +63,21 @@ public data class GameContext(
     public val isInKuudra: Boolean get() = kuudraTier != null
 
     /**
-     * Whether interrupting would be unwelcome, from either the place or the activity.
+     * Whether the player is *known* to be doing something an interruption would spoil.
      *
-     * The one question the cinematic and notification policies ask, now that both halves exist.
-     * Standing in the Crimson Isle is not demanding and being mid-Kuudra is, and the island alone
-     * cannot tell them apart.
+     * Deliberately **not** [isBusy], and the difference matters. [isBusy] is cautious: it counts an unknown
+     * island as busy, on the principle that a full-screen cinematic should not fire when the mod has no idea
+     * where the player is. That caution is wrong for anything smaller. A notification policy built on
+     * [isBusy] goes silent on the main menu, on every vanilla server, and for the first seconds after
+     * joining Hypixel — which is to say it goes silent exactly when it is telling somebody their device was
+     * revoked.
+     *
+     * So this asks the narrower question: a hazardous island, or a demanding activity. Nothing inferred from
+     * not knowing.
+     *
+     * Use [isBusy] to decide whether to take over the screen. Use this to decide whether to show a toast.
      */
-    public val isDemanding: Boolean get() = isBusy || activity.activity.isDemanding
+    public val isDemanding: Boolean get() = island.isHazardous || activity.activity.isDemanding
 
     /**
      * Whether the context is trustworthy enough to act on.

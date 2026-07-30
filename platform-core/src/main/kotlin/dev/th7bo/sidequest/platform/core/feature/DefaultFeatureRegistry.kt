@@ -15,6 +15,8 @@ import dev.th7bo.sidequest.platform.feature.FeatureRegistry
 import dev.th7bo.sidequest.platform.game.GameVersion
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.log.LogCategory
+import dev.th7bo.sidequest.platform.audio.SoundManager
+import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.party.PartyService
 import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.storage.StorageProvider
@@ -46,6 +48,8 @@ public class DefaultFeatureRegistry(
     private val players: PlayerDirectory,
     private val targeting: PlayerTargeting,
     private val party: PartyService,
+    private val notifications: NotificationManager,
+    private val sounds: SoundManager,
     private val storage: StorageProvider,
     private val permissions: PermissionService,
     private val loggers: LoggerFactory,
@@ -131,6 +135,8 @@ public class DefaultFeatureRegistry(
             players = players,
             targeting = targeting,
             party = party,
+            notifications = notifications,
+            sounds = sounds,
             storage = storage,
             permissions = permissions,
             log = loggers.create(LogCategory.FEATURE, descriptor.id),

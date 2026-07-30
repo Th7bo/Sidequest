@@ -14,6 +14,7 @@ import dev.th7bo.sidequest.platform.parser.TabWidget
 import dev.th7bo.sidequest.platform.parser.TabListSnapshot
 import dev.th7bo.sidequest.platform.skyblock.ContextConfidence
 import dev.th7bo.sidequest.platform.skyblock.ContextEvent
+import dev.th7bo.sidequest.platform.skyblock.GameContext
 import dev.th7bo.sidequest.platform.skyblock.Island
 import dev.th7bo.sidequest.platform.skyblock.IslandChangedEvent
 import dev.th7bo.sidequest.platform.skyblock.ProfileChangedEvent
@@ -556,5 +557,44 @@ class GameContextTest {
 
         service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §bVillage"))
         assertEquals(ProfileType.IRONMAN, service.context.profileType)
+    }
+
+    // ---------------------------------------------------------------
+    // Busy versus demanding
+    // ---------------------------------------------------------------
+
+    /**
+     * Two different questions, and conflating them makes the mod silent when it matters.
+     *
+     * `isBusy` is cautious and counts an unknown island as busy, so a full-screen cinematic does not fire
+     * when the mod has no idea where the player is. `isDemanding` is narrower: a hazardous island or a
+     * demanding activity, nothing inferred from not knowing. A notification policy built on the cautious one
+     * goes quiet on the main menu and on every vanilla server — which is exactly when it would be telling
+     * somebody their device was revoked.
+     */
+    @Test
+    fun `an unknown location is cautiously busy but not demanding`() {
+        assertTrue(GameContext.None.isBusy) { "an unknown island is treated cautiously" }
+        assertFalse(GameContext.None.isDemanding) { "but nothing is known to be spoiled by an interruption" }
+    }
+
+    @Test
+    fun `a dungeon is both`() {
+        service.setOnHypixel(true)
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §cThe Catacombs §8(F7)"))
+
+        assertTrue(service.context.isBusy)
+        assertTrue(service.context.isDemanding)
+    }
+
+    /** Standing somewhere ordinary is neither, so the mod is free to talk. */
+    @Test
+    fun `the hub is neither busy nor demanding`() {
+        service.setOnHypixel(true)
+        service.onTabList(TabListSnapshot(listOf("Info", " Area: Hub")))
+        service.onScoreboard(scoreboard("§e§lSKYBLOCK", " §7⏣ §bVillage"))
+
+        assertFalse(service.context.isBusy)
+        assertFalse(service.context.isDemanding)
     }
 }
