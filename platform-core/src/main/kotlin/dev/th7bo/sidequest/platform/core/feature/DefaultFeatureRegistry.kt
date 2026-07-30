@@ -17,6 +17,7 @@ import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.log.LogCategory
 import dev.th7bo.sidequest.platform.audio.SoundManager
 import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
+import dev.th7bo.sidequest.platform.marker.MarkerService
 import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.party.PartyService
@@ -53,6 +54,7 @@ public class DefaultFeatureRegistry(
     private val notifications: NotificationManager,
     private val sounds: SoundManager,
     private val cinematics: CinematicDirector,
+    private val markers: MarkerService,
     private val rules: RuleEngine,
     private val storage: StorageProvider,
     private val permissions: PermissionService,
@@ -142,6 +144,7 @@ public class DefaultFeatureRegistry(
             notifications = notifications,
             sounds = sounds,
             cinematics = cinematics,
+            markers = markers,
             rules = rules,
             storage = storage,
             permissions = permissions,

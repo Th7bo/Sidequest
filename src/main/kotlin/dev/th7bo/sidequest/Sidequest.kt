@@ -5,6 +5,7 @@ import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
 import dev.th7bo.sidequest.platform.minecraft.MinecraftCinematicSink
+import dev.th7bo.sidequest.platform.minecraft.MinecraftMarkerBridge
 import dev.th7bo.sidequest.platform.minecraft.MinecraftNotificationSink
 import dev.th7bo.sidequest.platform.minecraft.MinecraftSoundSink
 import dev.th7bo.sidequest.platform.minecraft.SidequestPlatform
@@ -206,6 +207,11 @@ object Sidequest : ClientModInitializer {
         // wall-clock length whatever the tick rate is doing and stops while the game is paused.
         SidequestHudLayer.onFrame = { delta -> cinematicSink.advance(delta) }
 
+        // Markers reach the world overlay layer through the bridge, redrawn from the platform's tick rather
+        // than per frame: what the service reports only changes when a marker is placed, expires, or the
+        // player moves an appreciable distance.
+        platform.onMarkersChanged = { markerBridge.sync() }
+
         startPlatform()
     }
 
@@ -246,6 +252,15 @@ object Sidequest : ClientModInitializer {
      * constructor argument, so reaching back into `platform` eagerly would be a cycle through its own
      * initialiser — a `StackOverflowError` before the main menu, which has happened here once already.
      */
+    /** Draws markers through the UI framework's world overlays. */
+    private val markerBridge by lazy {
+        MinecraftMarkerBridge(
+            markers = platform.markers,
+            overlays = SidequestHudLayer.worldOverlays,
+            log = { platform.log },
+        )
+    }
+
     private val cinematicSink by lazy {
         MinecraftCinematicSink(
             log = { platform.log },
@@ -386,6 +401,20 @@ object Sidequest : ClientModInitializer {
         if (stack.isEmpty) return null
         return stack.toSq()
     }
+
+    /**
+     * Where the player is standing.
+     *
+     * Here for the same reason as [heldItemSnapshot]: it reaches into the game, and a feature is not allowed
+     * to. `/sqmark place` asks the mod, which asks the game.
+     */
+    fun localPosition(): dev.th7bo.sidequest.platform.skyblock.SqPosition? =
+        Minecraft.getInstance().player?.let {
+            dev.th7bo.sidequest.platform.skyblock.SqPosition(it.x, it.y, it.z)
+        }
+
+    /** How many marker overlays are live. For the in-game test, which has no other way to see the bridge. */
+    fun markerOverlayCount(): Int = SidequestHudLayer.worldOverlays.size
 
     private fun startPlatform() {
         sessionDiagnostics = SessionDiagnostics(platform.client)

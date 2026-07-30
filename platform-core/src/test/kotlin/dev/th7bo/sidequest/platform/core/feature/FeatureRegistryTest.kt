@@ -12,6 +12,7 @@ import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.storage.JsonFileStorage
 import dev.th7bo.sidequest.platform.cinematic.CinematicSink
 import dev.th7bo.sidequest.platform.core.cinematic.DefaultCinematicDirector
+import dev.th7bo.sidequest.platform.core.marker.DefaultMarkerService
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
 import dev.th7bo.sidequest.platform.testkit.FakeGameClient
 import dev.th7bo.sidequest.platform.core.rule.DefaultRuleEngine
@@ -102,6 +103,13 @@ class FeatureRegistryTest {
             notifications = DefaultNotificationManager(NotificationSink.None, gameContext, NoopLogger),
             events = bus,
             log = NoopLogger,
+        ),
+        markers = DefaultMarkerService(
+            context = gameContext,
+            events = bus,
+            log = NoopLogger,
+            localPosition = { null },
+            localPlayer = { null },
         ),
         rules = DefaultRuleEngine(
             events = bus,

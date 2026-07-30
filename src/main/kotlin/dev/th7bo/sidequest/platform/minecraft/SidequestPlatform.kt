@@ -17,6 +17,8 @@ import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
+import dev.th7bo.sidequest.platform.core.marker.DefaultMarkerService
+import dev.th7bo.sidequest.platform.core.marker.RemoteMarkerReceiver
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
 import dev.th7bo.sidequest.platform.core.rule.DefaultRuleEngine
 import dev.th7bo.sidequest.platform.core.storage.JsonFileStorage
@@ -31,6 +33,8 @@ import dev.th7bo.sidequest.platform.event.EventBus
 import dev.th7bo.sidequest.platform.event.EventSource
 import dev.th7bo.sidequest.platform.event.MinecraftDisconnectEvent
 import dev.th7bo.sidequest.platform.event.MinecraftJoinEvent
+import dev.th7bo.sidequest.platform.event.on
+import dev.th7bo.sidequest.platform.skyblock.IslandChangedEvent
 import dev.th7bo.sidequest.platform.feature.Feature
 import dev.th7bo.sidequest.platform.feature.FeatureRefusal
 import dev.th7bo.sidequest.platform.feature.FeatureRegistry
@@ -66,6 +70,9 @@ import dev.th7bo.sidequest.platform.cinematic.Cinematic
 import dev.th7bo.sidequest.platform.cinematic.CinematicComponent
 import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
 import dev.th7bo.sidequest.platform.cinematic.CinematicSink
+import dev.th7bo.sidequest.platform.marker.MarkerKind
+import dev.th7bo.sidequest.platform.marker.MarkerService
+import dev.th7bo.sidequest.platform.marker.MarkerStore
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
 import dev.th7bo.sidequest.platform.scheduler.SchedulerThread
 import kotlin.time.Duration
@@ -252,6 +259,22 @@ class SidequestPlatform(
     val sounds: SoundManager get() = soundManager
 
     /**
+     * Waypoints, pings, death markers and everything else at a place.
+     *
+     * Built after the context service, because whether a marker is *here* is a question about the island and
+     * the context is what knows.
+     */
+    private val markerService = DefaultMarkerService(
+        context = contextService,
+        events = events,
+        log = loggers.create(LogCategory.FEATURE, SqId.sidequest("markers")),
+        localPosition = { minecraftClient.localPosition },
+        localPlayer = { minecraftClient.localPlayerId?.let { PlayerId.of(it) } },
+    )
+
+    val markers: MarkerService get() = markerService
+
+    /**
      * The things worth stopping the game for.
      *
      * Built after the notification manager, because a cinematic that cannot be shown falls back to a
@@ -319,6 +342,14 @@ class SidequestPlatform(
      */
     var onFirstJoin: (() -> Unit)? = null
 
+    /**
+     * Called each tick so the mod can redraw markers.
+     *
+     * A callback rather than the platform reaching into the overlay layer: the platform has no idea what a
+     * world overlay is, and giving it one would be the crack in the boundary the module split exists to keep.
+     */
+    var onMarkersChanged: (() -> Unit)? = null
+
     val features: FeatureRegistry = DefaultFeatureRegistry(
         gameVersion = version,
         events = events,
@@ -332,6 +363,7 @@ class SidequestPlatform(
         notifications = notificationManager,
         sounds = soundManager,
         cinematics = cinematicDirector,
+        markers = markerService,
         rules = ruleEngine,
         storage = fileStorage,
         permissions = permissionService,
@@ -394,6 +426,11 @@ class SidequestPlatform(
         )
 
         partyService.install()
+        // Pings and rally targets belong to where they were placed. Subscribed by the platform rather than by
+        // the service, so the service stays testable without an event bus subscription of its own.
+        adapterScope.add(
+            events.on<IslandChangedEvent>(OwnerId.PLATFORM) { markerService.onIslandChanged() },
+        )
         registerRuleActions()
         ruleEngine.install()
         adapterScope.add(chatParser.registerAll(HypixelChatRules.all { minecraftClient.localPlayerName }, OwnerId.PLATFORM))
@@ -453,6 +490,9 @@ class SidequestPlatform(
                 // Cheap: both return immediately unless something is waiting and the moment is safe.
                 notificationManager.releaseQueuedIfSafe()
                 cinematicDirector.releaseIfSafe()
+                // Expiry and arrival. Also cheap: returns immediately when nothing is held.
+                markerService.tick()
+                onMarkersChanged?.invoke()
             }.asRegistration(),
         )
         adapterScope.add(
@@ -630,6 +670,14 @@ class SidequestPlatform(
             log.debug { "Cinematic for ${outcome.rule.id}: ${disposition::class.simpleName}" }
             true
         }
+        ruleEngine.handle("waypoint") { action, outcome ->
+            val waypoint = action as? RuleAction.CreateWaypoint ?: return@handle false
+            placeRuleMarker(MarkerKind.WAYPOINT, outcome.format(waypoint.label), outcome)
+        }
+        ruleEngine.handle("ping") { action, outcome ->
+            val ping = action as? RuleAction.CreatePing ?: return@handle false
+            placeRuleMarker(MarkerKind.PING, outcome.format(ping.label).ifEmpty { outcome.rule.displayName }, outcome)
+        }
         ruleEngine.handle("stat") { action, outcome ->
             val stat = action as? RuleAction.WriteStat ?: return@handle false
             // No statistics service yet, and this is the honest interim: the number is logged rather than
@@ -638,6 +686,38 @@ class SidequestPlatform(
             log.debug { "Stat ${stat.statId} += ${stat.amount} from ${outcome.rule.id}" }
             true
         }
+    }
+
+    /**
+     * Places a marker where a rule fired.
+     *
+     * The location comes from the firing where it has one and from the player otherwise — a rule about a
+     * friend's drop knows where that happened, and a rule about the local player is about here. Returns false
+     * when neither is available, which the engine logs as an action that did nothing rather than a failure.
+     */
+    private fun placeRuleMarker(
+        kind: MarkerKind,
+        label: String,
+        outcome: dev.th7bo.sidequest.platform.rule.RuleOutcome,
+    ): Boolean {
+        val location = outcome.location ?: minecraftClient.localPosition?.let { position ->
+            dev.th7bo.sidequest.platform.skyblock.SqLocation(
+                island = contextService.context.island,
+                position = position,
+                profile = contextService.context.profile,
+            )
+        } ?: return false
+
+        markerService.place(
+            dev.th7bo.sidequest.platform.marker.Marker(
+                id = "",
+                kind = kind,
+                location = location,
+                label = label,
+                creator = outcome.subject,
+            ),
+        )
+        return true
     }
 
     /**
@@ -674,11 +754,32 @@ class SidequestPlatform(
         // otherwise write the file twenty times a second. The engine's callback is synchronous and can run on
         // any thread, so it may do nothing but set a bit.
         ruleEngine.onStoreChanged = { pendingRuleStore = it }
+
+        // Markers, on the same account scope and the same timer. Profile-scoped would be wrong: a waypoint at
+        // the Bazaar is at the Bazaar on every profile, and the two islands that *are* per profile already say
+        // so through `SqLocation.profile`.
+        val markerRepository = fileStorage.repository(
+            id = SqId.sidequest("markers"),
+            scope = StorageScope.Account(playerId),
+            serializer = MarkerStore.serializer(),
+            default = { MarkerStore() },
+        )
+        scheduler.async(OwnerId.PLATFORM) {
+            val stored = markerRepository.load()
+            if (stored.report.isWorthReporting) log.warn { "Markers: ${stored.report}" }
+            scheduler.onMain(OwnerId.PLATFORM) { markerService.load(stored.value) }
+        }
+        markerService.onStoreChanged = { pendingMarkerStore = it }
         adapterScope.add(
             scheduler.every(OwnerId.PLATFORM, RULE_SAVE_INTERVAL, thread = SchedulerThread.ASYNC) {
-                val store = pendingRuleStore ?: return@every
-                pendingRuleStore = null
-                scheduler.async(OwnerId.PLATFORM) { repository.save(store) }
+                pendingRuleStore?.let { store ->
+                    pendingRuleStore = null
+                    scheduler.async(OwnerId.PLATFORM) { repository.save(store) }
+                }
+                pendingMarkerStore?.let { store ->
+                    pendingMarkerStore = null
+                    scheduler.async(OwnerId.PLATFORM) { markerRepository.save(store) }
+                }
             },
         )
     }
@@ -689,6 +790,10 @@ class SidequestPlatform(
     /** The most recent rule state not yet written. See [attachRuleStorage]. */
     @Volatile
     private var pendingRuleStore: RuleStore? = null
+
+    /** The most recent marker state not yet written. Same debounce, same reason. */
+    @Volatile
+    private var pendingMarkerStore: MarkerStore? = null
 
     /**
      * Builds and starts the backend client for the signed-in account.
@@ -758,6 +863,16 @@ class SidequestPlatform(
         ).also { it.install() }
         presencePublisher = presence
 
+        // A friend's ping becomes a marker here and nowhere else. Built alongside presence because both need
+        // the same account-to-player mapping, and deriving it twice is one derivation too many.
+        val remoteMarkers = RemoteMarkerReceiver(
+            markers = markerService,
+            players = playerDirectory,
+            events = events,
+            log = loggers.create(LogCategory.REALTIME, SqId.sidequest("markers.remote")),
+        ).also { it.install() }
+        remoteMarkerReceiver = remoteMarkers
+
         backendJobs = listOf(
             scheduler.async(OwnerId.PLATFORM) { client.start() },
             scheduler.async(OwnerId.PLATFORM) { realtime.run() },
@@ -765,7 +880,10 @@ class SidequestPlatform(
             // than diffed — see RealtimePayload.GroupChanged.
             scheduler.every(OwnerId.PLATFORM, GROUP_REFRESH, thread = SchedulerThread.ASYNC) {
                 scheduler.async(OwnerId.PLATFORM) {
-                    client.fetchGroup().valueOrNull()?.let { presence.onGroup(it) }
+                    client.fetchGroup().valueOrNull()?.let {
+                        presence.onGroup(it)
+                        remoteMarkers.onGroup(presence.accountToPlayer)
+                    }
                 }
             },
             scheduler.every(OwnerId.PLATFORM, PRESENCE_TICK, thread = SchedulerThread.ASYNC) {
@@ -775,6 +893,8 @@ class SidequestPlatform(
     }
 
     private var presencePublisher: PresencePublisher? = null
+
+    private var remoteMarkerReceiver: RemoteMarkerReceiver? = null
 
     /**
      * Handles for the backend's two long-lived jobs.
@@ -789,6 +909,8 @@ class SidequestPlatform(
         backendJobs = emptyList()
         presencePublisher?.close()
         presencePublisher = null
+        remoteMarkerReceiver?.close()
+        remoteMarkerReceiver = null
     }
 
     /** Disables every feature and unhooks the adapter. Safe to call more than once. */

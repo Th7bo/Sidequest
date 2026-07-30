@@ -27,7 +27,7 @@ class DeveloperToolsTest : FabricClientGameTest {
         context.runOnClient<RuntimeException> {
             Sidequest.platform.commands.all().map { it.spec.name }.let { names ->
                 for (expected in listOf(
-                    "sqstatus", "sqlog", "sqtest", "sqdiag", "sqchat", "sqboard", "sqrule", "sqcine",
+                    "sqstatus", "sqlog", "sqtest", "sqdiag", "sqchat", "sqboard", "sqrule", "sqcine", "sqmark",
                 )) {
                     check(expected in names) { "/$expected was not registered; have: $names" }
                 }
@@ -255,6 +255,65 @@ class DeveloperToolsTest : FabricClientGameTest {
                 }
                 cine.spec.handler(listOf("replay", "dev.cinematic"))
                 cine.spec.handler(listOf("replay", "no.such.cinematic"))
+            }
+
+            /*
+             * Markers, from placement through to something drawn.
+             *
+             * The headless tests cover the service. What they cannot reach is the bridge: whether a marker
+             * reaches the world overlay layer at all, and whether the id it derives is one `UiId` accepts —
+             * which is exactly the shape of a bug that already shipped once, when notification UUIDs were
+             * rejected by the same rules.
+             */
+            context.runOnClient<RuntimeException> { client ->
+                val mark = checkNotNull(Sidequest.platform.commands["sqmark"]) { "/sqmark is not registered" }
+                mark.spec.handler(listOf("clear"))
+                mark.spec.handler(listOf("place", "waypoint"))
+
+                val placed = Sidequest.platform.markers.all()
+                check(placed.size == 1) { "expected one marker, got ${placed.map { it.marker.id }}" }
+                val tracked = placed.single()
+                check(tracked.distance != null) {
+                    "the marker was placed at the player and has no distance; island is " +
+                        "${tracked.marker.location.island} and the context says " +
+                        "${Sidequest.platform.gameContext.context.island}"
+                }
+                check(tracked.isVisible) { "a marker at the player's feet is not visible" }
+            }
+
+            // The bridge runs off the platform tick, so it needs one to have happened.
+            context.waitTicks(SETTLE_TICKS)
+            context.runOnClient<RuntimeException> {
+                check(Sidequest.markerOverlayCount() == 1) {
+                    "the marker did not reach the world overlay layer: ${Sidequest.markerOverlayCount()} overlay(s)"
+                }
+            }
+
+            context.runOnClient<RuntimeException> {
+                val mark = checkNotNull(Sidequest.platform.commands["sqmark"])
+                for (arguments in listOf(
+                    listOf("list"),
+                    listOf("route"),
+                    listOf("place", "ping"),
+                    listOf("place", "nonsense"),
+                    listOf("ack", Sidequest.platform.markers.all().first().marker.id.take(8), "coming"),
+                    listOf("ack", "no-such-marker"),
+                    listOf("nonsense"),
+                    emptyList(),
+                )) {
+                    mark.spec.handler(arguments)
+                }
+                mark.spec.handler(listOf("clear"))
+                check(Sidequest.platform.markers.all().isEmpty()) { "/sqmark clear left markers behind" }
+            }
+
+            // And the overlays go with them. A bridge that adds but never removes leaves a waypoint on screen
+            // forever, which is the failure mode nobody notices until an hour in.
+            context.waitTicks(SETTLE_TICKS)
+            context.runOnClient<RuntimeException> {
+                check(Sidequest.markerOverlayCount() == 0) {
+                    "${Sidequest.markerOverlayCount()} overlay(s) survived the markers being removed"
+                }
             }
 
             // Log levels are settable at runtime, which is the difference between a debug line that is written

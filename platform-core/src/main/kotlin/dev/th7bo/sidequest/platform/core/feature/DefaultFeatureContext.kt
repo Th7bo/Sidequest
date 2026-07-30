@@ -17,6 +17,7 @@ import dev.th7bo.sidequest.platform.lifecycle.ownedBy
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.audio.SoundManager
 import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
+import dev.th7bo.sidequest.platform.marker.MarkerService
 import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.party.PartyService
@@ -62,6 +63,7 @@ internal class DefaultFeatureContext(
     override val notifications: NotificationManager,
     override val sounds: SoundManager,
     override val cinematics: CinematicDirector,
+    override val markers: MarkerService,
     override val rules: RuleEngine,
     override val storage: StorageProvider,
     override val permissions: PermissionService,

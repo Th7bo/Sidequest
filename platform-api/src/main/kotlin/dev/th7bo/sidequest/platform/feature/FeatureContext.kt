@@ -16,6 +16,7 @@ import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
+import dev.th7bo.sidequest.platform.marker.MarkerService
 import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.party.PartyService
@@ -185,6 +186,15 @@ public interface FeatureContext {
      * a boss.
      */
     public val cinematics: CinematicDirector
+
+    /**
+     * Waypoints, pings, death markers, navigation and rally targets.
+     *
+     * One system for all of them. A feature places a marker and does not decide when it goes away, who may see
+     * it, or whether the player has got there — seven features each tracking their own would be seven answers
+     * to "when does this disappear", and the one that gets it wrong leaves markers on screen forever.
+     */
+    public val markers: MarkerService
 
     /**
      * Rules: when this, then that.

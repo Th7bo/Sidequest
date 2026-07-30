@@ -31,7 +31,7 @@ rather than at runtime on somebody else's machine.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 1,192 tests that take a couple of seconds.
+testable at full speed with no game running — 1,219 tests that take a couple of seconds.
 
 ---
 
@@ -937,6 +937,102 @@ headless renders at the player's GUI scale. `/sqcine play` under the in-game tes
 
 ---
 
+## Markers
+
+The plan asks for one shared marker system behind permanent waypoints, shared waypoints, temporary pings,
+death markers, NPC markers, navigation requests and "come here" targets. All seven are a position, a label and
+a lifetime. Written separately they become seven slightly different answers to "when does this go away", and
+the one that gets it wrong leaves markers on the screen forever.
+
+```kotlin
+context.markers.place(
+    Marker(
+        id = "",                       // generated
+        kind = MarkerKind.DEATH,       // decides the lifetime, range and colour
+        location = SqLocation(island, position, profile),
+        label = "You died here",
+        arrivalRadius = 4.0,
+    ),
+)
+```
+
+### A marker knows its island
+
+Never a bare position. Two coordinates on different islands are not near each other however close the numbers
+look, and a marker that forgot its island draws a beam through the Hub because somebody died in the Catacombs —
+the classic bug in every waypoint mod. Everything positional goes through `SqLocation.isSameSpaceAs`, which
+also covers the two islands that are *per profile*: the same coordinates on two profiles are two places.
+
+The distance to a marker in another space is **null**, not a large number. A large number sorts, compares, and
+passes a range check somebody widened later; null does none of those.
+
+### The kind carries the defaults
+
+| Kind | Lifetime | Range |
+| --- | --- | --- |
+| `WAYPOINT` | permanent | 512 |
+| `PING` | 30s — matching the protocol's own expiry, so a client never shows what the server has dropped | 256 |
+| `DEATH` | 10min — long enough to walk back for the items | 1024 |
+| `NPC` | permanent | 128 |
+| `NAVIGATION` | 30min, or until arrival | 2048 |
+| `RALLY` | 5min | 1024 |
+
+A feature placing a death marker does not also decide how long a death marker lasts, so every death marker in
+the mod lasts the same time. Permanent is the *exception*: a marker with no expiry is one somebody has to
+remember to delete, and nobody does.
+
+### Nothing disappears silently
+
+Five removal reasons — `DELETED`, `EXPIRED`, `ARRIVED`, `LEFT_AREA`, `REPLACED` — because "my waypoint
+disappeared" is unanswerable otherwise, and a replacement under an existing id is a legitimate thing that a
+listener holding the old marker needs told about.
+
+Arrival gets **its own event** rather than being folded into the removal, because a feature may care that the
+player got there regardless of what becomes of the marker. It fires once per marker, not once per tick inside
+the radius. Navigation clears itself on arrival — that is what it was for — and a waypoint does not, because
+walking past one is not asking for it to be deleted.
+
+Leaving the area drops pings, rally targets and NPC markers. Waypoints survive, which is the point of one, and
+so do death markers: walking back for your items starts by leaving wherever you respawned.
+
+### What is kept
+
+Only waypoints are persisted. A ping restored on the next login points at somewhere nobody remembers, and a
+death marker outlives the items it was about. Account-scoped, not profile-scoped — a waypoint at the Bazaar is
+at the Bazaar on every profile, and the two islands that *are* per profile already say so through
+`SqLocation.profile`.
+
+Loading applies the kind's defaults through the same function as placing. That is a fix, not a nicety: a
+stored marker carries whatever lifetime it had, a null lifetime never expires, and a test of the load path
+caught it.
+
+### What arrives from a friend
+
+`RemoteMarkerReceiver` is the only place a realtime ping becomes something on screen. What comes in is not
+trusted with anything it should not be — the sender is taken from the message envelope rather than the payload,
+labels are truncated, and the lifetime comes from the local kind rather than from whatever the sender claimed,
+so a friend cannot place a permanent waypoint by sending an unusual number.
+
+Pings are keyed **per sender**, so a second ping replaces the first rather than littering: somebody pinging
+twice means "look *there*", not "look at both". Shared waypoints are namespaced by sender, because the
+protocol's id is only unique within its sender and two people both calling one "boss" must not overwrite each
+other.
+
+### Drawing
+
+`MinecraftMarkerBridge` translates a `Marker` into the UI framework's `WorldOverlayDefinition` — the same split
+as the two `Notification` types, since a `Marker` knows about islands and a `WorldOverlayDefinition` knows about
+projection and neither module is on the other's classpath.
+
+It **reconciles rather than rebuilds**. A moved marker updates its position state in place; only a change to
+something baked into the definition — a colour, a render flag — forces a replacement. Tearing the set down each
+pass would churn every `UiState` the nodes read and make a marker attached to a walking player flicker.
+
+The in-game test asserts the overlay count both after placing and after clearing. A bridge that adds but never
+removes leaves a waypoint on screen forever, which is the failure nobody notices until an hour in.
+
+---
+
 ## Seeing what the mod is doing
 
 Everything here is layered behind an interface, which is what makes it testable and also what makes it
@@ -951,6 +1047,7 @@ are how the difference gets seen.
 | `/sqtest <what>` | fires a subsystem: `notify` `sound` `queue` `presence` `chat` `item` `rule` |
 | `/sqrule [list\|show\|fire\|reset\|trace] [id]` | lists rules with their progress, prints one, fires one on demand, or shows why recent ones did not |
 | `/sqcine [play\|safety\|queue\|skip\|replay\|trace] [id]` | plays a test cinematic, or says which of the nine reasons is stopping one |
+| `/sqmark [place\|list\|route\|clear\|ack] [kind\|id]` | places a marker where you stand, and lists each one's island alongside its distance |
 | `/sqdiag` | ticks, joins, uptime |
 | `/sqchat` | toggles chat tracing and prints the parser's counters |
 | `/sqboard` | dumps both boards and both readings, with `§` as `&` |
@@ -979,6 +1076,9 @@ neither, so a skip there is not proof the rule is broken.
 `/sqcine safety` is the one that earns its place. A cinematic that does not appear has nine possible causes
 that look identical from the player's chair, and this prints every one that currently applies — a question
 nothing else can answer, because the answer changes second to second.
+
+`/sqmark list` prints each marker's **island** next to its distance, because "it is not drawing" and "it is on
+another island" are the same symptom and different bugs.
 
 `/sqtest rule` drives a tiered test rule through the **live bus** rather than calling the engine, which is the
 part most likely to be wrong. A rule that fires when invoked directly and never fires in play is exactly the
@@ -1208,6 +1308,7 @@ Feature code must not:
 - persist, cache or pass around an `ItemStack` — snapshot it as an `SqItem`
 - watch for party chat lines — read `party`
 - store a player by username — store a `PlayerId`
+- place a marker at a bare position — a marker carries its `SqLocation`, island included
 - read or write a file — use `store(...)`
 - send or reveal anything without asking `permissions`
 - make an HTTP request — submit through the backend client, which queues when offline

@@ -24,6 +24,10 @@ import dev.th7bo.sidequest.platform.cinematic.Cinematic
 import dev.th7bo.sidequest.platform.cinematic.CinematicComponent
 import dev.th7bo.sidequest.platform.cinematic.CinematicDisposition
 import dev.th7bo.sidequest.platform.cinematic.CinematicPolicy
+import dev.th7bo.sidequest.platform.marker.Acknowledgement
+import dev.th7bo.sidequest.platform.marker.Marker
+import dev.th7bo.sidequest.platform.marker.MarkerKind
+import dev.th7bo.sidequest.platform.skyblock.SqLocation
 import dev.th7bo.sidequest.platform.rule.Rule
 import dev.th7bo.sidequest.platform.rule.RuleAction
 import dev.th7bo.sidequest.platform.rule.RuleEngine
@@ -121,6 +125,23 @@ class DeveloperTools(
                 }
             },
         ) { cine(it) }
+
+        context.command(
+            name = "sqmark",
+            description = "Places and inspects markers",
+            usage = "[place|list|route|clear|ack] [kind|id]",
+            completions = { done ->
+                when {
+                    done.isEmpty() -> MARK_VERBS
+                    done.size == 1 && done.first().lowercase() in setOf("place", "clear") ->
+                        MarkerKind.entries.map { it.name.lowercase() }
+                    done.size == 1 && done.first().lowercase() == "ack" -> markerNames()
+                    done.size == 2 && done.first().lowercase() == "ack" ->
+                        Acknowledgement.entries.map { it.name.lowercase() }
+                    else -> emptyList()
+                }
+            },
+        ) { mark(it) }
 
         registerTestRule(context)
     }
@@ -425,6 +446,128 @@ class DeveloperTools(
         line("progress", "${progress.progress}, fired ${progress.firings}x, tiers ${progress.awardedTiers}")
         tell("Two toasts and two sounds mean the notify and sound handlers are wired.")
     }
+
+    // -- markers -------------------------------------------------------------
+
+    /**
+     * Places markers where the player is standing, and says what became of them.
+     *
+     * `place` is the only way to exercise the whole path without dying, being pinged or walking somewhere — and
+     * the listing prints each marker's *island* alongside its distance, because "it is not drawing" and "it is
+     * on another island" are the same symptom and different bugs.
+     */
+    private fun mark(arguments: List<String>) {
+        when (arguments.firstOrNull()?.lowercase()) {
+            null, "list" -> markList()
+            "place" -> markPlace(arguments.getOrNull(1))
+            "route" -> markRoute()
+            "clear" -> markClear(arguments.getOrNull(1))
+            "ack" -> markAck(arguments.getOrNull(1), arguments.getOrNull(2))
+            else -> {
+                heading("Markers")
+                tell(MARK_VERBS.joinToString(" · "))
+            }
+        }
+    }
+
+    private fun markPlace(kindName: String?) {
+        val kind = MarkerKind.entries.firstOrNull { it.name.equals(kindName, ignoreCase = true) }
+            ?: MarkerKind.WAYPOINT
+        val here = dev.th7bo.sidequest.Sidequest.localPosition()
+        if (here == null) {
+            error("Not in a world, so there is nowhere to put it.")
+            return
+        }
+
+        val placed = context.markers.place(
+            Marker(
+                id = "",
+                kind = kind,
+                location = SqLocation(
+                    island = context.gameContext.context.island,
+                    position = here,
+                    profile = context.gameContext.context.profile,
+                ),
+                label = "${kind.displayName} test",
+                // Small enough that walking a few blocks away and back demonstrates arrival, which is the one
+                // behaviour a command cannot show by printing.
+                arrivalRadius = TEST_ARRIVAL_RADIUS,
+            ),
+        )
+        heading("Placed")
+        line("id", placed.id)
+        line("kind", "${placed.kind.displayName} · ${placed.lifetime?.toString() ?: "permanent"}")
+        line("island", placed.location.island.displayName)
+        line("visible", context.markers[placed.id]?.isVisible?.yesNo() ?: "no")
+    }
+
+    private fun markList() {
+        val all = context.markers.all()
+        heading("Markers (${all.size})")
+        if (all.isEmpty()) {
+            tell("None. /sqmark place <kind>")
+            return
+        }
+        for (tracked in all) {
+            line(
+                tracked.marker.id.take(ID_WIDTH),
+                buildString {
+                    append(tracked.marker.kind.name.lowercase())
+                    append(" · ")
+                    // The island always, because "not drawing" and "on another island" look identical.
+                    append(tracked.marker.location.island.displayName)
+                    append(" · ")
+                    append(tracked.distance?.let { "${it.toInt()}m" } ?: "elsewhere")
+                    if (!tracked.isVisible) append(" · hidden")
+                    if (tracked.hasArrived) append(" · arrived")
+                    tracked.marker.remaining(System.currentTimeMillis())?.let { append(" · $it left") }
+                },
+            )
+        }
+    }
+
+    private fun markRoute() {
+        val route = context.markers.route()
+        heading("Route (${route.size})")
+        if (route.isEmpty()) tell("Nothing routed.")
+        for (tracked in route) {
+            line("${tracked.marker.routeOrder}", tracked.marker.label.ifEmpty { tracked.marker.id })
+        }
+    }
+
+    private fun markClear(kindName: String?) {
+        val kind = MarkerKind.entries.firstOrNull { it.name.equals(kindName, ignoreCase = true) }
+        if (kind == null) {
+            var removed = 0
+            for (tracked in context.markers.all()) {
+                if (context.markers.remove(tracked.marker.id)) removed++
+            }
+            tell("Removed $removed marker(s).")
+            return
+        }
+        tell("Removed ${context.markers.removeAll(kind)} ${kind.displayName} marker(s).")
+    }
+
+    private fun markAck(markerId: String?, answer: String?) {
+        val tracked = markerId?.let { name ->
+            context.markers.all().firstOrNull { it.marker.id.startsWith(name, ignoreCase = true) }
+        }
+        if (tracked == null) {
+            error("No such marker. /sqmark list")
+            return
+        }
+        val acknowledgement = Acknowledgement.entries.firstOrNull { it.name.equals(answer, ignoreCase = true) }
+            ?: Acknowledgement.SEEN
+        val me = client.localPlayerId?.let { dev.th7bo.sidequest.platform.player.PlayerId.of(it) }
+        if (me == null) {
+            error("Not in a world.")
+            return
+        }
+        context.markers.acknowledge(tracked.marker.id, me, acknowledgement)
+        line("acknowledged", "${tracked.marker.id.take(ID_WIDTH)} as $acknowledgement")
+    }
+
+    private fun markerNames(): List<String> = context.markers.all().map { it.marker.id.take(ID_WIDTH) }
 
     // -- cinematics ----------------------------------------------------------
 
@@ -786,6 +929,14 @@ class DeveloperTools(
         val TEST_CINEMATIC = SqId.sidequest("dev.cinematic")
 
         val CINE_VERBS = listOf("play", "safety", "queue", "skip", "replay", "trace")
+
+        val MARK_VERBS = listOf("place", "list", "route", "clear", "ack")
+
+        /** How much of a marker id is shown. Enough to be unambiguous, short enough to read. */
+        const val ID_WIDTH = 8
+
+        /** Close enough to demonstrate arrival by walking a few blocks. */
+        const val TEST_ARRIVAL_RADIUS = 4.0
 
         /**
          * What `/sqtest` accepts, and what it completes.

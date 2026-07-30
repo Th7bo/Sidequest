@@ -67,6 +67,7 @@ public class PresencePublisher(
      * so a presence from somebody more private is recorded against nothing and simply not shown.
      */
     private var minecraftByAccount: Map<AccountId, PlayerId> = emptyMap()
+        private set
 
     /** Subscribes to what changes presence, and to what arrives. */
     public fun install() {
@@ -198,6 +199,14 @@ public class PresencePublisher(
      * listing, so they map to nothing and their presence is quietly ignored — which is what a privacy
      * setting should feel like from the other side.
      */
+    /**
+     * Who is who, as accounts to Minecraft players.
+     *
+     * Exposed so the marker receiver can attribute an incoming ping without building the same mapping from the
+     * same listing a second time. One derivation, one place it can be wrong.
+     */
+    public val accountToPlayer: Map<AccountId, PlayerId> get() = minecraftByAccount
+
     public fun onGroup(group: GroupState) {
         minecraftByAccount = group.members
             .mapNotNull { member ->

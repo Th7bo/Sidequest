@@ -3,6 +3,7 @@ package dev.th7bo.sidequest.platform.minecraft
 import dev.th7bo.sidequest.platform.game.GameClient
 import dev.th7bo.sidequest.platform.game.GameVersion
 import dev.th7bo.sidequest.platform.game.PlayerVitals
+import dev.th7bo.sidequest.platform.skyblock.SqPosition
 import dev.th7bo.sidequest.platform.text.SqText
 import net.minecraft.client.Minecraft
 import java.util.UUID
@@ -71,6 +72,16 @@ class MinecraftGameClient(
                 isDead = player.isDeadOrDying,
             )
         }
+
+    /**
+     * Where the local player is, or null outside a world.
+     *
+     * Internal rather than on [GameClient]: only the marker service needs it, and putting a live position on
+     * the interface would invite features to read one directly — which is how a mod ends up with position
+     * checks that forget to ask which island they are on.
+     */
+    internal val localPosition: SqPosition?
+        get() = client.player?.let { SqPosition(it.x, it.y, it.z) }
 
     override fun sendClientMessage(text: SqText) {
         // Through the player, which is the client-side path — nothing is sent to the
