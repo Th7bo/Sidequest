@@ -1298,6 +1298,56 @@ than none.
 
 ---
 
+## Rare drops
+
+The first feature off the plan's list, and it is mostly composition. The cinematic director already decides
+whether now is a safe moment and queues what it will not interrupt; the sound manager already handles
+cooldowns and mute groups; the chat parser already recognises the drop; the notification manager already keeps
+the history. What is actually about rare drops is deciding whether one is worth announcing.
+
+`/sqdrops [show|ignore|unignore|totem|sound|off|on] [item]`
+
+**The decision lives in `:platform-core`, not beside the wiring.** The mod module has no test source set, so a
+policy written there would be untestable — the same mistake the world projector made. `RareDropPolicy.decide`
+is pure and has sixteen tests; the feature in the mod is submit-a-cinematic, post-a-toast, play-a-sound.
+
+The threshold is the control that makes the feature bearable: most drops Hypixel calls rare are not worth
+stopping for, and a mod that animates every one gets switched off within an hour of farming. **Pets are exempt
+from it** — `PET` sits at the end of the rarity enum because it is a *kind* rather than a tier, so comparing
+it against a threshold would announce every pet or none depending on where somebody set the bar.
+
+The toast goes out first and unconditionally, because it is the durable record: the cinematic may be refused,
+held or skipped, and "what did I just get" should still be answerable. The ignore action is on the toast
+rather than only in a command, because the moment somebody wants to ignore an item is the moment it has just
+interrupted them.
+
+### Icons in Hypixel messages are decoration
+
+The trophy-fish pattern does not match Hypixel's leading glyph, and that is deliberate. SkyHanni's own source
+spells that symbol two different ways in two files — `\uE02A` in one, `⛃` in another — because Hypixel
+replaced its decorative icons when it shipped its own texture pack and one of the two was never updated.
+
+So the pattern matches the *words*, and allows any run of non-word characters in front of them. Lenient enough
+for whatever glyph they pick next; strict enough that a player quoting the line in public chat does not match,
+because a name and a rank tag are letters.
+
+That generalises: **a pattern that requires a Hypixel icon is a pattern that breaks on their next
+resource-pack update.**
+
+### Not done
+
+- **Estimated price.** A chat-derived drop carries a name and nothing else — no `SqItem`, so no
+  `estimatedValue` — and nothing fetches from the bazaar or the auction house. `priceOf` is a hook that always
+  returns null, and the animation omits the line rather than showing a zero.
+- **The item's icon.** `CinematicComponent.ItemModel` needs Minecraft's own model rendering, which the
+  cinematic stage still does not do.
+- **A real totem item.** SkyBlock names are not Minecraft ids, and nothing maps between them, so the totem
+  option shows a totem. Using the vanilla animation to say "something happened" is honest; guessing at an
+  item that looks vaguely similar would not be.
+- **Evidence capture.** Needs the backend's asset upload, which does not exist.
+
+---
+
 ## Seeing what the mod is doing
 
 Everything here is layered behind an interface, which is what makes it testable and also what makes it

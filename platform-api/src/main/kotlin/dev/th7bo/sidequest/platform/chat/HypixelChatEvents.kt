@@ -161,6 +161,36 @@ public class RareDropEvent(
 }
 
 /**
+ * A trophy fish or frog, caught.
+ *
+ * Its own event rather than a [RareDropEvent], because the two are graded on different scales: a drop has a
+ * rarity Hypixel announces in words, and a trophy has a *tier* that is a property of the catch rather than of
+ * the fish — the same Blobfish can be bronze or diamond. Folding them together would mean one of the two
+ * fields is meaningless on every instance.
+ */
+public class TrophyCatchEvent(
+    public val fishName: String,
+    public val tier: TrophyTier,
+    override val message: ChatMessage,
+) : ChatDerivedEvent() {
+    override fun describe(): String = "$tier $fishName"
+}
+
+/** How good the catch was. Hypixel's own wording, in ascending order. */
+public enum class TrophyTier(public val displayName: String, public val colour: Int) {
+    BRONZE("Bronze", 0xCD7F32),
+    SILVER("Silver", 0xC0C0C0),
+    GOLD("Gold", 0xFFD700),
+    DIAMOND("Diamond", 0x5CE1E6),
+    ;
+
+    public companion object {
+        public fun ofWording(wording: String): TrophyTier? =
+            entries.firstOrNull { it.name == wording.trim().uppercase() }
+    }
+}
+
+/**
  * How rare Hypixel said the drop was.
  *
  * The wording is Hypixel's, in their order of increasing rarity.

@@ -1,6 +1,7 @@
 package dev.th7bo.sidequest
 
 import dev.th7bo.sidequest.features.DeveloperTools
+import dev.th7bo.sidequest.features.RareDropAnimation
 import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
@@ -476,9 +477,40 @@ object Sidequest : ClientModInitializer {
         // Before `start`, so the hook is in place by the time the first join fires.
         installBackendHook()
 
-        val refusals = platform.start(sessionDiagnostics, developerTools)
+        rareDrops = RareDropAnimation(totemAnimation = ::showTotemAnimation)
+
+        val refusals = platform.start(sessionDiagnostics, developerTools, rareDrops)
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
+
+    private lateinit var rareDrops: RareDropAnimation
+
+    /**
+     * Minecraft's own totem animation, for the drop animation's familiar option.
+     *
+     * Best-effort by design. The name comes from a chat line, so there may be no item registered under it —
+     * "Enchanted Hay Bale" is not a Minecraft item id — and the honest answer then is false rather than a
+     * guess at something that looks vaguely similar. The feature has already shown its toast by this point,
+     * so failing here costs the flourish and nothing else.
+     */
+    private fun showTotemAnimation(itemName: String): Boolean {
+        val client = net.minecraft.client.Minecraft.getInstance()
+        val stack = itemStackFor(itemName) ?: return false
+        client.gameRenderer.displayItemActivation(stack)
+        return true
+    }
+
+    /**
+     * A stack to show for a dropped item's name.
+     *
+     * SkyBlock item names are not Minecraft item ids, and nothing in this mod maps between them yet — so this
+     * is deliberately a single fallback rather than a lookup that would be wrong most of the time. A totem is
+     * what the vanilla animation is *for*, and using it says "something happened" without claiming to know
+     * what the item looks like.
+     */
+    private fun itemStackFor(itemName: String): net.minecraft.world.item.ItemStack? =
+        net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.TOTEM_OF_UNDYING)
+            .takeIf { itemName.isNotBlank() }
 
     /** Schema version of the on-disk configuration. Bump alongside a new migration. */
     const val CONFIG_SCHEMA_VERSION: Int = 1

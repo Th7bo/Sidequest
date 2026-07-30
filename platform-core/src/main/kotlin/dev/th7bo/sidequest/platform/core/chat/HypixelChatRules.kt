@@ -21,6 +21,8 @@ import dev.th7bo.sidequest.platform.chat.PartyMemberJoinedEvent
 import dev.th7bo.sidequest.platform.chat.PartyMemberLeftEvent
 import dev.th7bo.sidequest.platform.chat.PlayerChatEvent
 import dev.th7bo.sidequest.platform.chat.RareDropEvent
+import dev.th7bo.sidequest.platform.chat.TrophyCatchEvent
+import dev.th7bo.sidequest.platform.chat.TrophyTier
 import dev.th7bo.sidequest.platform.chat.SkillLevelUpEvent
 import dev.th7bo.sidequest.platform.chat.chatRule
 import dev.th7bo.sidequest.platform.id.SqId
@@ -333,7 +335,7 @@ public object HypixelChatRules {
 
     // -- drops --------------------------------------------------------------
 
-    private fun drops(): List<ChatRule<*>> = listOf(bareDrop, parenthesizedDrop, petDrop)
+    private fun drops(): List<ChatRule<*>> = listOf(bareDrop, parenthesizedDrop, petDrop, trophyFish)
 
     /**
      * Magic Find, read off whichever drop line carries it.
@@ -401,6 +403,54 @@ public object HypixelChatRules {
             "§6§lPET DROP! §r§6Rat",
         ),
     ) { match -> match.drop(DropRarity.PET) }
+
+    /**
+     * `TROPHY FISH! You caught a <fish> <GOLD>`.
+     *
+     * **Deliberately not anchored on Hypixel's leading glyph.** SkyHanni's own source spells that symbol two
+     * different ways in two files — `\uE02A` in one and `⛃` in another — because Hypixel replaced its
+     * decorative icons when it shipped its own texture pack, and one of the two was never updated. The words
+     * are stable and the icons are not, so this matches on the words and treats whatever precedes them as
+     * formatting.
+     *
+     * That is the general rule for this file: an icon in a Hypixel message is decoration, and a pattern that
+     * requires one is a pattern that breaks on their next resource-pack update.
+     *
+     * The prefix allows anything that is not a word character, which is lenient enough for any glyph they
+     * pick and still strict enough to refuse a player quoting the line — a name and a rank tag are letters,
+     * so `[MVP+] Someone: TROPHY FISH! ...` does not match.
+     */
+    private val trophyFish = chatRule(
+        id = SqId.sidequest("chat.drop.trophy_fish"),
+        regex = """(?:§.|[^\w\n])*TROPHY (?:FISH|FROG)! (?:§.)*You caught an? (?:§.)*(?<item>[^§\n]+?) (?:§.)*(?<tier>BRONZE|SILVER|GOLD|DIAMOND)(?:§.)*!.*""",
+        fixtures = listOf(
+            // SkyHanni's own fixtures, kept verbatim so a divergence is visible in a diff.
+            "§6\uE02A §r§6§lTROPHY FISH! §r§fYou caught a §r§9Lavahorse §r§6§lGOLD§r§f!",
+            "§6\uE02A §r§6§lTROPHY FISH! §r§fYou caught a §r§5Soul Fish §r§8§lBRONZE§r§f!",
+            "§6\uE02A §r§6§lTROPHY FISH! §r§fYou caught a §r§fBlobfish §r§7§lSILVER§r§f!",
+            // The same line with the older glyph, which is the case the leniency exists for.
+            "§6⛃ §r§6§lTROPHY FISH! §r§fYou caught a §r§9Mana Ray §r§8§lBRONZE§r§f!",
+            "§2♔ §r§2§lTROPHY FROG! §r§fYou caught an §r§aExploding Frog §r§7§lSILVER§r§f!",
+            "§2♔ §r§2§lTROPHY FROG! §r§fYou caught a §r§fCommon Frog §r§b§lDIAMOND§r§f!",
+        ),
+        counterFixtures = listOf(
+            // Somebody else's first catch is a global broadcast, not your catch. Announcing it as yours
+            // would be the same class of bug as levelling up because a friend quoted the message.
+            "§2§lRIBBIT! §r§7§r§b[MVP§r§a+§r§b] Th7bo§r§f§r§e caught their first §r§b§lDIAMOND §r§fCommon Frog§r§e!",
+            "§6§lPET DROP! §r§5Baby Yeti §r§b(+168% ✯ Magic Find)",
+        ),
+    ) { match ->
+        val item = HypixelText.clean(match.require("item"))
+        if (item.isEmpty()) {
+            null
+        } else {
+            TrophyCatchEvent(
+                fishName = item,
+                tier = TrophyTier.ofWording(match.require("tier")) ?: TrophyTier.BRONZE,
+                message = match.message,
+            )
+        }
+    }
 
     private fun ChatMatch.drop(rarity: DropRarity): RareDropEvent? {
         val item = HypixelText.clean(require("item"))
