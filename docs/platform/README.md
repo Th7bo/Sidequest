@@ -31,7 +31,7 @@ rather than at runtime on somebody else's machine.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 1,149 tests that take a couple of seconds.
+testable at full speed with no game running — 1,151 tests that take a couple of seconds.
 
 ---
 
@@ -823,7 +823,7 @@ are how the difference gets seen.
 | Command | |
 | --- | --- |
 | `/sqstatus` | one screen of everything: location, activity, party, backend, parsers, players, permissions |
-| `/sqlog <category> <level>` | turns a log category up or down at runtime; `/sqlog all debug` |
+| `/sqlog <category\|all> <level>` | turns a log category up or down at runtime; `/sqlog all debug` |
 | `/sqtest <what>` | fires a subsystem: `notify` `sound` `queue` `presence` `chat` `item` `rule` |
 | `/sqrule [list\|show\|fire\|reset\|trace] [id]` | lists rules with their progress, prints one, fires one on demand, or shows why recent ones did not |
 | `/sqdiag` | ticks, joins, uptime |
@@ -979,6 +979,46 @@ real command tree. It was verified to fail without the bridge before being kept.
 
 The general shape of the mistake: **an assertion about the mod's own bookkeeping is not an
 assertion about behaviour.** When something crosses a boundary, test the far side.
+
+### Completion
+
+A command declares what it takes, and the grammar follows from the declaration:
+
+```kotlin
+context.command(
+    name = "sqrule",
+    description = "Inspects and fires rules",
+    usage = "[list|show|fire|reset|trace] [rule]",
+    completions = { done ->
+        when {
+            done.isEmpty() -> RULE_VERBS
+            done.first() in RULE_VERBS_WITH_ID -> ruleNames()
+            else -> emptyList()
+        }
+    },
+) { rule(it) }
+```
+
+`completions` is handed the words already **finished**, so the first call gets an empty list and the call for
+the second word gets the first. A command dispatches on `arguments.size` rather than tracking a cursor.
+Filtering by the partial word being typed is the bridge's job, which is what lets a completion source be a
+plain list — usually one derived from the thing it names, so a suggestion cannot drift from what the command
+accepts.
+
+Passing neither `usage` nor `completions` declares a **bare** command, and the bridge then builds no argument
+node at all. That is not cosmetic: attaching one regardless — which is what it used to do — made the client
+offer an `<arguments>` hint for `/sqdiag` and made `/sqdiag nonsense` succeed silently. `completions` is
+nullable rather than defaulted to an empty list because "no completions" and "no arguments" are different
+claims, and the grammar is built from the difference.
+
+The completions are also the documentation. A developer command whose vocabulary is discoverable only by
+running it wrong is a command nobody uses.
+
+The gametest asks the game's dispatcher, not the lambda: `dispatcher.getCompletionSuggestions` through
+Fabric's merged command tree, checking that the provider survived the merge, that a suggestion replaces the
+word being typed rather than the whole argument, and that a bare command offers nothing. Trailing input is
+read off `parse().reader.canRead()` rather than `exceptions`, because Brigadier leaves unconsumed input on the
+reader and only refuses it at execute time.
 
 ---
 

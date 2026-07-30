@@ -148,6 +148,63 @@ class DeveloperToolsTest : FabricClientGameTest {
                 }
             }
 
+            /*
+             * Tab completion, asked of the game's own dispatcher.
+             *
+             * Not of `CommandSpec.completions` — that would test a lambda. What is worth checking is the whole
+             * path: that Fabric's merged command tree kept the suggestion provider, that the bridge scopes a
+             * suggestion to the word being typed rather than replacing the whole argument, and that a bare
+             * command offers nothing at all. None of it is reachable without a connected client.
+             */
+            context.runOnClient<RuntimeException> { client ->
+                val dispatcher = checkNotNull(client.connection?.commands) { "no command dispatcher" }
+                val source = client.connection!!.suggestionsProvider
+
+                fun suggestions(input: String): List<String> =
+                    dispatcher.getCompletionSuggestions(dispatcher.parse(input, source))
+                        .join().list.map { it.text }
+
+                // The first word.
+                val testable = suggestions("sqtest ")
+                for (expected in listOf("notify", "sound", "queue", "presence", "chat", "item", "rule")) {
+                    check(expected in testable) { "/sqtest does not complete '$expected': $testable" }
+                }
+
+                // A partial word narrows, and the suggestion replaces that word only. `notification` is an
+                // accepted alias that is deliberately not suggested, so this is exactly one entry.
+                check(suggestions("sqtest no") == listOf("notify")) {
+                    "/sqtest no completed to ${suggestions("sqtest no")}"
+                }
+
+                // Two levels deep: the verb, then a rule id derived from the engine.
+                check("fire" in suggestions("sqrule ")) { "/sqrule does not complete its verbs" }
+                check("dev.rule" in suggestions("sqrule fire ")) {
+                    "/sqrule fire does not complete a registered rule: ${suggestions("sqrule fire ")}"
+                }
+                // `list` takes no rule, so offering one would be a wrong hint.
+                check(suggestions("sqrule list ").isEmpty()) {
+                    "/sqrule list offered ${suggestions("sqrule list ")}"
+                }
+
+                check("parser" in suggestions("sqlog ")) { "/sqlog does not complete its categories" }
+                check("all" in suggestions("sqlog ")) { "/sqlog does not complete 'all'" }
+                check("trace" in suggestions("sqlog parser ")) { "/sqlog does not complete its levels" }
+
+                // A command that takes nothing must not advertise an argument, and must not swallow one.
+                check(suggestions("sqdiag ").isEmpty()) { "/sqdiag offered ${suggestions("sqdiag ")}" }
+                // Read through the reader and not through `exceptions`: Brigadier reports trailing input by
+                // leaving it unconsumed, and only refuses it at execute time. Unconsumed input is therefore
+                // the assertion — it is what makes the game reject the command instead of running it.
+                check(dispatcher.parse("sqdiag nonsense", source).reader.canRead()) {
+                    "/sqdiag consumed an argument it does not take, so a typo would run it silently"
+                }
+                check(!dispatcher.parse("sqdiag", source).reader.canRead()) { "/sqdiag no longer parses bare" }
+                // And the opposite, so the check above cannot pass by nothing parsing at all.
+                check(!dispatcher.parse("sqtest notify", source).reader.canRead()) {
+                    "/sqtest no longer accepts an argument"
+                }
+            }
+
             // Log levels are settable at runtime, which is the difference between a debug line that is written
             // and one that is ever read.
             context.runOnClient<RuntimeException> {

@@ -400,6 +400,42 @@ class FeatureRegistryTest {
         )
     }
 
+    /**
+     * A command declares whether it takes anything, and the declaration follows from what was asked for.
+     *
+     * The game builds its grammar from this: a bare command gets no argument node, so the client stops
+     * offering an `<arguments>` hint for something that takes none and a typo is rejected rather than
+     * silently ignored. Getting it from the helper rather than from a fourth boolean nobody remembers to
+     * pass is the point.
+     */
+    @Test
+    fun `a command takes arguments only when it says what they are`() {
+        val registry = registry()
+        registry.register(
+            feature("declaring") {
+                command("bare") {}
+                command("withUsage", usage = "<thing>") {}
+                command("withCompletions", completions = { listOf("a", "b") }) {}
+            },
+        )
+        registry.enable(SqId.sidequest("declaring"))
+
+        assertFalse(commands["bare"]!!.spec.takesArguments, "a bare command must not advertise arguments")
+        assertTrue(commands["withUsage"]!!.spec.takesArguments)
+        assertTrue(commands["withCompletions"]!!.spec.takesArguments)
+        assertEquals(listOf("a", "b"), commands["withCompletions"]!!.spec.completions(emptyList()))
+        // The default has to be an empty list rather than null, so the bridge never branches on it.
+        assertEquals(emptyList<String>(), commands["bare"]!!.spec.completions(emptyList()))
+    }
+
+    /** A usage string on a command the game would refuse arguments for is a contradiction, caught at declaration. */
+    @Test
+    fun `a usage without arguments is rejected`() {
+        assertThrows<IllegalArgumentException> {
+            dev.th7bo.sidequest.platform.command.CommandSpec("x", usage = "<thing>", takesArguments = false) {}
+        }
+    }
+
     @Test
     fun `a command collision names both owners`() {
         val thrown = assertThrows<CommandCollisionException> {

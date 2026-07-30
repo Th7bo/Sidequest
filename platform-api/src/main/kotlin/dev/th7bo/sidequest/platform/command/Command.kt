@@ -18,9 +18,32 @@ public data class CommandSpec(
     public val description: String = "",
     /** Shown when the handler reports bad input, e.g. `<player> [amount]`. */
     public val usage: String = "",
-    /** Hidden from completion. For developer commands. */
+    /**
+     * Left out of the mod's own listings. For the commands that exist only so a chat component has something
+     * to click.
+     *
+     * Not "hidden from completion", which is what this once claimed. A client command is a literal node in
+     * Brigadier's tree and the client completes its own tree, so leaving the node out is the only way to hide
+     * one — and that would stop the chat click working, which is the whole reason such a command exists.
+     */
     public val isHidden: Boolean = false,
-    /** Suggestions for the argument at a given index, for tab completion. */
+    /**
+     * Whether this takes arguments at all.
+     *
+     * False means the command is a bare word, and the game is told so: `/sqdiag foo` is then rejected as bad
+     * input rather than silently ignored, and the client stops offering an `<arguments>` hint for a command
+     * that has none. Declared rather than guessed from whether a handler happens to read its list, because a
+     * guess would be wrong exactly where it mattered.
+     */
+    public val takesArguments: Boolean = false,
+    /**
+     * Suggestions for the next word, given the words already finished.
+     *
+     * The first call gets an empty list; the call for the second word gets the first word, and so on — so a
+     * command dispatches on `arguments.size` and `arguments.first()` rather than tracking a cursor. Filtering
+     * by the partial word being typed is the bridge's job and not this function's, which is what lets a
+     * completion source be a plain list.
+     */
     public val completions: (arguments: List<String>) -> List<String> = { emptyList() },
     public val handler: (arguments: List<String>) -> Unit,
 ) {
@@ -28,6 +51,11 @@ public data class CommandSpec(
         require(name.isNotBlank()) { "A command needs a name" }
         require(!name.startsWith("/")) { "Command '$name' must not include the leading slash" }
         require(name.none { it.isWhitespace() }) { "Command '$name' must be a single word" }
+        // A usage string on a command the game will refuse arguments for is a contradiction, and one that only
+        // shows up when somebody types the usage and is told they are wrong.
+        require(usage.isEmpty() || takesArguments) {
+            "Command '$name' declares the usage '$usage' but not that it takes arguments"
+        }
     }
 
     /** Every name this command answers to. */

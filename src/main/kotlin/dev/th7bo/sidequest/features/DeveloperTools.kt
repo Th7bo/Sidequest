@@ -61,9 +61,49 @@ class DeveloperTools(
         registerTestSounds(context)
 
         context.command("sqstatus", "Everything the mod currently believes") { status() }
-        context.command("sqlog", "Turns a log category up or down: /sqlog <category> <level>") { logLevel(it) }
-        context.command("sqtest", "Exercises a feature: /sqtest <what>") { test(it) }
-        context.command("sqrule", "Inspects and fires rules: /sqrule [list|show|fire|reset|trace] [id]") { rule(it) }
+
+        /*
+         * The completions are the documentation.
+         *
+         * A developer command whose vocabulary is only discoverable by running it wrong is a command nobody
+         * uses: the whole cost of `/sqtest` is remembering that `notify` is spelled `notify` and not
+         * `notification`. Every list below is derived from the thing it names — the log categories from the
+         * enum, the rule ids from the engine — so a completion cannot drift from what the command accepts.
+         */
+        context.command(
+            name = "sqlog",
+            description = "Turns a log category up or down",
+            usage = "<category|all> <level>",
+            completions = { done ->
+                when (done.size) {
+                    0 -> LOG_TARGETS
+                    1 -> LogLevel.entries.map { it.name.lowercase() }
+                    else -> emptyList()
+                }
+            },
+        ) { logLevel(it) }
+
+        context.command(
+            name = "sqtest",
+            description = "Exercises a feature",
+            usage = "<what>",
+            completions = { done -> if (done.isEmpty()) TESTABLE else emptyList() },
+        ) { test(it) }
+
+        context.command(
+            name = "sqrule",
+            description = "Inspects and fires rules",
+            usage = "[list|show|fire|reset|trace] [rule]",
+            completions = { done ->
+                when {
+                    done.isEmpty() -> RULE_VERBS
+                    // Only the verbs that name a rule. Offering ids after `list` would suggest that `list`
+                    // takes one, which is the kind of wrong hint that is worse than no hint.
+                    done.size == 1 && done.first().lowercase() in RULE_VERBS_WITH_ID -> ruleNames()
+                    else -> emptyList()
+                }
+            },
+        ) { rule(it) }
 
         registerTestRule(context)
     }
@@ -221,7 +261,8 @@ class DeveloperTools(
             "rule", "rules" -> testRules()
             else -> {
                 heading("What can be tested")
-                tell("notify · sound · queue · presence · chat · item · rule")
+                // From the same list the completions come from, so the two cannot disagree about what exists.
+                tell(TESTABLE.joinToString(" · "))
                 tell("Usage: /sqtest <what>")
             }
         }
@@ -394,10 +435,23 @@ class DeveloperTools(
             }
             else -> {
                 heading("Rules")
-                tell("/sqrule list · show <id> · fire <id> · reset <id> · trace")
+                tell(
+                    RULE_VERBS.joinToString(" · ") { verb ->
+                        if (verb in RULE_VERBS_WITH_ID) "$verb <rule>" else verb
+                    },
+                )
             }
         }
     }
+
+    /**
+     * Rule ids, without the namespace.
+     *
+     * The short form, because every rule in the mod is `sidequest:` and a completion list where every entry
+     * shares a ten-character prefix completes nothing. The lookup accepts a suffix, so what is suggested is
+     * what works.
+     */
+    private fun ruleNames(): List<String> = context.rules.rules().map { it.id.value.substringAfter(':') }
 
     private fun listRules() {
         val rules = context.rules.rules()
@@ -594,6 +648,22 @@ class DeveloperTools(
         val MISSING_SOUND = SqId.sidequest("dev.missing")
         val FALLBACK_SOUND = SqId.sidequest("dev.fallback")
         val TEST_RULE = SqId.sidequest("dev.rule")
+
+        /**
+         * What `/sqtest` accepts, and what it completes.
+         *
+         * One list for both. The dispatch below also answers to a few plurals, which are deliberately *not*
+         * suggested: an alias exists to forgive a typo, and completing both spellings implies a difference.
+         */
+        val TESTABLE = listOf("notify", "sound", "queue", "presence", "chat", "item", "rule")
+
+        val RULE_VERBS = listOf("list", "show", "fire", "reset", "trace")
+
+        /** The verbs whose second word is a rule. See the completion above. */
+        val RULE_VERBS_WITH_ID = setOf("show", "fire", "reset")
+
+        /** Every log category, plus the one word that is not a category. */
+        val LOG_TARGETS: List<String> = LogCategory.entries.map { it.name.lowercase() } + "all"
 
         /** How much of the rule trace `/sqrule trace` prints. A chat window holds about this much. */
         const val TRACE_LINES = 12

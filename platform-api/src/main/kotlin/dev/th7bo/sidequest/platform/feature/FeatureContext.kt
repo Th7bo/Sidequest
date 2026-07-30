@@ -253,9 +253,27 @@ public inline fun <reified T : SidequestEvent> FeatureContext.listen(
     noinline listener: (T) -> Unit,
 ): Registration = listen(T::class, priority, mode, listener)
 
-/** Registers a command with a name and a handler. */
+/**
+ * Registers a command with a name and a handler.
+ *
+ * Pass [completions] and the command gets real tab completion; pass neither it nor [usage] and the command is
+ * declared as a bare word, which is what stops the game offering an argument hint for something that takes
+ * none. Nullable rather than defaulted to an empty list, because "no completions" and "no arguments" are
+ * different claims and the difference is what the grammar is built from.
+ */
 public fun FeatureContext.command(
     name: String,
     description: String = "",
+    usage: String = "",
+    completions: ((arguments: List<String>) -> List<String>)? = null,
     handler: (List<String>) -> Unit,
-): Registration = command(CommandSpec(name, description = description, handler = handler))
+): Registration = command(
+    CommandSpec(
+        name = name,
+        description = description,
+        usage = usage,
+        takesArguments = usage.isNotEmpty() || completions != null,
+        completions = completions ?: { emptyList() },
+        handler = handler,
+    ),
+)

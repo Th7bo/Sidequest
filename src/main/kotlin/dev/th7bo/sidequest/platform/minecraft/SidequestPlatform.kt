@@ -355,6 +355,8 @@ class SidequestPlatform(
                     description = "Runs a notification action",
                     // Not for typing. It exists so a chat component has something to click.
                     isHidden = true,
+                    usage = "<notification> <action>",
+                    takesArguments = true,
                     handler = { arguments ->
                         if (arguments.size < 2) {
                             log.debug { "$ACTION_COMMAND needs a notification id and an action id" }

@@ -88,12 +88,24 @@ public class FeatureBuilder internal constructor(private val id: SqId) {
         commands.add(spec)
     }
 
+    /** The same shape as [FeatureContext.command] — see there for why [completions] is nullable. */
     public fun command(
         name: String,
         description: String = "",
+        usage: String = "",
+        completions: ((arguments: List<String>) -> List<String>)? = null,
         handler: (List<String>) -> Unit,
     ) {
-        commands.add(CommandSpec(name, description = description, handler = handler))
+        commands.add(
+            CommandSpec(
+                name = name,
+                description = description,
+                usage = usage,
+                takesArguments = usage.isNotEmpty() || completions != null,
+                completions = completions ?: { emptyList() },
+                handler = handler,
+            ),
+        )
     }
 
     /** Anything the declarations above do not cover. Runs after they are installed. */

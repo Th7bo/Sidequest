@@ -63,7 +63,7 @@ class MinecraftCommandBridge(
             this.dispatcher = dispatcher
             registeredNames.clear()
             for (command in registry.all()) {
-                for (name in command.spec.allNames) register(dispatcher, name)
+                for (name in command.spec.allNames) register(dispatcher, command.spec, name)
             }
             log.debug { "Registered ${registeredNames.size} client command name(s)" }
         }
@@ -77,31 +77,49 @@ class MinecraftCommandBridge(
      */
     fun onRegistered(spec: CommandSpec) {
         val target = dispatcher ?: return
-        for (name in spec.allNames) register(target, name)
+        for (name in spec.allNames) register(target, spec, name)
         log.debug { "Added /${spec.name} to the live command tree" }
     }
 
-    private fun register(dispatcher: CommandDispatcher<FabricClientCommandSource>, name: String) {
+    private fun register(
+        dispatcher: CommandDispatcher<FabricClientCommandSource>,
+        spec: CommandSpec,
+        name: String,
+    ) {
         if (!registeredNames.add(name)) return
-        dispatcher.register(node(name))
+        dispatcher.register(node(spec, name))
     }
 
-    private fun node(name: String): LiteralArgumentBuilder<FabricClientCommandSource> =
-        LiteralArgumentBuilder.literal<FabricClientCommandSource>(name)
+    /**
+     * Builds the node for one name.
+     *
+     * The shape is fixed when the node is built, because Brigadier nodes cannot be removed — so a command whose
+     * spec later changes what it takes keeps the shape it was registered with. That is a non-problem in
+     * practice: a spec is a constant in the feature that declares it.
+     */
+    private fun node(spec: CommandSpec, name: String): LiteralArgumentBuilder<FabricClientCommandSource> {
+        val node = LiteralArgumentBuilder.literal<FabricClientCommandSource>(name)
             // Bare, with no arguments.
             .executes { context -> run(context, name, emptyList()) }
-            .then(
-                // One greedy argument rather than a typed grammar. The platform's command
-                // model is a name and a list of words, so a richer grammar here would be a
-                // second, competing definition of what a command is.
-                RequiredArgumentBuilder
-                    .argument<FabricClientCommandSource, String>(ARGUMENTS, StringArgumentType.greedyString())
-                    .suggests { context, builder -> suggest(name, context, builder) }
-                    .executes { context ->
-                        val typed = StringArgumentType.getString(context, ARGUMENTS)
-                        run(context, name, typed.split(' ').filter { it.isNotEmpty() })
-                    },
-            )
+
+        // Nothing further for a bare command. Attaching an argument node regardless — which is what this did —
+        // makes the client offer an `<arguments>` hint for `/sqdiag` and makes `/sqdiag nonsense` succeed
+        // silently, both of which say the command takes something it does not.
+        if (!spec.takesArguments) return node
+
+        return node.then(
+            // One greedy argument rather than a typed grammar. The platform's command model is a name and a
+            // list of words, so a richer grammar here would be a second, competing definition of what a
+            // command is — and the suggestion callback below is what makes the flat model complete properly.
+            RequiredArgumentBuilder
+                .argument<FabricClientCommandSource, String>(ARGUMENTS, StringArgumentType.greedyString())
+                .suggests { context, builder -> suggest(name, context, builder) }
+                .executes { context ->
+                    val typed = StringArgumentType.getString(context, ARGUMENTS)
+                    run(context, name, typed.split(' ').filter { it.isNotEmpty() })
+                },
+        )
+    }
 
     /**
      * Runs a handler, resolved now rather than when the node was built.
