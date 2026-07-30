@@ -16,6 +16,8 @@ import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.lifecycle.ownedBy
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.asset.AssetManager
+import dev.th7bo.sidequest.platform.cosmetic.CosmeticService
+import dev.th7bo.sidequest.platform.log.ErrorLog
 import dev.th7bo.sidequest.platform.audio.SoundManager
 import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
 import dev.th7bo.sidequest.platform.marker.MarkerService
@@ -67,6 +69,8 @@ internal class DefaultFeatureContext(
     override val markers: MarkerService,
     override val rules: RuleEngine,
     override val assets: AssetManager,
+    override val cosmetics: CosmeticService,
+    override val errors: ErrorLog,
     override val storage: StorageProvider,
     override val permissions: PermissionService,
     override val log: Logger,

@@ -1154,6 +1154,90 @@ named gap rather than an oversight — see the backend's open items.
 
 ---
 
+## Cosmetics
+
+What people are wearing, and what this client draws of it.
+
+| | |
+| --- | --- |
+| `CosmeticSlot` | where it goes, and whether it is an effect or an appearance override |
+| `Cosmetic` | the definition: asset, rarity, visibility, duration, conflicts, condition, fallback |
+| `CosmeticLoadout` | one cosmetic per slot, so exclusivity is in the shape rather than in a check |
+| `CosmeticSettings` | what the **viewer** will put up with |
+| `CosmeticResolution` | what is shown, and why everything else is not |
+
+```kotlin
+val resolved = context.cosmetics.resolve(wearer)
+resolved[CosmeticSlot.CAPE]          // a ShownCosmetic, or null
+resolved.whyNot(cosmeticId)          // HiddenReason.NOT_A_FRIEND
+```
+
+### The viewer always wins
+
+Every setting beats the wearer's own choice, and this is the load-bearing decision of the whole feature. A
+system where somebody else's preference decides what appears on your screen gets turned off wholesale the
+first time a friend finds something funny — so the specific switches exist to stop people reaching for the
+master one, and the resolution order puts the viewer's half before the wearer's as control flow rather than
+as a comment.
+
+Two consequences worth naming:
+
+- **Reduced animation stills a cosmetic rather than hiding it.** An accessibility setting before a performance
+  one: somebody who cannot tolerate motion still wants to see what people are wearing.
+- **A fallback never works around the viewer.** `FALLBACK_REASONS` contains only the reasons a cosmetic is
+  *unusable* — a missing asset, an expiry — never a reason it is *unwanted*. Substituting something for a
+  cosmetic the viewer switched off would put back exactly what they asked not to see.
+
+### Personal slots are not worn
+
+Notification style, cinematic style and sound pack change the viewer's own client. Visibility is meaningless
+for them, and applying it would hide your own interface from you whenever you were not on your own friend
+list — which is always. `CosmeticSlot.isWorn` is what keeps the two apart.
+
+### Nothing is hidden silently
+
+Every rejection is a `HiddenCosmetic` with a `HiddenReason` and often a detail naming the condition or the
+conflict that won. A cosmetic that does not appear is indistinguishable from a broken mod, and the person
+affected is usually the one who earned it. `HiddenReason.mightChange` separates "wait a moment" from "this
+will never show".
+
+### Conflicts resolve the same way on every client
+
+Render layer, then rarity, then id. A tie broken by map order would show two people different things and
+neither could tell which was right.
+
+### Conditions are their own tree
+
+Not the rule engine's `Condition`. A rule's condition is about one subject and an event; a cosmetic's is
+about a **pair** — whose cosmetic and who is looking — and has no event at all. Reusing `RuleContext` would
+have meant inventing a synthetic event and a second meaning for `subject`. Two small trees beat one that lies
+about what it holds.
+
+---
+
+## Error ids
+
+Every warning and error is grouped under a short code — `SQ-4F2A9C` — that names the *kind* of failure.
+
+**Derived from the failure, not generated per occurrence.** A random id per throw is easy and nearly useless:
+the same bug hitting a hundred times produces a hundred codes, none of which can be looked up or counted. The
+code hashes the owner, the exception type, the first stack frame inside this mod, and the message with its
+variable parts removed — so "could not load asset 4f2a…" and "could not load asset 91bc…" are one bug.
+
+That is also why `RecordingErrorLog` is keyed rather than a list. An unreachable backend warns on every
+retry; as a list, two hundred identical lines push out the one interesting failure that happened once.
+
+Problems are recorded **regardless of the level filter**. Turning a category up is about how much reaches the
+log file; it must not decide whether "what went wrong" can be answered, or quietening the backend's chatter
+would also lose the record of the backend failing.
+
+`RollingFileLogSink` writes the mod's own file, rotated by size with a cap on the *total* — a per-file cap
+with unlimited files is the same slow disk leak with extra steps. Failures are swallowed: there is nowhere
+useful to report a logging failure to, and a diagnostic that can crash the thing it is diagnosing is worse
+than none.
+
+---
+
 ## Seeing what the mod is doing
 
 Everything here is layered behind an interface, which is what makes it testable and also what makes it
@@ -1169,6 +1253,8 @@ are how the difference gets seen.
 | `/sqrule [list\|show\|fire\|reset\|trace] [id]` | lists rules with their progress, prints one, fires one on demand, or shows why recent ones did not |
 | `/sqcine [play\|safety\|queue\|skip\|replay\|trace] [id]` | plays a test cinematic, or says which of the nine reasons is stopping one |
 | `/sqmark [place\|list\|route\|clear\|ack] [kind\|id]` | places a marker where you stand, and lists each one's island alongside its distance |
+| `/sqerr [list\|show\|clear] [id]` | what has gone wrong, grouped by kind with a code you can read aloud |
+| `/sqcos [list\|wear\|remove\|preview\|resolve\|settings]` | tries cosmetics on; `resolve` prints why each one is or is not showing |
 | `/sqdiag` | ticks, joins, uptime |
 | `/sqchat` | toggles chat tracing and prints the parser's counters |
 | `/sqboard` | dumps both boards and both readings, with `§` as `&` |
@@ -1416,6 +1502,42 @@ stop matching. So the test asserts the exact rendered string, not just that some
 arrived.
 
 ---
+
+### The testkit
+
+`:platform-testkit` holds the fakes. Three things in it are worth knowing about:
+
+**`FakePlayers` ids are derived from names**, via `UUID.nameUUIDFromBytes`. A random UUID per run makes a
+failure message unreproducible and makes two tests that both mean "the friend" disagree about who that is.
+`FakePlayers.friend` is one person across the whole suite.
+
+**`EventRecorder` subscribes `IMMEDIATE`.** On the default mode the events would be sitting with the
+scheduler and every test would have to remember to pump it — which is the sort of thing that gets forgotten
+and produces a test asserting on an empty list and passing for the wrong reason.
+
+**`MigrationHarness` chains by version, not by list order.** Migrations are the least-tested thing in most
+projects and the one whose failure is unrecoverable: a bad migration does not throw, it produces a document
+that parses into wrong data, and by then the original is gone. `assertEveryVersionLoads` is the check worth
+running on every schema — a chain is usually tested from whatever version somebody kept a fixture for, and
+the one that breaks is the version nobody did.
+
+`PreviewData` lives in `:platform-core` rather than the testkit, because both sides need it: a test wants a
+cinematic to render and `/sqtest drop` wants the same one. Two copies would drift, and the one that drifted
+would be the one nobody was looking at. Its cosmetics are deliberately not "one of each slot" — they are one
+of each *awkward case*: a friends-only one, a joke one, an animated one, a timed one, a conflicting pair, and
+one whose asset is missing.
+
+### Simulating what is awkward to arrange
+
+`/sqtest drop achievement death dungeon kuudra ping waypoint cosmetic offline`.
+
+Not because the code cannot be read — because the interesting part of these features is how they look and
+feel, and half of them only occur in conditions nobody wants to reproduce: a rare drop is once a week, a
+Kuudra clear needs four other people, and dying repeatedly to check a death marker gets old fast.
+
+Each goes through the real path — the director, the marker service, the notification manager — rather than
+drawing anything itself. A simulation that bypassed the safety gate would be a simulation of something the
+mod never does.
 
 ## Rules
 

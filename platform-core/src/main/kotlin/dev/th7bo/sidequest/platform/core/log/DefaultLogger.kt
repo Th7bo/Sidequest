@@ -20,6 +20,8 @@ import dev.th7bo.sidequest.platform.log.Logger
 public class LoggerFactory(
     private val sink: LogSink,
     private val redactor: LogRedactor = LogRedactor.Default,
+    /** Where problems are grouped and counted. See [RecordingErrorLog]. */
+    public val errors: RecordingErrorLog = RecordingErrorLog(),
 ) {
 
     private val levels = HashMap<LogCategory, LogLevel>()
@@ -34,7 +36,7 @@ public class LoggerFactory(
     public fun levelOf(category: LogCategory): LogLevel = levels[category] ?: defaultLevel
 
     public fun create(category: LogCategory, owner: SqId): Logger =
-        DefaultLogger(category, owner, this, sink, redactor)
+        DefaultLogger(category, owner, this, sink, redactor, errors)
 }
 
 private class DefaultLogger(
@@ -43,17 +45,27 @@ private class DefaultLogger(
     private val factory: LoggerFactory,
     private val sink: LogSink,
     private val redactor: LogRedactor,
+    private val errors: RecordingErrorLog,
 ) : Logger {
 
     override fun isEnabled(level: LogLevel): Boolean = level >= factory.levelOf(category)
 
     override fun log(level: LogLevel, thrown: Throwable?, message: () -> String) {
+        val isProblem = level >= LogLevel.WARN
         // The message is a lambda so a disabled line costs nothing to leave in place,
         // which is what makes it acceptable to ship the parser tracing.
-        if (!isEnabled(level)) return
-        sink.write(level, category, owner, redactor.redact(message()), thrown)
+        if (!isEnabled(level) && !isProblem) return
+
+        val text = redactor.redact(message())
+
+        // Problems are recorded whatever the level filter says. Turning a category up is about how much
+        // noise reaches the log file; it must not decide whether "what went wrong" can be answered, or
+        // somebody quietening the backend chatter would also lose the record of the backend failing.
+        if (isProblem) errors.record(level, category, owner, text, thrown)
+
+        if (isEnabled(level)) sink.write(level, category, owner, text, thrown)
     }
 
     override fun named(name: String): Logger =
-        DefaultLogger(category, owner.child(name), factory, sink, redactor)
+        DefaultLogger(category, owner.child(name), factory, sink, redactor, errors)
 }

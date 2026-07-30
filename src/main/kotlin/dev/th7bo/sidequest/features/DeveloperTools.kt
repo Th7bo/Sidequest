@@ -21,6 +21,12 @@ import dev.th7bo.sidequest.platform.event.EventSource
 import dev.th7bo.sidequest.platform.event.SidequestEvent
 import dev.th7bo.sidequest.platform.permission.Permission
 import dev.th7bo.sidequest.platform.cinematic.Cinematic
+import dev.th7bo.sidequest.platform.core.preview.PreviewData
+import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings
+import dev.th7bo.sidequest.platform.cosmetic.CosmeticSlot
+import dev.th7bo.sidequest.platform.log.ErrorId
+import dev.th7bo.sidequest.platform.notification.Notification
+import dev.th7bo.sidequest.platform.skyblock.SqPosition
 import dev.th7bo.sidequest.platform.cinematic.CinematicComponent
 import dev.th7bo.sidequest.platform.cinematic.CinematicDisposition
 import dev.th7bo.sidequest.platform.cinematic.CinematicPolicy
@@ -143,6 +149,36 @@ class DeveloperTools(
             },
         ) { mark(it) }
 
+        context.command(
+            name = "sqerr",
+            description = "What has gone wrong, grouped",
+            usage = "[list|show|clear] [id]",
+            completions = { done ->
+                when {
+                    done.isEmpty() -> ERROR_VERBS
+                    done.size == 1 && done.first().lowercase() == "show" ->
+                        context.errors.recent().map { it.id.value }
+                    else -> emptyList()
+                }
+            },
+        ) { errors(it) }
+
+        context.command(
+            name = "sqcos",
+            description = "Inspects and tries on cosmetics",
+            usage = "[list|wear|remove|preview|resolve|settings] [id|slot]",
+            completions = { done ->
+                when {
+                    done.isEmpty() -> COSMETIC_VERBS
+                    done.size == 1 && done.first().lowercase() == "wear" -> cosmeticNames()
+                    done.size == 1 && done.first().lowercase() == "remove" ->
+                        CosmeticSlot.entries.map { it.name.lowercase() }
+                    done.size == 1 && done.first().lowercase() == "settings" -> COSMETIC_SETTINGS
+                    else -> emptyList()
+                }
+            },
+        ) { cosmetics(it) }
+
         registerTestRule(context)
     }
 
@@ -235,6 +271,45 @@ class DeveloperTools(
                 line(permission.displayName, context.permissions.sharesWithAnybody(permission).onOff())
             }
         }
+
+        heading("Assets")
+        val assetStats = context.assets.stats()
+        line("resident", "${assetStats.entries} · ${assetStats.bytes} bytes")
+        line("hits / misses", "${assetStats.hits} / ${assetStats.misses}")
+        line("evictions", "${assetStats.evictions}")
+
+        heading("Cosmetics")
+        val cosmeticSettings = context.cosmetics.settings
+        line("registered", "${context.cosmetics.definitions().size}")
+        line("switched on", cosmeticSettings.isEnabled.yesNo())
+        if (cosmeticSettings.isEnabled) {
+            line(
+                "showing",
+                listOfNotNull(
+                    "skins".takeIf { cosmeticSettings.showAppearanceOverrides },
+                    "effects".takeIf { cosmeticSettings.showEffects },
+                    "jokes".takeIf { cosmeticSettings.showJokeCosmetics },
+                ).ifEmpty { listOf("nothing") }.joinToString(", "),
+            )
+            if (cosmeticSettings.reducedAnimation) line("animation", "reduced")
+            if (cosmeticSettings.hiddenSlots.isNotEmpty()) {
+                line("hidden slots", cosmeticSettings.hiddenSlots.joinToString { it.displayName })
+            }
+        }
+        if (me != null) {
+            val worn = context.cosmetics.resolve(me)
+            line("you are wearing", "${worn.shown.size} shown, ${worn.hidden.size} hidden")
+        }
+
+        // Last, because it is the section somebody scrolls to find and the end of the output is where the
+        // chat window already is.
+        heading("Problems")
+        val problems = context.errors.summary()
+        line("this session", problems.toString())
+        for (record in context.errors.recent(limit = PROBLEM_LINES)) {
+            line(record.id.toString(), "${record.category}/${record.owner} ${record.message.take(PROBLEM_WIDTH)}")
+        }
+        if (!problems.isClean) tell("  /sqerr show <id> for the detail")
     }
 
     // -- log levels ----------------------------------------------------------
@@ -297,6 +372,15 @@ class DeveloperTools(
             "chat" -> testChatRules()
             "item" -> testItem()
             "rule", "rules" -> testRules()
+            "drop" -> simulateRareDrop()
+            "achievement" -> simulateAchievement()
+            "death" -> simulateDeath()
+            "dungeon" -> simulateRunEnd("Catacombs Floor 7", "dungeon")
+            "kuudra" -> simulateRunEnd("Kuudra Tier 5", "kuudra")
+            "ping" -> simulatePing()
+            "waypoint" -> simulateWaypoint()
+            "cosmetic" -> cosmetics(listOf("preview"))
+            "offline" -> simulateOffline()
             else -> {
                 heading("What can be tested")
                 // From the same list the completions come from, so the two cannot disagree about what exists.
@@ -894,6 +978,349 @@ class DeveloperTools(
 
     private fun testSoundFor(group: SoundGroup) = SqId.sidequest("dev.sound_${group.name.lowercase()}")
 
+    // -- simulations ---------------------------------------------------------
+
+    /*
+     * Each of these stands in for something that is genuinely awkward to arrange.
+     *
+     * The point is not that the code cannot be read. It is that the *interesting* part of these features is
+     * how they look and feel, and half of them only occur in conditions nobody wants to reproduce on demand:
+     * a rare drop is once a week, a Kuudra clear needs four other people, and dying repeatedly to check a
+     * death marker gets old fast.
+     *
+     * They go through the real path — the cinematic director, the marker service, the notification manager —
+     * rather than drawing anything themselves, so what they show is what would actually happen. A simulation
+     * that bypassed the safety gate would be a simulation of something the mod never does.
+     */
+
+    private fun simulateRareDrop() {
+        context.cinematics.submit(PreviewData.rareDrop)
+        tell("Played a rare-drop cinematic. /sqcine safety if nothing appeared.")
+    }
+
+    private fun simulateAchievement() {
+        context.cinematics.submit(PreviewData.slowAchievement)
+        context.notifications.notify(
+            notification(
+                category = NotificationCategory.PROGRESSION,
+                title = "Achievement unlocked",
+                subtitle = "Catacombs Floor 7 — first clear",
+                priority = NotificationPriority.HIGH,
+            ),
+        )
+        tell("Played a long cinematic and posted its toast.")
+    }
+
+    /**
+     * A death, as far as the marker system is concerned.
+     *
+     * Places the marker where you stand, which is what a real death does — and is why this is here rather
+     * than in a headless test: whether a death marker is *useful* depends on where it ends up relative to
+     * where you respawn, and only a real world can show that.
+     */
+    private fun simulateDeath() {
+        val position = dev.th7bo.sidequest.Sidequest.localPosition()
+        if (position == null) {
+            error("Not in a world.")
+            return
+        }
+        context.markers.place(
+            Marker(
+                id = "dev.death",
+                kind = MarkerKind.DEATH,
+                location = SqLocation(
+                    island = context.gameContext.context.island,
+                    position = position,
+                    profile = context.gameContext.context.profile,
+                ),
+                label = "You died here",
+            ),
+        )
+        tell("Placed a death marker where you are standing.")
+    }
+
+    /** The end of a run, which is a cinematic and a summary toast. */
+    private fun simulateRunEnd(what: String, kind: String) {
+        context.cinematics.submit(
+            PreviewData.bigPayout.copy(
+                id = SqId.sidequest("dev.$kind"),
+                components = listOf(
+                    CinematicComponent.Letterbox(),
+                    CinematicComponent.Title(what.uppercase(), colour = 0x55FFFF),
+                    CinematicComponent.Subtitle("cleared"),
+                    CinematicComponent.AnimatedNumber(842_000, suffix = " coins"),
+                    CinematicComponent.RewardReveal("+1 Necron's Handle", atFraction = 0.6f),
+                ),
+            ),
+        )
+        tell("Played a $what completion.")
+    }
+
+    private fun simulatePing() {
+        val position = dev.th7bo.sidequest.Sidequest.localPosition()
+        if (position == null) {
+            error("Not in a world.")
+            return
+        }
+        // Ten blocks ahead of where you are, so it is something to look at rather than something you are
+        // standing inside — a marker at your own feet demonstrates nothing about how one reads at distance.
+        context.markers.place(
+            Marker(
+                id = "dev.ping",
+                kind = MarkerKind.PING,
+                location = SqLocation(
+                    island = context.gameContext.context.island,
+                    position = SqPosition(position.x, position.y, position.z + PING_DISTANCE),
+                    profile = context.gameContext.context.profile,
+                ),
+                label = "look here",
+            ),
+        )
+        tell("Pinged ${PING_DISTANCE.toInt()} blocks away. Turn around to see the edge indicator.")
+    }
+
+    /** A field of them, spread over distance so fading, ordering and edge indicators all do something. */
+    private fun simulateWaypoint() {
+        val position = dev.th7bo.sidequest.Sidequest.localPosition()
+        if (position == null) {
+            error("Not in a world.")
+            return
+        }
+        val island = context.gameContext.context.island
+        var placed = 0
+        for (marker in PreviewData.markerField(island, position)) {
+            context.markers.place(marker)
+            placed++
+        }
+        tell("Placed $placed markers. /sqmark list · /sqmark clear waypoint")
+    }
+
+    /**
+     * What the mod looks like with no backend.
+     *
+     * Worth a command because "works offline" is the state most of this group will actually be in most of the
+     * time — the server is in somebody's cupboard — and it is the state least likely to be tested by
+     * accident.
+     */
+    private fun simulateOffline() {
+        val backend = dev.th7bo.sidequest.Sidequest.platform.backend
+        if (backend == null) {
+            tell("Already offline: no backend is configured. This is the state to check features in.")
+            return
+        }
+        heading("Offline behaviour")
+        line("backend", backend.state.name)
+        tell("Nothing here disconnects you — stop the server to test it for real.")
+        tell("What should keep working: markers, rules, cinematics, notifications, sounds, cosmetics you own.")
+    }
+
+    /** Registered cosmetic ids, for completion. Derived, so it cannot drift from what `wear` accepts. */
+    private fun cosmeticNames(): List<String> = context.cosmetics.definitions().map { it.id.toString() }
+
+    // -- problems ------------------------------------------------------------
+
+    /**
+     * What has gone wrong, by kind rather than by occurrence.
+     *
+     * The id is the useful part. A person can read "SQ-4F2A9C" out of chat and it names the *bug* rather than
+     * one hit of it, so it can be looked up, counted, and recognised as one already known about.
+     */
+    private fun errors(arguments: List<String>) {
+        when (arguments.firstOrNull()?.lowercase()) {
+            null, "list" -> {
+                val summary = context.errors.summary()
+                heading("Problems")
+                if (summary.isClean) {
+                    tell("Nothing has gone wrong this session.")
+                    return
+                }
+                line("summary", summary.toString())
+                for (record in context.errors.recent()) {
+                    line(
+                        record.id.toString(),
+                        "x${record.count} ${record.category}/${record.owner} ${record.message.take(PROBLEM_WIDTH)}",
+                    )
+                }
+                tell("/sqerr show <id> for the detail")
+            }
+
+            "show" -> {
+                val wanted = arguments.getOrNull(1)
+                if (wanted == null) {
+                    error("Which one? /sqerr show <id>")
+                    return
+                }
+                // Accepted with or without the SQ- prefix, because that is how it is displayed and somebody
+                // reading it back will type what they saw.
+                val id = ErrorId(wanted.removePrefix("SQ-").removePrefix("sq-").uppercase())
+                val record = context.errors.get(id)
+                if (record == null) {
+                    error("No problem with that id. /sqerr list")
+                    return
+                }
+                heading(record.id.toString())
+                line("category", "${record.category} / ${record.owner}")
+                line("seen", "${record.count} time(s)")
+                line("first", java.time.Instant.ofEpochMilli(record.firstSeenMillis).toString())
+                line("last", java.time.Instant.ofEpochMilli(record.lastSeenMillis).toString())
+                line("message", record.message)
+                record.cause?.let { line("cause", it) }
+            }
+
+            "clear" -> {
+                context.errors.clear()
+                tell("Cleared.")
+            }
+
+            else -> error("Usage: /sqerr [${ERROR_VERBS.joinToString("|")}] [id]")
+        }
+    }
+
+    // -- cosmetics -----------------------------------------------------------
+
+    /**
+     * Tries cosmetics on, and explains what is not showing.
+     *
+     * `resolve` is the one that earns its place. Everything about this feature that can surprise somebody —
+     * a friends-only cosmetic on a stranger, an aura losing a conflict, an asset that has not arrived — looks
+     * identical from outside: nothing appears. This prints the reason for each.
+     */
+    private fun cosmetics(arguments: List<String>) {
+        when (arguments.firstOrNull()?.lowercase()) {
+            null, "list" -> {
+                heading("Cosmetics")
+                val all = context.cosmetics.definitions()
+                if (all.isEmpty()) {
+                    tell("None registered. /sqcos preview loads a sample set.")
+                    return
+                }
+                for (cosmetic in all.sortedBy { it.slot.ordinal }) {
+                    val worn = context.cosmetics.loadout()[cosmetic.slot]?.cosmeticId == cosmetic.id
+                    line(
+                        (if (worn) "* " else "  ") + cosmetic.slot.name.lowercase(),
+                        "${cosmetic.displayName} · ${cosmetic.rarity.displayName} · ${cosmetic.id}",
+                    )
+                }
+            }
+
+            "preview" -> {
+                // The sample set exists because arranging every awkward case by hand — a conflicting pair, a
+                // timed one, one whose asset is missing — is most of an afternoon.
+                var added = 0
+                for (cosmetic in PreviewData.cosmetics) {
+                    context.cosmetics.register(cosmetic)
+                    added++
+                }
+                context.cosmetics.wear(PreviewData.fullLoadout(System.currentTimeMillis()))
+                tell("Registered $added preview cosmetics and put on a full loadout. /sqcos resolve")
+            }
+
+            "wear" -> {
+                val wanted = arguments.getOrNull(1)
+                if (wanted == null) {
+                    error("Which one? /sqcos wear <id>")
+                    return
+                }
+                val cosmetic = context.cosmetics.definitions().firstOrNull { it.id.toString() == wanted }
+                if (cosmetic == null) {
+                    error("No such cosmetic. /sqcos list")
+                    return
+                }
+                val refusal = context.cosmetics.equip(cosmetic.slot, cosmetic.id)
+                if (refusal != null) error(refusal) else tell("Wearing ${cosmetic.displayName}.")
+            }
+
+            "remove" -> {
+                val slotName = arguments.getOrNull(1)?.uppercase()
+                val slot = CosmeticSlot.entries.firstOrNull { it.name == slotName }
+                if (slot == null) {
+                    error("Which slot? One of: ${CosmeticSlot.entries.joinToString { it.name.lowercase() }}")
+                    return
+                }
+                context.cosmetics.unequip(slot)
+                tell("Removed whatever was in ${slot.displayName}.")
+            }
+
+            "resolve" -> resolveCosmetics(arguments.getOrNull(1))
+
+            "settings" -> cosmeticSettings(arguments.drop(1))
+
+            else -> error("Usage: /sqcos [${COSMETIC_VERBS.joinToString("|")}] [id|slot]")
+        }
+    }
+
+    /** Prints what would be drawn for somebody, and why the rest would not be. */
+    private fun resolveCosmetics(who: String?) {
+        val subject = when (who) {
+            null -> client.localPlayerId?.let { dev.th7bo.sidequest.platform.player.PlayerId.of(it) }
+            else -> context.players.resolveUsername(who)?.id
+        }
+        if (subject == null) {
+            error(if (who == null) "Not in a world." else "Never seen anybody called '$who'.")
+            return
+        }
+
+        val resolution = context.cosmetics.resolve(subject)
+        heading("Cosmetics on ${context.players.byId(subject)?.displayName ?: subject}")
+        if (resolution.shown.isEmpty()) {
+            line("shown", "nothing")
+        } else {
+            for (shown in resolution.shown) {
+                line(
+                    shown.cosmetic.slot.name.lowercase(),
+                    shown.cosmetic.displayName +
+                        (if (shown.isFallback) " (standing in)" else "") +
+                        (if (shown.isAnimated) " · animated" else ""),
+                )
+            }
+        }
+        if (resolution.hidden.isEmpty()) return
+        heading("Not showing")
+        for (hidden in resolution.hidden) {
+            line(hidden.slot.name.lowercase(), "${hidden.cosmeticId} — ${hidden.reason.explanation}" +
+                (hidden.detail?.let { ": $it" } ?: ""))
+        }
+    }
+
+    private fun cosmeticSettings(arguments: List<String>) {
+        val current = context.cosmetics.settings
+        when (arguments.firstOrNull()?.lowercase()) {
+            null -> {
+                heading("Cosmetic settings")
+                line("enabled", current.isEnabled.onOff())
+                line("skins and capes", current.showAppearanceOverrides.onOff())
+                line("effects", current.showEffects.onOff())
+                line("jokes", current.showJokeCosmetics.onOff())
+                line("reduced animation", current.reducedAnimation.onOff())
+                tell("/sqcos settings <${COSMETIC_SETTINGS.joinToString("|")}> toggles one")
+            }
+            "on" -> set(current.copy(isEnabled = true), "Cosmetics on.")
+            "off" -> set(current.copy(isEnabled = false), "Cosmetics off.")
+            "skins" -> set(
+                current.copy(showAppearanceOverrides = !current.showAppearanceOverrides),
+                "Skin and cape overrides ${(!current.showAppearanceOverrides).onOff()}.",
+            )
+            "effects" -> set(
+                current.copy(showEffects = !current.showEffects),
+                "Effects ${(!current.showEffects).onOff()}.",
+            )
+            "jokes" -> set(
+                current.copy(showJokeCosmetics = !current.showJokeCosmetics),
+                "Joke cosmetics ${(!current.showJokeCosmetics).onOff()}.",
+            )
+            "animation" -> set(
+                current.copy(reducedAnimation = !current.reducedAnimation),
+                "Reduced animation ${(!current.reducedAnimation).onOff()}.",
+            )
+            else -> error("One of: ${COSMETIC_SETTINGS.joinToString(", ")}")
+        }
+    }
+
+    private fun set(settings: CosmeticSettings, message: String) {
+        context.cosmetics.settings = settings
+        tell(message)
+    }
+
     // -- output --------------------------------------------------------------
 
     private fun heading(text: String) {
@@ -944,7 +1371,28 @@ class DeveloperTools(
          * One list for both. The dispatch below also answers to a few plurals, which are deliberately *not*
          * suggested: an alias exists to forgive a typo, and completing both spellings implies a difference.
          */
-        val TESTABLE = listOf("notify", "sound", "queue", "presence", "chat", "item", "rule")
+        val TESTABLE = listOf(
+            "notify", "sound", "queue", "presence", "chat", "item", "rule",
+            // The simulations. Each stands in for something that is genuinely awkward to arrange: a rare
+            // drop happens once a week, a Kuudra clear needs four other people, and dying on purpose to
+            // check a death marker gets old quickly.
+            "drop", "achievement", "death", "dungeon", "kuudra", "ping", "waypoint", "cosmetic", "offline",
+        )
+
+        val ERROR_VERBS = listOf("list", "show", "clear")
+
+        val COSMETIC_VERBS = listOf("list", "wear", "remove", "preview", "resolve", "settings")
+
+        val COSMETIC_SETTINGS = listOf("on", "off", "skins", "effects", "jokes", "animation")
+
+        /** How many problems `/sqstatus` prints before pointing at `/sqerr`. */
+        const val PROBLEM_LINES = 5
+
+        /** How much of a problem's message fits on a chat line next to its id. */
+        const val PROBLEM_WIDTH = 60
+
+        /** Far enough ahead to look at rather than stand inside. */
+        const val PING_DISTANCE = 10.0
 
         val RULE_VERBS = listOf("list", "show", "fire", "reset", "trace")
 

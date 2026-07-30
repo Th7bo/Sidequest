@@ -4,6 +4,8 @@ import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.command.CommandRegistry
 import dev.th7bo.sidequest.platform.command.CommandSpec
 import dev.th7bo.sidequest.platform.asset.AssetManager
+import dev.th7bo.sidequest.platform.cosmetic.CosmeticService
+import dev.th7bo.sidequest.platform.log.ErrorLog
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.core.backend.DefaultBackendClient
 import dev.th7bo.sidequest.platform.core.backend.DefaultRealtimeClient
@@ -19,6 +21,7 @@ import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.asset.DefaultAssetManager
+import dev.th7bo.sidequest.platform.core.cosmetic.DefaultCosmeticService
 import dev.th7bo.sidequest.platform.core.marker.DefaultMarkerService
 import dev.th7bo.sidequest.platform.core.marker.RemoteMarkerReceiver
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
@@ -308,6 +311,27 @@ class SidequestPlatform(
     val assets: AssetManager get() = assetManager
 
     /**
+     * Cosmetics.
+     *
+     * Built after the asset manager, because a cosmetic that needs an image is hidden until the image is
+     * resident and the thing that answers that has to exist first.
+     */
+    private val cosmeticService = DefaultCosmeticService(
+        context = contextService,
+        assets = assetManager,
+        events = events,
+        log = loggers.create(LogCategory.FEATURE, SqId.sidequest("cosmetics")),
+        localPlayer = { minecraftClient.localPlayerId?.let { PlayerId.of(it) } },
+        isFriend = { playerDirectory.byId(it)?.isCustomFriend == true },
+        isInParty = { partyService.party.isInParty },
+    )
+
+    val cosmetics: CosmeticService get() = cosmeticService
+
+    /** What has gone wrong this session, grouped by kind. Filled by every logger this factory makes. */
+    val errors: ErrorLog get() = loggers.errors
+
+    /**
      * The things worth stopping the game for.
      *
      * Built after the notification manager, because a cinematic that cannot be shown falls back to a
@@ -399,6 +423,8 @@ class SidequestPlatform(
         markers = markerService,
         rules = ruleEngine,
         assets = assetManager,
+        cosmetics = cosmeticService,
+        errors = loggers.errors,
         storage = fileStorage,
         permissions = permissionService,
         loggers = loggers,

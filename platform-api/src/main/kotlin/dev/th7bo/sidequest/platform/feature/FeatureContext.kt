@@ -1,7 +1,9 @@
 package dev.th7bo.sidequest.platform.feature
 
 import dev.th7bo.sidequest.platform.asset.AssetManager
+import dev.th7bo.sidequest.platform.log.ErrorLog
 import dev.th7bo.sidequest.platform.audio.SoundManager
+import dev.th7bo.sidequest.platform.cosmetic.CosmeticService
 import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.chat.ChatRule
 import dev.th7bo.sidequest.platform.command.CommandRegistry
@@ -214,6 +216,23 @@ public interface FeatureContext {
      * anybody uploads can make a client fetch from somewhere else.
      */
     public val assets: AssetManager
+
+    /**
+     * Cosmetics: what people are wearing, and what this client draws of it.
+     *
+     * The service decides; nothing draws here. A feature that granted a cosmetic and also rendered it would
+     * be the second place deciding whether the viewer wants to see it, and the viewer's answer has to have
+     * exactly one place it is consulted.
+     */
+    public val cosmetics: CosmeticService
+
+    /**
+     * What has gone wrong this session, grouped.
+     *
+     * Read-only on purpose. A feature reports a problem by logging it — this is the same problems, counted,
+     * for whoever is showing them to a person.
+     */
+    public val errors: ErrorLog
 
     // -- storage ------------------------------------------------------------
 
