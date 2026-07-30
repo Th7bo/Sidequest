@@ -45,6 +45,10 @@
       {
         "value": "dev.th7bo.sidequest.gametest.StorageAndPermissionsTest",
         "adapter": "kotlin"
+      },
+      {
+        "value": "dev.th7bo.sidequest.gametest.DeveloperToolsTest",
+        "adapter": "kotlin"
       }
     ]
   },

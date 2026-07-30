@@ -342,6 +342,17 @@ class SidequestPlatform(
         val refusals = this.features.enableAll()
 
         log.info { "Platform started on Minecraft $version with ${features.size} feature(s)" }
+        // Written once, at INFO, because it is the first thing worth knowing from somebody else's log: which
+        // features are live, what the parsers loaded, and whether a backend is even configured. A log that
+        // omits this makes every later line ambiguous.
+        log.info {
+            "Loaded ${chatParser.patterns().size} chat pattern(s); " +
+                "commands: ${commands.all().joinToString(", ") { "/" + it.spec.name }}"
+        }
+        log.info {
+            "Backend: " + (backendConfig.baseUrl?.let { "configured at $it" } ?: "not configured (local only)")
+        }
+        for (refusal in refusals) log.warn { "Feature refused: $refusal" }
         return refusals
     }
 
@@ -408,6 +419,7 @@ class SidequestPlatform(
      */
     private fun pollBoards() {
         if (!contextService.context.isOnHypixel) return
+        boardPolls++
         contextService.onScoreboard(MinecraftScoreboardReader.read())
         val tabList = MinecraftTabListReader.read()
         contextService.onTabList(tabList)
@@ -427,7 +439,16 @@ class SidequestPlatform(
      * Not gated on Hypixel. Knowing who somebody is has nothing to do with which server they were
      * met on, and a friend met in singleplayer is still that person.
      */
+    /** Counted rather than logged per poll: at 20 Hz a line per poll is a log nobody can read. */
+    private var boardPolls = 0L
+
     private fun pollPlayers() {
+        // A heartbeat at TRACE, so a session that *looks* frozen can be told from one that is. Off by
+        // default, and one line a minute when it is not.
+        if (minecraftClient.tickCount % POLL_REPORT_TICKS == 0L && boardPolls > 0) {
+            log.trace { "Polled the boards $boardPolls time(s) in the last minute" }
+            boardPolls = 0
+        }
         if (minecraftClient.tickCount % PLAYER_POLL_TICKS != 0L) return
         for ((id, name) in MinecraftPlayerListReader.read()) {
             playerDirectory.remember(id, name)
@@ -573,6 +594,9 @@ class SidequestPlatform(
 
         /** How often the online player list is read. Once a second. */
         const val PLAYER_POLL_TICKS = 20L
+
+        /** How often the board-poll counter is reported at TRACE. Once a minute. */
+        const val POLL_REPORT_TICKS = 1_200L
 
         /**
          * How often presence is considered for sending.

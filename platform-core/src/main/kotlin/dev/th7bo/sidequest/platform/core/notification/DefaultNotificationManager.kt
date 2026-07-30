@@ -66,11 +66,17 @@ public class DefaultNotificationManager(
 
         // 1. What the user asked for.
         val configured = settings.deliveryOf(stamped.category)
-        if (configured == DeliveryMode.DISABLED) return DeliveryMode.DISABLED
+        if (configured == DeliveryMode.DISABLED) {
+            // Logged, because "the notification did not appear" has five possible causes that look identical
+            // from outside, and a switched-off category is the most common and the least suspected.
+            log.debug { "Dropped '${stamped.title}': ${stamped.category} is switched off" }
+            return DeliveryMode.DISABLED
+        }
 
         if (settings.seriousMode && !stamped.priority.isAtLeast(NotificationPriority.URGENT)) {
             // Held rather than dropped: serious mode is temporary, and what happened during it still
             // happened. Released when it is switched off.
+            log.debug { "Held '${stamped.title}': serious mode" }
             waiting.addLast(stamped.copy(delivery = DeliveryMode.QUEUED))
             trimWaiting()
             return DeliveryMode.QUEUED
@@ -93,6 +99,7 @@ public class DefaultNotificationManager(
         // 3. Is now a bad moment.
         if (isBusy() && !stamped.priority.isAtLeast(NotificationPriority.URGENT)) {
             return if (settings.queueWhileBusy) {
+                log.debug { "Held '${stamped.title}': busy (${context.context.activity.activity.displayName})" }
                 waiting.addLast(stamped.copy(delivery = DeliveryMode.QUEUED))
                 trimWaiting()
                 DeliveryMode.QUEUED

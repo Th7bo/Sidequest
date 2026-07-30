@@ -1,0 +1,406 @@
+package dev.th7bo.sidequest.features
+
+import dev.th7bo.sidequest.platform.audio.SoundDefinition
+import dev.th7bo.sidequest.platform.audio.SoundGroup
+import dev.th7bo.sidequest.platform.audio.SoundPool
+import dev.th7bo.sidequest.platform.audio.SoundRequest
+import dev.th7bo.sidequest.platform.feature.Feature
+import dev.th7bo.sidequest.platform.feature.FeatureCategory
+import dev.th7bo.sidequest.platform.feature.FeatureContext
+import dev.th7bo.sidequest.platform.feature.FeatureDescriptor
+import dev.th7bo.sidequest.platform.feature.command
+import dev.th7bo.sidequest.platform.game.GameClient
+import dev.th7bo.sidequest.platform.id.SqId
+import dev.th7bo.sidequest.platform.log.LogCategory
+import dev.th7bo.sidequest.platform.log.LogLevel
+import dev.th7bo.sidequest.platform.notification.NotificationAction
+import dev.th7bo.sidequest.platform.notification.NotificationCategory
+import dev.th7bo.sidequest.platform.notification.NotificationPriority
+import dev.th7bo.sidequest.platform.core.notification.notification
+import dev.th7bo.sidequest.platform.permission.Permission
+import dev.th7bo.sidequest.platform.text.SqStyle
+import dev.th7bo.sidequest.platform.text.SqText
+
+/**
+ * The commands that make the mod's own state visible.
+ *
+ * Everything in Sidequest is layered behind an interface, which is what makes it testable and also what
+ * makes it invisible. A notification that does not appear could be a switched-off category, a deduplication,
+ * a queue waiting for a safe moment, a missing sink, or a bug — and from the outside all five look the same.
+ * These commands are how the difference gets seen.
+ *
+ * Written as a feature rather than as loose commands, so it obeys the same rules as everything else: every
+ * command is registered through the context and disappears when the feature is switched off. A debug tool
+ * that leaks registrations is a debug tool that makes the thing it is debugging worse.
+ */
+class DeveloperTools(
+    private val client: GameClient,
+    /** Turns a log category up or down. Owned by the platform, not by a feature. */
+    private val setLogLevel: (LogCategory, LogLevel) -> Unit,
+) : Feature {
+
+    override val descriptor: FeatureDescriptor = FeatureDescriptor(
+        id = SqId.sidequest("dev.tools"),
+        displayName = "Developer tools",
+        category = FeatureCategory.DEVELOPER,
+        description = "Commands that show and exercise the mod's own state",
+    )
+
+    private lateinit var context: FeatureContext
+
+    override fun onEnable(context: FeatureContext) {
+        this.context = context
+        registerTestSounds(context)
+
+        context.command("sqstatus", "Everything the mod currently believes") { status() }
+        context.command("sqlog", "Turns a log category up or down: /sqlog <category> <level>") { logLevel(it) }
+        context.command("sqtest", "Exercises a feature: /sqtest <what>") { test(it) }
+    }
+
+    // -- status --------------------------------------------------------------
+
+    /**
+     * One screen of everything.
+     *
+     * The first command to run when something is wrong, and deliberately one command rather than six: the
+     * useful debugging question is almost never about one subsystem, it is "which of these does not say what
+     * I expect".
+     */
+    private fun status() {
+        val gameContext = context.gameContext.context
+        val party = context.party.party
+
+        heading("Sidequest status")
+        line("version", "${context.gameVersion} · protocol ${dev.th7bo.sidequest.protocol.Protocol.VERSION}")
+
+        heading("Where you are")
+        line("hypixel", gameContext.isOnHypixel.yesNo())
+        line("skyblock", gameContext.isInSkyBlock.yesNo())
+        line("island", "${gameContext.island.displayName} (${gameContext.subLocation})")
+        line("server", gameContext.serverId.toString())
+        line("profile", "${gameContext.profile} · ${gameContext.profileType.displayName}")
+        gameContext.dungeonFloor?.let { line("dungeon", it) }
+        gameContext.kuudraTier?.let { line("kuudra", "T$it") }
+        line("confidence", gameContext.confidence.name)
+        // Both, because they answer different questions and the difference has bitten once already.
+        line("busy / demanding", "${gameContext.isBusy.yesNo()} / ${gameContext.isDemanding.yesNo()}")
+
+        heading("Activity")
+        line("activity", gameContext.activity.activity.displayName)
+        line("why", "${gameContext.activity.confidence} — ${gameContext.activity.reason.ifEmpty { "nothing said" }}")
+
+        heading("Party")
+        if (!party.isInParty) {
+            line("party", "not in one")
+        } else {
+            line("members", "${party.size} · ${party.members.joinToString(", ")}")
+            line("confidence", party.confidence.name)
+        }
+        context.party.readyCheck?.let { check ->
+            line("ready check", "${check.responses.count { it.value.name == "READY" }}/${check.responses.size}")
+        }
+
+        heading("Backend")
+        val backend = dev.th7bo.sidequest.Sidequest.platform.backend
+        if (backend == null) {
+            line("backend", "not configured")
+        } else {
+            line("state", backend.state.name)
+            line("clock offset", "${backend.serverTime.offsetMillis}ms (round trip ${backend.serverTime.roundTripMillis}ms)")
+            val realtime = dev.th7bo.sidequest.Sidequest.platform.realtime
+            line("realtime", if (realtime?.isConnected == true) "connected, at ${realtime.lastSequence}" else "not connected")
+            if (realtime?.hasResumeGap == true) {
+                // Worth its own line: it means the client has a hole it cannot fill from the stream.
+                line("resume gap", "yes — some history was missed")
+            }
+        }
+
+        heading("Parsers")
+        val chat = context.chat
+        line("chat patterns", "${chat.patterns().size}, tracing ${chat.isDebugLogging.onOff()}")
+        line(
+            "chat lines",
+            "${chat.stats.received} seen · ${chat.stats.classified} classified · " +
+                "${chat.stats.duplicates} duplicate · ${chat.stats.failures} failed",
+        )
+
+        heading("Players")
+        line("known", "${context.players.all().size}")
+        line("friends", "${context.players.customFriends().size}")
+
+        heading("Notifications and sound")
+        line("in history", "${context.notifications.history().size}")
+        line("held", "${context.notifications.queued().size}")
+        line("serious mode", context.notifications.settings.seriousMode.onOff())
+        line("sound serious mode", context.sounds.settings.seriousMode.onOff())
+
+        heading("Permissions")
+        val me = client.localPlayerId?.let { dev.th7bo.sidequest.platform.player.PlayerId.of(it) }
+        if (me == null) {
+            line("permissions", "not in a world")
+        } else {
+            line("your role", context.permissions.roleOf(me).displayName)
+            // Only the disclosures. What the *group* may do is not something a status command can usefully
+            // list, and what you have agreed to reveal is the thing worth checking before a session.
+            for (permission in Permission.DISCLOSURES) {
+                line(permission.displayName, context.permissions.sharesWithAnybody(permission).onOff())
+            }
+        }
+    }
+
+    // -- log levels ----------------------------------------------------------
+
+    /**
+     * Turns a category up or down at runtime.
+     *
+     * The alternative is a rebuild to change a log level, which in practice means nobody changes one and the
+     * debug lines that were carefully written are never read.
+     */
+    private fun logLevel(arguments: List<String>) {
+        if (arguments.size < 2) {
+            heading("Log categories")
+            tell(LogCategory.entries.joinToString(", ") { it.name.lowercase() })
+            heading("Levels")
+            tell(LogLevel.entries.joinToString(", ") { it.name.lowercase() })
+            tell("Usage: /sqlog <category> <level>   ·   /sqlog all debug")
+            return
+        }
+
+        val levelName = arguments[1].uppercase()
+        val level = LogLevel.entries.firstOrNull { it.name == levelName }
+        if (level == null) {
+            error("'$levelName' is not a level. One of: ${LogLevel.entries.joinToString(", ") { it.name.lowercase() }}")
+            return
+        }
+
+        if (arguments[0].equals("all", ignoreCase = true)) {
+            LogCategory.entries.forEach { setLogLevel(it, level) }
+            tell("Every category is now at $levelName.")
+            return
+        }
+
+        val categoryName = arguments[0].uppercase()
+        val category = LogCategory.entries.firstOrNull { it.name == categoryName }
+        if (category == null) {
+            error("'$categoryName' is not a category. One of: ${LogCategory.entries.joinToString(", ") { it.name.lowercase() }}")
+            return
+        }
+
+        setLogLevel(category, level)
+        tell("$categoryName is now at $levelName.")
+    }
+
+    // -- exercising things ---------------------------------------------------
+
+    /**
+     * Fires a feature on demand.
+     *
+     * The point is not that a developer cannot reason about the code — it is that half of what these
+     * subsystems do only happens in conditions that are awkward to arrange. Nobody wants to enter a dungeon
+     * to check that a notification gets held, or wait for a rare drop to see what its toast looks like.
+     */
+    private fun test(arguments: List<String>) {
+        when (arguments.firstOrNull()?.lowercase()) {
+            "notify", "notification" -> testNotifications()
+            "sound", "sounds" -> testSounds()
+            "queue" -> testQueue()
+            "presence" -> testPresence()
+            "chat" -> testChatRules()
+            "item" -> testItem()
+            else -> {
+                heading("What can be tested")
+                tell("notify · sound · queue · presence · chat · item")
+                tell("Usage: /sqtest <what>")
+            }
+        }
+    }
+
+    /** One notification of each category, so their defaults and their look can be compared side by side. */
+    private fun testNotifications() {
+        heading("Notifications")
+        for (category in NotificationCategory.entries) {
+            val delivery = context.notifications.notify(
+                notification(
+                    category = category,
+                    title = "${category.displayName} test",
+                    subtitle = "priority NORMAL, ${category.defaultDurationMillis}ms",
+                ),
+            )
+            // The *outcome*, not "sent". A category that is off, a queue, a deduplication and a delivery all
+            // look identical from outside, and this is the line that tells them apart.
+            line(category.name.lowercase(), delivery.name)
+        }
+
+        val withAction = notification(
+            category = NotificationCategory.ALERT,
+            title = "Urgent, with an action",
+            subtitle = "Click it",
+            priority = NotificationPriority.URGENT,
+        ).copy(
+            actions = listOf(NotificationAction("ok", "OK") { tell("The notification action ran.") }),
+        )
+        line("urgent + action", context.notifications.notify(withAction).name)
+    }
+
+    /** Every group, so a mute or a volume setting can be heard rather than inferred. */
+    private fun testSounds() {
+        heading("Sounds")
+        for (group in SoundGroup.entries) {
+            val result = context.sounds.play(
+                SoundRequest(testSoundFor(group), respectCooldown = false),
+            )
+            line(group.displayName, result.name)
+        }
+        line("pool (x3)", (1..3).joinToString(" ") { context.sounds.playPool(TEST_POOL).name })
+        line("missing, with fallback", context.sounds.play(MISSING_SOUND).name)
+    }
+
+    /**
+     * Shows what the busy policy does without needing a dungeon.
+     *
+     * Serious mode is the switch that produces the same effect as being busy, so it stands in for one — and
+     * the release path is the same code either way.
+     */
+    private fun testQueue() {
+        heading("Queue-until-safe")
+        val settings = context.notifications.settings
+        val manager = context.notifications as dev.th7bo.sidequest.platform.core.notification.DefaultNotificationManager
+
+        manager.update(settings.copy(seriousMode = true))
+        repeat(3) { index ->
+            context.notifications.notify(
+                notification(NotificationCategory.PROGRESSION, "Held #${index + 1}", groupingKey = "test"),
+            )
+        }
+        line("held", "${context.notifications.queued().size}")
+
+        manager.update(settings.copy(seriousMode = false))
+        line("after release", "${context.notifications.queued().size} held, grouped into one toast")
+    }
+
+    private fun testPresence() {
+        heading("Presence")
+        val backend = dev.th7bo.sidequest.Sidequest.platform.backend
+        if (backend == null) {
+            error("No backend is configured, so there is nobody to tell.")
+            return
+        }
+        line("state", backend.state.name)
+        // What *would* be sent, field by field, so a surprising presence is traceable to a disclosure rather
+        // than to a bug.
+        line("share online", context.permissions.sharesWithAnybody(Permission.VIEW_ONLINE_STATUS).onOff())
+        line("share activity", context.permissions.sharesWithAnybody(Permission.VIEW_ACTIVITY).onOff())
+        line("share island", context.permissions.sharesWithAnybody(Permission.VIEW_ISLAND).onOff())
+        line("share position", context.permissions.sharesWithAnybody(Permission.VIEW_EXACT_POSITION).onOff())
+        tell("Anything switched off above is left out before the message is even encoded.")
+    }
+
+    /** Runs the built-in chat rules against their own recorded fixtures, in game. */
+    private fun testChatRules() {
+        heading("Chat rules")
+        val failures = context.chat.verifyFixtures()
+        if (failures.isEmpty()) {
+            tell("All ${context.chat.patterns().size} pattern(s) match their own recorded lines.")
+        } else {
+            error("${failures.size} pattern(s) failed their fixtures:")
+            failures.take(5).forEach { tell("  $it") }
+        }
+    }
+
+    /** Reads whatever is in hand, which is the one thing a headless test cannot do. */
+    private fun testItem() {
+        heading("Held item")
+        val item = dev.th7bo.sidequest.Sidequest.heldItemSnapshot()
+        if (item == null) {
+            error("Nothing in hand, or not in a world.")
+            return
+        }
+        line("summary", item.summary())
+        line("minecraft id", item.minecraftId)
+        line("skyblock id", item.skyblockId ?: "—")
+        line("uuid", item.itemUuid ?: "— (not a unique item)")
+        line("rarity", item.rarity?.displayName ?: "—")
+        line("upgrades", item.upgrades.summary().ifEmpty { "stock" })
+        line("enchantments", item.enchantments.entries.take(4).joinToString(", ") { "${it.key} ${it.value}" }.ifEmpty { "—" })
+        line("extra keys", item.extra.keys.joinToString(", ").ifEmpty { "—" })
+    }
+
+    // -- test fixtures -------------------------------------------------------
+
+    /**
+     * Registers a sound per group, plus a pool and a deliberately broken one.
+     *
+     * Vanilla sounds, so nothing depends on an asset having been downloaded — the point of `/sqtest sound` is
+     * to check the *manager*, and a test that needs a working asset pipeline tests two things at once.
+     */
+    private fun registerTestSounds(context: FeatureContext) {
+        context.sounds.register(SoundDefinition(FALLBACK_SOUND, "minecraft:ui.button.click", group = SoundGroup.INTERFACE))
+
+        for (group in SoundGroup.entries) {
+            context.sounds.register(
+                SoundDefinition(
+                    id = testSoundFor(group),
+                    resource = when (group) {
+                        SoundGroup.INTERFACE -> "minecraft:ui.button.click"
+                        SoundGroup.EFFECTS -> "minecraft:entity.player.levelup"
+                        SoundGroup.SOUNDBOARD -> "minecraft:entity.villager.yes"
+                        SoundGroup.FUN -> "minecraft:entity.cat.ambient"
+                    },
+                    group = group,
+                ),
+            )
+        }
+
+        val poolMembers = listOf("minecraft:block.note_block.harp", "minecraft:block.note_block.bell", "minecraft:block.note_block.flute")
+            .mapIndexed { index, resource ->
+                val id = SqId.sidequest("dev.pool_$index")
+                context.sounds.register(SoundDefinition(id, resource, group = SoundGroup.EFFECTS))
+                id
+            }
+        context.sounds.registerPool(SoundPool(TEST_POOL, poolMembers))
+
+        // Points at nothing, so the fallback path can be heard rather than reasoned about.
+        context.sounds.register(
+            SoundDefinition(MISSING_SOUND, "sidequest:does_not_exist", fallbackId = FALLBACK_SOUND),
+        )
+    }
+
+    private fun testSoundFor(group: SoundGroup) = SqId.sidequest("dev.sound_${group.name.lowercase()}")
+
+    // -- output --------------------------------------------------------------
+
+    private fun heading(text: String) {
+        client.sendClientMessage(SqText.of("§8§m                    §r §f§l$text §8§m                    "))
+    }
+
+    private fun line(label: String, value: String) {
+        client.sendClientMessage(
+            SqText.join(
+                SqText.of("  $label ", SqStyle(color = LABEL)),
+                SqText.of(value, SqStyle(color = VALUE)),
+            ),
+        )
+    }
+
+    private fun tell(text: String) {
+        client.sendClientMessage(SqText.of(text, SqStyle(color = VALUE)))
+    }
+
+    private fun error(text: String) {
+        client.sendClientMessage(SqText.of(text, SqStyle(color = ERROR)))
+    }
+
+    private fun Boolean.yesNo() = if (this) "yes" else "no"
+
+    private fun Boolean.onOff() = if (this) "on" else "off"
+
+    private companion object {
+        val TEST_POOL = SqId.sidequest("dev.pool")
+        val MISSING_SOUND = SqId.sidequest("dev.missing")
+        val FALLBACK_SOUND = SqId.sidequest("dev.fallback")
+
+        const val LABEL = 0x9CA3AF
+        const val VALUE = 0xE5E7EB
+        const val ERROR = 0xF87171
+    }
+}

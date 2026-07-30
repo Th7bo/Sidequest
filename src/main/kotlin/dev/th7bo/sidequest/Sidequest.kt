@@ -1,9 +1,13 @@
 package dev.th7bo.sidequest
 
+import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
+import dev.th7bo.sidequest.platform.minecraft.MinecraftNotificationSink
+import dev.th7bo.sidequest.platform.minecraft.MinecraftSoundSink
 import dev.th7bo.sidequest.platform.minecraft.SidequestPlatform
+import dev.th7bo.sidequest.platform.minecraft.toSq
 import dev.th7bo.sidequest.platform.text.SqStyle
 import dev.th7bo.sidequest.platform.text.SqText
 import dev.th7bo.sidequest.ui.config.ConfigScreen
@@ -208,9 +212,34 @@ object Sidequest : ClientModInitializer {
      * on purpose — the UI framework knows nothing about features, and the platform knows
      * nothing about rendering — so either can be worked on without the other.
      */
+    /**
+     * Where notifications are drawn, and where sounds come out.
+     *
+     * Built before the platform because it takes them as constructor arguments — the platform decides
+     * *whether* to show something and these decide what it looks like, and it cannot see across the boundary
+     * to the UI framework to find them itself.
+     */
+    private val notificationSink by lazy {
+        MinecraftNotificationSink(
+            // A supplier, not `platform.log`: the platform takes this sink as a constructor argument, so
+            // resolving a logger here would be a cycle through `platform`'s own initialiser.
+            log = { platform.log },
+            // A supplier, and gated on the *layer* rather than on the queue.
+            //
+            // The queue object always exists, but nothing draws it until the HUD layer has been built on the
+            // first frame in a world. Posting to it before then would put a toast somewhere invisible, and
+            // the sink's whole reason for checking is to fall back to chat instead.
+            queue = { SidequestHudLayer.hudLayer?.let { SidequestHudLayer.notifications } },
+        )
+    }
+
+    private val soundSink by lazy { MinecraftSoundSink(log = { platform.log }) }
+
     val platform: SidequestPlatform by lazy {
         SidequestPlatform(
             minecraftVersion = MINECRAFT,
+            notificationSink = notificationSink,
+            soundSink = soundSink,
             // Alongside the configuration rather than inside it: configuration is what the player
             // edits and this is what features record, and a user clearing one should not lose the
             // other.
@@ -296,6 +325,16 @@ object Sidequest : ClientModInitializer {
         }
     }
 
+    /**
+     * A notification in chat, for when there is no HUD to put it on.
+     *
+     * The main menu and the first frame of a world are both real states in which something worth saying can
+     * happen — a revoked device, a failed sync — and a toast with nowhere to go would be silently dropped.
+     */
+    fun tellPlayer(title: String, subtitle: String? = null) {
+        tell(if (subtitle == null) title else "$title — $subtitle")
+    }
+
     /** One line in the player's chat, prefixed so it is obvious where it came from. */
     private fun tell(message: String, isError: Boolean = false) {
         platform.client.sendClientMessage(
@@ -310,13 +349,29 @@ object Sidequest : ClientModInitializer {
     lateinit var sessionDiagnostics: SessionDiagnostics
         private set
 
+    lateinit var developerTools: DeveloperTools
+        private set
+
+    /**
+     * A snapshot of whatever is in the player's hand.
+     *
+     * Here rather than in the developer tools because it is the one place in the mod that reaches into the
+     * game for an item, and a feature is not allowed to — `/sqtest item` asks the mod, which asks the game.
+     */
+    fun heldItemSnapshot(): dev.th7bo.sidequest.platform.item.SqItem? {
+        val stack = Minecraft.getInstance().player?.mainHandItem ?: return null
+        if (stack.isEmpty) return null
+        return stack.toSq()
+    }
+
     private fun startPlatform() {
         sessionDiagnostics = SessionDiagnostics(platform.client)
+        developerTools = DeveloperTools(platform.client, platform::setLogLevel)
 
         // Before `start`, so the hook is in place by the time the first join fires.
         installBackendHook()
 
-        val refusals = platform.start(sessionDiagnostics)
+        val refusals = platform.start(sessionDiagnostics, developerTools)
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
 

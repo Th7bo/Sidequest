@@ -151,6 +151,11 @@ public class DefaultGameContextService(
         val removed = lastScoreboardLines - lines.toSet()
         lastScoreboardLines = lines
         if (added.isEmpty() && removed.isEmpty()) return
+        // The most useful parser trace there is: what appeared and what went. A pattern that stopped matching
+        // is almost always a line that changed, and this is where that is visible.
+        log.debug { "scoreboard +${added.size} -${removed.size}" }
+        for (line in added) log.trace { "  + $line" }
+        for (line in removed) log.trace { "  - $line" }
         events.post(ScoreboardChangedEvent(snapshot, added, removed), EventSource.PARSER)
     }
 
@@ -162,6 +167,11 @@ public class DefaultGameContextService(
             .filterTo(HashSet()) { widgets[it] != lastWidgets[it] }
         lastWidgets = widgets
         if (added.isEmpty() && removed.isEmpty() && changed.isEmpty()) return
+        // Widgets appearing and going is what the activity detector reads, so a wrong activity is traced here
+        // first.
+        if (added.isNotEmpty() || removed.isNotEmpty()) {
+            log.debug { "widgets +${added.joinToString(",")} -${removed.joinToString(",")}" }
+        }
         events.post(TabListChangedEvent(snapshot, added, removed, changed), EventSource.PARSER)
     }
 
@@ -294,6 +304,10 @@ public class DefaultGameContextService(
         }
 
         if (previous.island != next.island) {
+            log.info {
+                "Island: ${previous.island.displayName} -> ${next.island.displayName} " +
+                    "(${next.confidence}, area ${next.subLocation})"
+            }
             events.post(IslandChangedEvent(previous.island, next.island, next), EventSource.DERIVED)
         }
         if (previous.serverId != next.serverId && next.serverId.isKnown) {
@@ -303,6 +317,9 @@ public class DefaultGameContextService(
             events.post(ProfileChangedEvent(previous.profile, next.profile, next), EventSource.DERIVED)
         }
         if (previous.activity.activity != next.activity.activity) {
+            // At INFO with the *reason*, because an activity that is wrong is the single most likely thing to
+            // be reported, and "what made you think that" is the only useful first question.
+            log.info { "Activity: ${previous.activity.activity.displayName} -> ${next.activity}" }
             events.post(ActivityChangedEvent(previous.activity, next.activity, next), EventSource.DERIVED)
         }
         if (previous.subLocation != next.subLocation && next.subLocation.isKnown) {

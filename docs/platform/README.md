@@ -704,6 +704,73 @@ there is something to gate.
 
 ---
 
+## Seeing what the mod is doing
+
+Everything here is layered behind an interface, which is what makes it testable and also what makes it
+invisible. A notification that does not appear could be a switched-off category, a deduplication, a queue
+waiting for a safe moment, a missing sink, or a bug — and from outside all five look identical. These commands
+are how the difference gets seen.
+
+| Command | |
+| --- | --- |
+| `/sqstatus` | one screen of everything: location, activity, party, backend, parsers, players, permissions |
+| `/sqlog <category> <level>` | turns a log category up or down at runtime; `/sqlog all debug` |
+| `/sqtest <what>` | fires a subsystem: `notify` `sound` `queue` `presence` `chat` `item` |
+| `/sqdiag` | ticks, joins, uptime |
+| `/sqchat` | toggles chat tracing and prints the parser's counters |
+| `/sqboard` | dumps both boards and both readings, with `§` as `&` |
+
+`/sqstatus` prints **both** `busy` and `demanding`, because they answer different questions and conflating
+them has already caused one bug — see [Activity](#activity).
+
+`/sqtest notify` reports the *outcome* of each notification rather than "sent", for the reason above:
+`DISABLED`, `QUEUED`, `COMPACT` and `BOTH` are four different explanations for an empty screen.
+
+`/sqtest sound` plays one sound per volume group plus a pool three times and a deliberately broken id, so a
+mute, a volume setting and the fallback path can all be heard rather than inferred. Vanilla sounds only —
+testing the manager should not also require a working asset pipeline.
+
+`/sqtest queue` uses serious mode to stand in for being busy, so the hold-and-release path can be exercised
+without entering a dungeon.
+
+`/sqtest item` reads whatever is in hand, which is the one thing no headless test can do.
+
+### Log levels at runtime
+
+`/sqlog` exists because the alternative is a rebuild to change a level, which in practice means nobody
+changes one and the debug lines that were carefully written are never read. Categories are `PLATFORM`,
+`FEATURE`, `EVENT`, `PARSER`, `PERSISTENCE`, `BACKEND`, `REALTIME`, `ASSET`, `RENDER`, `AUDIO`.
+
+What is worth turning up:
+
+- `PARSER` at `DEBUG` — every scoreboard line that appeared or went, and every tab widget that came or went.
+  A pattern that stopped matching is almost always a line that changed, and this is where that shows.
+- `PARSER` at `TRACE` — the lines themselves, and a once-a-minute board-poll heartbeat so a session that
+  *looks* frozen can be told from one that is.
+- `BACKEND` / `REALTIME` at `DEBUG` — every state transition, every refusal, every reconnect.
+- `FEATURE` at `DEBUG` — why each notification was dropped, held, or shown.
+
+Island and activity changes are at `INFO` and always on. The activity line carries its *reason*, because a
+wrong activity is the most likely thing to be reported and "what made you think that" is the only useful
+first question.
+
+### Two bugs the in-game test caught
+
+`DeveloperToolsTest` drives every one of these commands on a real client, and found two failures that no
+headless test could:
+
+**The mod crashed on startup.** The notification sink asked the platform for a logger, and the platform took
+the sink as a constructor argument — a `lazy` cycle, `StackOverflowError`, dead before the main menu. The
+logger is now resolved on use.
+
+**Every notification threw.** Platform notification ids are UUIDs; `UiId` paths are `[a-z0-9_]` and reject a
+hyphen. Both rules are right for their own type, and the translation between them was missing.
+
+Neither is subtle in hindsight. Both are exactly what happens when two layers that were each tested alone
+meet for the first time.
+
+---
+
 ## Scheduling
 
 ```kotlin
