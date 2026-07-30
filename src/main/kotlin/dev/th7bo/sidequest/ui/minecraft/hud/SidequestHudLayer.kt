@@ -4,6 +4,7 @@ import dev.th7bo.sidequest.Sidequest
 import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.hud.HudElementNode
 import dev.th7bo.sidequest.ui.core.hud.HudLayerNode
+import dev.th7bo.sidequest.ui.components.cinematic.CinematicStageNode
 import dev.th7bo.sidequest.ui.components.notification.NotificationRegionNode
 import dev.th7bo.sidequest.ui.components.world.WaypointLayerNode
 import dev.th7bo.sidequest.ui.core.icon.IconRegistry
@@ -51,6 +52,20 @@ public object SidequestHudLayer : HudElement {
 
     /** Waypoints and other world-anchored overlays. */
     public val worldOverlays: WorldOverlayLayer = WorldOverlayLayer()
+
+    /**
+     * The cinematic stage, once there is a frame to build it on.
+     *
+     * Read by the cinematic sink, which is why it is exposed rather than private: the sink is on the platform
+     * side and cannot see this object's internals, and a cinematic submitted before the first frame has to be
+     * refused rather than queued into a stage that does not exist.
+     */
+    public val cinematicStage: CinematicStageNode? get() = cinematic
+
+    private var cinematic: CinematicStageNode? = null
+
+    /** Advances the cinematic clock each frame. Set by the mod, which owns the sink. */
+    public var onFrame: ((deltaSeconds: Float) -> Unit)? = null
 
     private var notificationRegion: NotificationRegionNode? = null
     private var waypoints: WaypointLayerNode? = null
@@ -123,6 +138,10 @@ public object SidequestHudLayer : HudElement {
         // same wall-clock time whether or not the server is keeping up.
         if (notifications.tick(delta)) notificationRegion?.invalidateMeasure()
 
+        // The cinematic clock, on the same real-time delta as the notifications: a cinematic must run the same
+        // wall-clock length whatever the tick rate is doing, and must stop while the game is paused.
+        onFrame?.invoke(delta)
+
         val renderer = MinecraftUiRenderer(
             graphics = graphics,
             font = client.font,
@@ -164,9 +183,10 @@ public object SidequestHudLayer : HudElement {
         layer = built
         runtime = created
 
-        // World overlays under the HUD, notifications above it: a waypoint is part of the
-        // scene and a notification is an interruption, so the stacking follows what each
-        // one is for rather than registration order.
+        // World overlays under the HUD, notifications above it, the cinematic above everything: a waypoint is
+        // part of the scene, a notification is an interruption, and a cinematic is the only thing that is
+        // allowed to be the whole screen. The stacking follows what each one is for rather than registration
+        // order.
         val waypointLayer = WaypointLayerNode(UiId.of(Sidequest.MOD_ID, "waypoints"), worldOverlays, context)
         waypoints = waypointLayer
 
@@ -177,11 +197,14 @@ public object SidequestHudLayer : HudElement {
         )
         notificationRegion = region
 
+        val stage = CinematicStageNode(UiId.of(Sidequest.MOD_ID, "cinematic"), context)
+        cinematic = stage
+
         // A box fixed to the screen, so all three layers are measured against the full
         // viewport rather than against each other's sizes.
         val stack = BoxNode(UiId.of(Sidequest.MOD_ID, "hud.root")).apply {
             preferredSize = screenSize
-            addChildren(waypointLayer, built, region)
+            addChildren(waypointLayer, built, region, stage)
         }
         root = stack
         created.root = stack
@@ -207,6 +230,8 @@ public object SidequestHudLayer : HudElement {
         registrationScope.dispose()
         notifications.dispose()
         notificationRegion = null
+        cinematic = null
+        onFrame = null
         waypoints = null
         root = null
         runtime?.dispose()

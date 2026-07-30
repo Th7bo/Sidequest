@@ -3,6 +3,7 @@ package dev.th7bo.sidequest.platform.testkit
 import dev.th7bo.sidequest.platform.game.GameClient
 import dev.th7bo.sidequest.platform.game.GameLifecycle
 import dev.th7bo.sidequest.platform.game.GameVersion
+import dev.th7bo.sidequest.platform.game.PlayerVitals
 import dev.th7bo.sidequest.platform.text.SqText
 import java.util.UUID
 
@@ -21,6 +22,8 @@ public class FakeGameClient(
     override var isInGame: Boolean = true,
     override var serverAddress: String? = "mc.hypixel.net",
     override var isScreenOpen: Boolean = false,
+    /** Healthy by default, so a test that does not care about vitals does not have to say so. */
+    override var vitals: PlayerVitals = PlayerVitals.Healthy,
     override var tickCount: Long = 0,
 ) : GameClient {
 

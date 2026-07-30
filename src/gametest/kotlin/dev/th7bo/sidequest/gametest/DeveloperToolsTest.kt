@@ -26,7 +26,9 @@ class DeveloperToolsTest : FabricClientGameTest {
         // that get written once and never exercised.
         context.runOnClient<RuntimeException> {
             Sidequest.platform.commands.all().map { it.spec.name }.let { names ->
-                for (expected in listOf("sqstatus", "sqlog", "sqtest", "sqdiag", "sqchat", "sqboard", "sqrule")) {
+                for (expected in listOf(
+                    "sqstatus", "sqlog", "sqtest", "sqdiag", "sqchat", "sqboard", "sqrule", "sqcine",
+                )) {
                     check(expected in names) { "/$expected was not registered; have: $names" }
                 }
             }
@@ -205,6 +207,56 @@ class DeveloperToolsTest : FabricClientGameTest {
                 }
             }
 
+            /*
+             * The cinematic runtime, on the real HUD.
+             *
+             * The headless tests drive the director against a fake sink; what they cannot reach is the sink
+             * itself — whether the stage node exists once a world is loaded, whether the translation from the
+             * platform's components produces something drawable, and whether the clock finishes a cinematic
+             * rather than leaving the gate closed forever. All three are only true on a real client.
+             */
+            context.runOnClient<RuntimeException> {
+                val cine = checkNotNull(Sidequest.platform.commands["sqcine"]) { "/sqcine is not registered" }
+                cine.spec.handler(listOf("safety"))
+                cine.spec.handler(listOf("play"))
+
+                check(Sidequest.platform.cinematics.history().isNotEmpty()) {
+                    "/sqcine play drew nothing: ${Sidequest.platform.cinematics.safety().explain()}"
+                }
+                // Playing means the gate is now closed behind it, which is the assertion that the sink and the
+                // director agree about what is happening.
+                check(!Sidequest.platform.cinematics.safety().isSafe) {
+                    "a cinematic is playing but the gate says it is safe to start another"
+                }
+            }
+
+            // Caught partway through, while the bars are in and the counter is still running. The one piece of
+            // evidence a headless test cannot produce: that what was drawn is a cinematic and not an empty
+            // screen with the gate closed behind it.
+            context.waitTicks(MID_CINEMATIC_TICKS)
+            context.takeScreenshot("cinematic_playing")
+
+            // The clock has to actually finish it. A cinematic that never ends is a gate that never reopens,
+            // and every later cinematic would be queued forever behind it.
+            context.waitTicks(CINEMATIC_TICKS)
+            context.runOnClient<RuntimeException> {
+                val safety = Sidequest.platform.cinematics.safety()
+                check(
+                    dev.th7bo.sidequest.platform.cinematic.UnsafeReason.ALREADY_PLAYING !in safety.reasons,
+                ) {
+                    "the cinematic never finished; the gate is stuck at ${safety.explain()}"
+                }
+            }
+
+            context.runOnClient<RuntimeException> {
+                val cine = checkNotNull(Sidequest.platform.commands["sqcine"])
+                for (verb in listOf("", "queue", "trace", "skip", "nonsense")) {
+                    cine.spec.handler(listOfNotNull(verb.takeIf { it.isNotEmpty() }))
+                }
+                cine.spec.handler(listOf("replay", "dev.cinematic"))
+                cine.spec.handler(listOf("replay", "no.such.cinematic"))
+            }
+
             // Log levels are settable at runtime, which is the difference between a debug line that is written
             // and one that is ever read.
             context.runOnClient<RuntimeException> {
@@ -225,5 +277,17 @@ class DeveloperToolsTest : FabricClientGameTest {
 
     private companion object {
         const val SETTLE_TICKS = 10
+
+        /**
+         * Long enough for the test cinematic to run out.
+         *
+         * Its duration is the four-second default and the clock runs off render frames, so this is generous
+         * rather than exact — an assertion that has to be tight about frame timing is an assertion that fails
+         * on somebody else's machine.
+         */
+        const val CINEMATIC_TICKS = 140
+
+        /** Partway in: the bars have slid, the counter is mid-count, the reveal has landed. */
+        const val MID_CINEMATIC_TICKS = 50
     }
 }

@@ -31,7 +31,7 @@ rather than at runtime on somebody else's machine.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 1,151 tests that take a couple of seconds.
+testable at full speed with no game running — 1,192 tests that take a couple of seconds.
 
 ---
 
@@ -813,6 +813,130 @@ rule that adds progress on every kill would otherwise write the file twenty time
 
 ---
 
+## Cinematics
+
+The plan asks for **one** reusable cinematic runtime behind rare drops, achievements, contracts and reward
+reveals. The reason it is one and not one per feature is the part that is easy to miss: **the hard problem is
+deciding not to draw.**
+
+A cinematic dims the world, slides in letterbox bars and puts large text across the middle of the screen.
+Doing that during a Kuudra run is the mod getting somebody killed. Every feature that rolled its own would
+have to get that right independently, and one of them getting it wrong is somebody dying at a boss.
+
+So a feature **submits and does not decide**:
+
+```kotlin
+context.cinematics.submit(
+    Cinematic(
+        id = SqId.sidequest("drop.hyperion"),
+        title = "RARE DROP",
+        priority = CinematicPriority.HIGH,
+        policy = CinematicPolicy.MERGE,
+        groupingKey = "dungeon-run",
+        components = listOf(
+            CinematicComponent.Letterbox(),
+            CinematicComponent.Background(),
+            CinematicComponent.Title("RARE DROP", colour = 0xFFAA00),
+            CinematicComponent.AnimatedNumber(1_234_567, suffix = " coins"),
+            CinematicComponent.RewardReveal("+1 Hyperion"),
+            CinematicComponent.Sound(SqId.sidequest("sound.fanfare")),
+        ),
+    ),
+)
+```
+
+### The gate, and what it will not be talked out of
+
+`safety()` returns **every** reason at once, not the first one found — the debugging question is "why did
+nothing happen", and an answer naming one of four simultaneous causes invites fixing that one and asking
+again.
+
+| Reason | From |
+| --- | --- |
+| `LOW_HEALTH`, `IN_COMBAT`, `DEAD` | the player entity, via `GameClient.vitals` |
+| `DEMANDING_ACTIVITY`, `HAZARDOUS_ISLAND` | the game context — both, because they are different questions |
+| `SCREEN_OPEN`, `NOT_IN_GAME` | the client |
+| `ALREADY_PLAYING`, `SERIOUS_MODE`, `DISABLED` | the runtime and the user's settings |
+
+Three of those are **absolute**: not in a world, dead, or switched off. A `SHOW_ANYWAY` policy overrides a bad
+moment and cannot override those, because they are not judgement calls — there is nothing to draw on. That
+distinction is the whole reason `UnsafeReason.isAbsolute` exists.
+
+`GameClient.vitals` is new, and it is on the client rather than on the game context on purpose: the context
+knows where the player is by reading Hypixel's output, and this is read off the player entity. Health is a
+*fraction* because SkyBlock's maximum runs from 100 to tens of thousands and no absolute threshold means the
+same thing at both ends. "In combat" is `hurtTime` tracked over the last three seconds — the closest honest
+reading available client-side, since Hypixel does not tell the client it is in combat and inferring it from
+nearby mobs would be a guess dressed as a fact.
+
+### Policies
+
+What happens when the moment is bad. The feature states its intent once instead of re-deriving the decision:
+
+| Policy | |
+| --- | --- |
+| `QUEUE` | hold it until it is safe — the default |
+| `MERGE` | hold it, and collapse it with anything sharing its `groupingKey` |
+| `COMPACT` | fall back to a notification; the player still learns it happened |
+| `LOG_ONLY` | a record and nothing else |
+| `DISCARD` | for anything only meaningful in the moment |
+| `SHOW_ANYWAY` | almost never right |
+
+The **user's** settings beat the feature's intent: `compactOnly` downgrades everything, and `queueWhileUnsafe
+= false` turns a `QUEUE` into a `COMPACT` rather than a drop — "do not make me wait" is not "do not tell me".
+
+A compacted cinematic goes through the notification manager, which then applies *its own* busy policy on top.
+That composition is deliberate rather than an oversight: it means one place decides when a toast may interrupt,
+instead of two layers each having their own idea. Low health is unsafe for a cinematic and harmless for a
+toast, so a compacted cinematic there is shown at once while the same one mid-dungeon is held.
+
+### Merging, and why a backlog is not a sequence
+
+Eleven drops in a dungeon should be one cinematic saying eleven, not eleven cinematics — so `MERGE` collapses
+on `groupingKey` and the showing carries `×11`. A merged group keeps the **first** event's timestamp, because
+a group that refreshed its own age would never expire.
+
+And when the queue has several distinct things in it, releasing plays a **recap** rather than all of them.
+Eleven cinematics back to back is not eleven rewards; it is a cutscene the player cannot leave, and the natural
+reaction to it is to switch the feature off. Each held one gets a line, capped at five, and the ones past the
+cap are still recorded rather than silently forgotten.
+
+Expiry is checked **on release, not on submission**. A cinematic is worth showing when it is *shown*, and one
+that sat through a two-hour run is noise — playing it because the queue happened to reach it is worse than
+never having queued it.
+
+### An unsupported component is skipped, not fatal
+
+Same shape as the rule engine's actions, for the same reason. The plan's component list includes particles,
+shaders, voice clips and screenshots; the sink draws letterbox, background, title, subtitle, animated number,
+progress bar, reveal and sound. Item models and player heads are **absent and that is a statement** — both need
+Minecraft's own model rendering rather than the UI framework's primitives, which is adapter work in its own
+right. A cinematic naming any of them plays the rest, and starts looking better when the sink learns a new one.
+
+### Where the split falls
+
+`CinematicComponent` (platform) and `StageElement` (UI) are separate types, and the mod translates. Same split
+as the two `Notification` types and for the same reason: a component naming an `SqItem` would put SkyBlock on
+the UI framework's classpath.
+
+The clock lives in the sink rather than the node. It runs off the **render** delta, so a cinematic lasts the
+same wall-clock time whatever the tick rate is doing and stops while the game is paused — which is what a
+player expects of something they are meant to be watching. The node draws a fraction and knows nothing about
+when it ends.
+
+A sink that could not start is **not** a cinematic that played: it returns false, the director falls back to a
+notification, and the queue is not consumed for nothing. That is the path taken on a loading screen, where the
+HUD layer does not exist yet.
+
+### What the screenshot caught
+
+Every vertical position in the stage is a fraction of the viewport. They were fractions mixed with absolute
+pixel offsets, which agree at exactly one size: the fractions scale with the viewport and the offsets do not,
+so the progress label landed on top of the first reveal. Nothing headless would have found it — nothing
+headless renders at the player's GUI scale. `/sqcine play` under the in-game test, captured mid-run, did.
+
+---
+
 ## Seeing what the mod is doing
 
 Everything here is layered behind an interface, which is what makes it testable and also what makes it
@@ -826,6 +950,7 @@ are how the difference gets seen.
 | `/sqlog <category\|all> <level>` | turns a log category up or down at runtime; `/sqlog all debug` |
 | `/sqtest <what>` | fires a subsystem: `notify` `sound` `queue` `presence` `chat` `item` `rule` |
 | `/sqrule [list\|show\|fire\|reset\|trace] [id]` | lists rules with their progress, prints one, fires one on demand, or shows why recent ones did not |
+| `/sqcine [play\|safety\|queue\|skip\|replay\|trace] [id]` | plays a test cinematic, or says which of the nine reasons is stopping one |
 | `/sqdiag` | ticks, joins, uptime |
 | `/sqchat` | toggles chat tracing and prints the parser's counters |
 | `/sqboard` | dumps both boards and both readings, with `§` as `&` |
@@ -850,6 +975,10 @@ nobody can arrange — a rare drop is not something a developer can produce on d
 *reason* when nothing happens, so an unfired rule names the condition that stopped it. The event it passes is
 a stand-in, and the command says so: a condition about text or an item cannot hold against an event carrying
 neither, so a skip there is not proof the rule is broken.
+
+`/sqcine safety` is the one that earns its place. A cinematic that does not appear has nine possible causes
+that look identical from the player's chair, and this prints every one that currently applies — a question
+nothing else can answer, because the answer changes second to second.
 
 `/sqtest rule` drives a tiered test rule through the **live bus** rather than calling the engine, which is the
 part most likely to be wrong. A rule that fires when invoked directly and never fires in play is exactly the
@@ -893,9 +1022,9 @@ though it could be pressed, which is worse than plain: it would look broken rath
 `/sqaction` is registered by the *platform*, not by a feature, because a notification's actions have to work
 whatever is switched on.
 
-### Three bugs the in-game test caught
+### Four bugs the in-game test caught
 
-`DeveloperToolsTest` drives every one of these commands on a real client, and found three failures that no
+`DeveloperToolsTest` drives every one of these commands on a real client, and found four failures that no
 headless test could:
 
 **The mod crashed on startup.** The notification sink asked the platform for a logger, and the platform took
@@ -905,13 +1034,17 @@ logger is now resolved on use.
 **Every notification threw.** Platform notification ids are UUIDs; `UiId` paths are `[a-z0-9_]` and reject a
 hyphen. Both rules are right for their own type, and the translation between them was missing.
 
+**A cinematic's text collided with itself.** Vertical positions mixed viewport fractions with absolute pixel
+offsets, which agree at exactly one size. The screenshot taken mid-cinematic showed the progress label on top
+of the first reveal.
+
 **Rule progress read as zero.** The engine fired correctly, twice, and `progressOf(id)` returned nothing —
 because an event files progress under the local player while a null subject meant "nobody in particular". The
 432 headless rule tests all passed an explicit subject, so none of them could see it. A null subject now means
 the local player everywhere, and clearing everybody has its own method.
 
-None is subtle in hindsight. All three are exactly what happens when two layers that were each tested alone
-meet for the first time.
+None is subtle in hindsight. All four are exactly what happens when two layers that were each tested alone meet
+for the first time.
 
 ---
 

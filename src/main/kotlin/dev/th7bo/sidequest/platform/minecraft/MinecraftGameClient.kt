@@ -2,6 +2,7 @@ package dev.th7bo.sidequest.platform.minecraft
 
 import dev.th7bo.sidequest.platform.game.GameClient
 import dev.th7bo.sidequest.platform.game.GameVersion
+import dev.th7bo.sidequest.platform.game.PlayerVitals
 import dev.th7bo.sidequest.platform.text.SqText
 import net.minecraft.client.Minecraft
 import java.util.UUID
@@ -48,6 +49,29 @@ class MinecraftGameClient(
      */
     override val isScreenOpen: Boolean get() = ScreenState.isOpen
 
+    /**
+     * How the player is doing.
+     *
+     * Read fresh each time rather than cached, because everything asking is about to make a decision on it and
+     * a health value from two seconds ago is exactly the value that gets somebody killed.
+     *
+     * `maxHealth` and not a constant: SkyBlock's maximum runs from 100 to tens of thousands, so an absolute
+     * threshold would mean something different at each end. Damage is tracked over the last few ticks below —
+     * the client has `hurtTime`, but it lasts ten ticks, which is short enough to miss between two reads.
+     */
+    override val vitals: PlayerVitals
+        get() {
+            val player = client.player ?: return PlayerVitals.Healthy
+            val maximum = player.maxHealth
+            return PlayerVitals(
+                healthFraction = if (maximum <= 0f) 1f else (player.health / maximum).coerceIn(0f, 1f),
+                isTakingDamage = tickCounter - lastHurtTick <= COMBAT_TICKS,
+                // `isDeadOrDying` and not `isDead`: the death animation is still a moment nothing should cover,
+                // and it is the part the player is looking at to see what killed them.
+                isDead = player.isDeadOrDying,
+            )
+        }
+
     override fun sendClientMessage(text: SqText) {
         // Through the player, which is the client-side path — nothing is sent to the
         // server. With no player there is no chat to write to, and dropping the message
@@ -84,6 +108,9 @@ class MinecraftGameClient(
         get() = tickCounter - lastMovedTick <= STILL_TICKS
 
     private var lastMovedTick: Long = 0
+
+    /** The last tick the player was seen hurt. See [vitals]. */
+    private var lastHurtTick: Long = -COMBAT_TICKS
     private var lastX = 0.0
     private var lastY = 0.0
     private var lastZ = 0.0
@@ -91,6 +118,19 @@ class MinecraftGameClient(
     internal fun onTick() {
         tickCounter++
         trackMovement()
+        trackDamage()
+    }
+
+    /**
+     * Remembers the last time the player was hurt.
+     *
+     * Polled rather than hooked, because a damage event would need a mixin and this does not. `hurtTime` counts
+     * down from ten, so any non-zero reading means damage within half a second — sampled every tick, it cannot
+     * be missed.
+     */
+    private fun trackDamage() {
+        val player = client.player ?: return
+        if (player.hurtTime > 0) lastHurtTick = tickCounter
     }
 
     private fun trackMovement() {
@@ -117,5 +157,13 @@ class MinecraftGameClient(
          * collision resolution alone, and a zero threshold would report constant movement.
          */
         const val MOVED_THRESHOLD_SQUARED = 0.0025
+
+        /**
+         * How long after being hurt a player still counts as in combat. Three seconds.
+         *
+         * Longer than `hurtTime`'s ten ticks on purpose: the question is "is something attacking me", and the
+         * gap between two hits from the same mob is longer than the flash from one.
+         */
+        const val COMBAT_TICKS = 60L
     }
 }

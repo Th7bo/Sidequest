@@ -16,6 +16,7 @@ import dev.th7bo.sidequest.platform.game.GameVersion
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.log.LogCategory
 import dev.th7bo.sidequest.platform.audio.SoundManager
+import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
 import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.party.PartyService
@@ -51,6 +52,7 @@ public class DefaultFeatureRegistry(
     private val party: PartyService,
     private val notifications: NotificationManager,
     private val sounds: SoundManager,
+    private val cinematics: CinematicDirector,
     private val rules: RuleEngine,
     private val storage: StorageProvider,
     private val permissions: PermissionService,
@@ -139,6 +141,7 @@ public class DefaultFeatureRegistry(
             party = party,
             notifications = notifications,
             sounds = sounds,
+            cinematics = cinematics,
             rules = rules,
             storage = storage,
             permissions = permissions,

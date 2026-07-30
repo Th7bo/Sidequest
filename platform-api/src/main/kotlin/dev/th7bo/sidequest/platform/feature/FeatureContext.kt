@@ -15,6 +15,7 @@ import dev.th7bo.sidequest.platform.id.OwnerId
 import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.Logger
+import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
 import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.party.PartyService
@@ -175,6 +176,15 @@ public interface FeatureContext {
      * somebody else's ears.
      */
     public val sounds: SoundManager
+
+    /**
+     * Cinematics: the things worth stopping the game for.
+     *
+     * A feature submits and does not decide. Whether now is a safe moment to cover the screen is one question
+     * with one answer, and eleven features each deciding it would be eleven chances to get somebody killed at
+     * a boss.
+     */
+    public val cinematics: CinematicDirector
 
     /**
      * Rules: when this, then that.

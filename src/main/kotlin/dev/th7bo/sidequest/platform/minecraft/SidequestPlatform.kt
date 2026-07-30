@@ -10,6 +10,7 @@ import dev.th7bo.sidequest.platform.core.audio.DefaultSoundManager
 import dev.th7bo.sidequest.platform.core.backend.PresencePublisher
 import dev.th7bo.sidequest.platform.core.backend.StoredTokenStore
 import dev.th7bo.sidequest.platform.core.notification.DefaultNotificationManager
+import dev.th7bo.sidequest.platform.core.cinematic.DefaultCinematicDirector
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.chat.HypixelChatRules
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
@@ -61,6 +62,10 @@ import dev.th7bo.sidequest.platform.rule.ActionHandler
 import dev.th7bo.sidequest.platform.rule.RuleAction
 import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.rule.RuleStore
+import dev.th7bo.sidequest.platform.cinematic.Cinematic
+import dev.th7bo.sidequest.platform.cinematic.CinematicComponent
+import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
+import dev.th7bo.sidequest.platform.cinematic.CinematicSink
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
 import dev.th7bo.sidequest.platform.scheduler.SchedulerThread
 import kotlin.time.Duration
@@ -94,6 +99,8 @@ class SidequestPlatform(
     notificationSink: NotificationSink = NotificationSink.None,
     /** Where sounds come out. Same reasoning as the notification sink. */
     soundSink: SoundSink = SoundSink.None,
+    /** Where cinematics are drawn. Same reasoning again. */
+    private val cinematicSink: CinematicSink = CinematicSink.None,
     /**
      * Where feature data is written.
      *
@@ -245,6 +252,23 @@ class SidequestPlatform(
     val sounds: SoundManager get() = soundManager
 
     /**
+     * The things worth stopping the game for.
+     *
+     * Built after the notification manager, because a cinematic that cannot be shown falls back to a
+     * notification and the fallback has to exist before the thing that falls back to it.
+     */
+    private val cinematicDirector = DefaultCinematicDirector(
+        sink = cinematicSink,
+        context = contextService,
+        client = minecraftClient,
+        notifications = notificationManager,
+        events = events,
+        log = loggers.create(LogCategory.FEATURE, SqId.sidequest("cinematics")),
+    )
+
+    val cinematics: CinematicDirector get() = cinematicDirector
+
+    /**
      * When this, then that.
      *
      * Built after the services its conditions read — the context, the party and the directory — because a
@@ -307,6 +331,7 @@ class SidequestPlatform(
         party = partyService,
         notifications = notificationManager,
         sounds = soundManager,
+        cinematics = cinematicDirector,
         rules = ruleEngine,
         storage = fileStorage,
         permissions = permissionService,
@@ -425,8 +450,9 @@ class SidequestPlatform(
                 events.post(ClientTickEvent(minecraftClient.tickCount), EventSource.GAME)
                 pollBoards()
                 pollPlayers()
-                // Cheap: returns immediately unless something is waiting and the moment is safe.
+                // Cheap: both return immediately unless something is waiting and the moment is safe.
                 notificationManager.releaseQueuedIfSafe()
+                cinematicDirector.releaseIfSafe()
             }.asRegistration(),
         )
         adapterScope.add(
@@ -578,6 +604,31 @@ class SidequestPlatform(
         ruleEngine.handle("sound_pool") { action, _ ->
             val pool = action as? RuleAction.PlaySoundPool ?: return@handle false
             soundManager.playPool(pool.poolId) != SoundResult.MISSING
+        }
+        ruleEngine.handle("cinematic") { action, outcome ->
+            val queue = action as? RuleAction.QueueCinematic ?: return@handle false
+            // The rule names a cinematic and the director decides what happens to it, which is the point of
+            // both: a rule that fires mid-dungeon has no business knowing that, and the director has no
+            // business knowing which rule asked.
+            val disposition = cinematicDirector.submit(
+                Cinematic(
+                    id = queue.cinematicId,
+                    title = outcome.format(outcome.rule.displayName.ifEmpty { outcome.rule.id.value }),
+                    components = listOf(
+                        CinematicComponent.Letterbox(),
+                        CinematicComponent.Background(),
+                        CinematicComponent.Title(outcome.format("{rule}")),
+                        outcome.tier?.let { CinematicComponent.Subtitle("tier $it") }
+                            ?: CinematicComponent.Subtitle("×${outcome.progress}"),
+                    ),
+                    // Keyed on the rule, so a rule firing repeatedly in a dungeon merges into one showing
+                    // rather than filling the queue with copies of itself.
+                    groupingKey = "rule." + outcome.rule.id.value,
+                    subject = outcome.subject,
+                ),
+            )
+            log.debug { "Cinematic for ${outcome.rule.id}: ${disposition::class.simpleName}" }
+            true
         }
         ruleEngine.handle("stat") { action, outcome ->
             val stat = action as? RuleAction.WriteStat ?: return@handle false

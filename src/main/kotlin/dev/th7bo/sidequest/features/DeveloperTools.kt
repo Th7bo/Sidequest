@@ -20,6 +20,10 @@ import dev.th7bo.sidequest.platform.core.notification.notification
 import dev.th7bo.sidequest.platform.event.EventSource
 import dev.th7bo.sidequest.platform.event.SidequestEvent
 import dev.th7bo.sidequest.platform.permission.Permission
+import dev.th7bo.sidequest.platform.cinematic.Cinematic
+import dev.th7bo.sidequest.platform.cinematic.CinematicComponent
+import dev.th7bo.sidequest.platform.cinematic.CinematicDisposition
+import dev.th7bo.sidequest.platform.cinematic.CinematicPolicy
 import dev.th7bo.sidequest.platform.rule.Rule
 import dev.th7bo.sidequest.platform.rule.RuleAction
 import dev.th7bo.sidequest.platform.rule.RuleEngine
@@ -104,6 +108,19 @@ class DeveloperTools(
                 }
             },
         ) { rule(it) }
+
+        context.command(
+            name = "sqcine",
+            description = "Inspects and plays cinematics",
+            usage = "[play|safety|queue|skip|replay|trace] [id]",
+            completions = { done ->
+                when {
+                    done.isEmpty() -> CINE_VERBS
+                    done.size == 1 && done.first().lowercase() == "replay" -> cinematicNames()
+                    else -> emptyList()
+                }
+            },
+        ) { cine(it) }
 
         registerTestRule(context)
     }
@@ -409,6 +426,124 @@ class DeveloperTools(
         tell("Two toasts and two sounds mean the notify and sound handlers are wired.")
     }
 
+    // -- cinematics ----------------------------------------------------------
+
+    /**
+     * Drives the cinematic runtime.
+     *
+     * `safety` is the one that earns its place. A cinematic that does not appear has nine possible causes that
+     * look identical from the player's chair, and this prints every one that currently applies — which is a
+     * question nothing else can answer, because the answer changes second to second.
+     */
+    private fun cine(arguments: List<String>) {
+        when (arguments.firstOrNull()?.lowercase()) {
+            null, "safety" -> cineSafety()
+            "play" -> cinePlay()
+            "queue" -> cineQueue()
+            "skip" -> {
+                context.cinematics.skip()
+                tell("Skipped, if anything was playing.")
+            }
+            "replay" -> {
+                val id = arguments.getOrNull(1)?.let { name ->
+                    context.cinematics.history().firstOrNull { it.id.value.endsWith(name, ignoreCase = true) }
+                }
+                if (id == null) {
+                    error("Nothing by that name has played. /sqcine queue")
+                } else {
+                    line("replay", context.cinematics.replay(id.id)?.describe() ?: "not found")
+                }
+            }
+            "trace" -> cineTrace()
+            else -> {
+                heading("Cinematics")
+                tell(CINE_VERBS.joinToString(" · "))
+            }
+        }
+    }
+
+    private fun cineSafety() {
+        heading("Cinematic safety")
+        val safety = context.cinematics.safety()
+        line("safe now", safety.isSafe.yesNo())
+        line("why not", if (safety.isSafe) "—" else safety.explain())
+        // Refused is a different thing from unsafe, and the difference decides whether waiting will help.
+        line("refused", safety.isRefused.yesNo())
+        line("waiting", "${context.cinematics.queued().size}")
+        line("played this session", "${context.cinematics.history().size}")
+    }
+
+    /** Plays one built here, so the whole runtime can be seen without waiting for a rare drop. */
+    private fun cinePlay() {
+        heading("Test cinematic")
+        val disposition = context.cinematics.submit(
+            Cinematic(
+                id = TEST_CINEMATIC,
+                title = "Developer cinematic",
+                // SHOW_ANYWAY, because somebody who typed this asked for it. The gate still refuses when there
+                // is nowhere to draw, which is the distinction worth demonstrating.
+                policy = CinematicPolicy.SHOW_ANYWAY,
+                components = listOf(
+                    CinematicComponent.Letterbox(),
+                    CinematicComponent.Background(),
+                    CinematicComponent.Title("RARE DROP", colour = 0xFFAA00),
+                    CinematicComponent.Subtitle("Developer cinematic"),
+                    CinematicComponent.AnimatedNumber(1_234_567, suffix = " coins"),
+                    CinematicComponent.ProgressBar(0.7f, "collection"),
+                    CinematicComponent.RewardReveal("+1 Hyperion"),
+                    CinematicComponent.Sound(testSoundFor(SoundGroup.INTERFACE)),
+                    // Deliberately undrawable, to show that it degrades rather than failing.
+                    CinematicComponent.Particles(SqId.sidequest("dev.sparkle")),
+                ),
+            ),
+        )
+        line("result", disposition.describe())
+        if (disposition !is CinematicDisposition.Played) {
+            tell("Run /sqcine safety to see what stopped it.")
+        }
+    }
+
+    private fun cineQueue() {
+        val waiting = context.cinematics.queued()
+        heading("Waiting (${waiting.size})")
+        if (waiting.isEmpty()) tell("Nothing held.")
+        for (queued in waiting) {
+            line(
+                queued.cinematic.id.value,
+                "${queued.cinematic.priority}" +
+                    (if (queued.count > 1) " ×${queued.count}" else "") +
+                    " · expires in ${queued.cinematic.expiry}",
+            )
+        }
+        val history = context.cinematics.history()
+        if (history.isNotEmpty()) {
+            heading("Played (${history.size})")
+            for (past in history.take(TRACE_LINES)) line(past.id.value, past.title.ifEmpty { "—" })
+        }
+    }
+
+    private fun cineTrace() {
+        val trace = context.cinematics.trace()
+        heading("Recent dispositions (${trace.size})")
+        if (trace.isEmpty()) tell("Nothing submitted yet.")
+        for (disposition in trace.take(TRACE_LINES)) {
+            line(disposition.cinematic.id.value, disposition.describe())
+        }
+    }
+
+    /** What became of it, in a few words. The whole point of the disposition type. */
+    private fun CinematicDisposition.describe(): String = when (this) {
+        is CinematicDisposition.Played -> "played"
+        is CinematicDisposition.Compacted -> "shown as a notification"
+        is CinematicDisposition.Queued -> "queued at $position: $reason"
+        is CinematicDisposition.Merged -> "merged into $into (×$count)"
+        is CinematicDisposition.Logged -> "logged only: $reason"
+        is CinematicDisposition.Dropped -> "dropped: $reason"
+    }
+
+    private fun cinematicNames(): List<String> =
+        context.cinematics.history().map { it.id.value.substringAfter(':') }.distinct()
+
     // -- rules ---------------------------------------------------------------
 
     /**
@@ -648,6 +783,9 @@ class DeveloperTools(
         val MISSING_SOUND = SqId.sidequest("dev.missing")
         val FALLBACK_SOUND = SqId.sidequest("dev.fallback")
         val TEST_RULE = SqId.sidequest("dev.rule")
+        val TEST_CINEMATIC = SqId.sidequest("dev.cinematic")
+
+        val CINE_VERBS = listOf("play", "safety", "queue", "skip", "replay", "trace")
 
         /**
          * What `/sqtest` accepts, and what it completes.

@@ -4,6 +4,7 @@ import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
+import dev.th7bo.sidequest.platform.minecraft.MinecraftCinematicSink
 import dev.th7bo.sidequest.platform.minecraft.MinecraftNotificationSink
 import dev.th7bo.sidequest.platform.minecraft.MinecraftSoundSink
 import dev.th7bo.sidequest.platform.minecraft.SidequestPlatform
@@ -201,6 +202,9 @@ object Sidequest : ClientModInitializer {
         SidequestHuds.register()
         SidequestWorld.register()
         SidequestHudLayer.onLayerReady = { layer -> attachHudPersistence(layer) }
+        // The cinematic clock. On the render delta rather than on a tick, so a cinematic runs the same
+        // wall-clock length whatever the tick rate is doing and stops while the game is paused.
+        SidequestHudLayer.onFrame = { delta -> cinematicSink.advance(delta) }
 
         startPlatform()
     }
@@ -235,11 +239,30 @@ object Sidequest : ClientModInitializer {
 
     private val soundSink by lazy { MinecraftSoundSink(log = { platform.log }) }
 
+    /**
+     * Where cinematics are drawn.
+     *
+     * Suppliers throughout, for the same reason as the notification sink: the platform takes this as a
+     * constructor argument, so reaching back into `platform` eagerly would be a cycle through its own
+     * initialiser — a `StackOverflowError` before the main menu, which has happened here once already.
+     */
+    private val cinematicSink by lazy {
+        MinecraftCinematicSink(
+            log = { platform.log },
+            // Gated on the *stage* rather than on the layer: nothing exists to draw on until the first frame
+            // in a world, and the director treats a refusal as a cinematic that did not play and falls back
+            // to a notification — which is the right outcome on a loading screen.
+            stage = { SidequestHudLayer.cinematicStage },
+            sounds = { platform.sounds },
+        )
+    }
+
     val platform: SidequestPlatform by lazy {
         SidequestPlatform(
             minecraftVersion = MINECRAFT,
             notificationSink = notificationSink,
             soundSink = soundSink,
+            cinematicSink = cinematicSink,
             // Alongside the configuration rather than inside it: configuration is what the player
             // edits and this is what features record, and a user clearing one should not lose the
             // other.
