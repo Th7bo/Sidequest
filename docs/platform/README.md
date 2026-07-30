@@ -1227,6 +1227,13 @@ All four text slots land on **one line** — `[Inner Circle] ♛ chrooted ✦ �
 one line: it is drawn with a single `drawInBatch`, so a newline renders as a glyph. A second line means
 submitting separate text at a different height, which is a much more version-sensitive mixin.
 
+**You cannot see your own nametag.** Minecraft's `shouldShowName` excludes the camera entity, so the player
+somebody is most likely to be testing on is the one they cannot look at — and a cosmetic that is working
+looks identical to one that is not. Two things exist because of that: `/sqcos resolve` prints the nametag as
+it *would* be drawn, and `/sqcos dress <player>` puts the preview loadout on somebody else. The second goes
+through `setRemoteLoadout`, the same door the realtime stream uses, so what appears is what would appear if
+they really were wearing it.
+
 `NametagDecorator` runs once per player per frame and does nothing but map lookups and string building. It
 never asks the asset manager to do IO, and it catches its own failures — a throw there would be a crash in
 the render loop, once a frame, forever.

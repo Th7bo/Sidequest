@@ -52,20 +52,61 @@ public object NametagDecorator {
             .getOrElse { return original }
 
         if (resolution.shown.isEmpty()) return original
-
-        val title = textOf(resolution, CosmeticSlot.TITLE)
-        val prefix = textOf(resolution, CosmeticSlot.NAMETAG_PREFIX)
-        val suffix = textOf(resolution, CosmeticSlot.NAMETAG_SUFFIX)
-        val badge = textOf(resolution, CosmeticSlot.BADGE)
-        if (title == null && prefix == null && suffix == null && badge == null) return original
+        val parts = layout(resolution) ?: return original
 
         val built: MutableComponent = Component.empty()
-        title?.let { built.append(bracketed(it, colourOf(resolution, CosmeticSlot.TITLE))).append(SPACE) }
-        prefix?.let { built.append(coloured(it, colourOf(resolution, CosmeticSlot.NAMETAG_PREFIX))).append(SPACE) }
+        parts.title?.let {
+            built.append(bracketed(it, colourOf(resolution, CosmeticSlot.TITLE))).append(SPACE)
+        }
+        parts.prefix?.let {
+            built.append(coloured(it, colourOf(resolution, CosmeticSlot.NAMETAG_PREFIX))).append(SPACE)
+        }
         built.append(original)
-        suffix?.let { built.append(SPACE).append(coloured(it, colourOf(resolution, CosmeticSlot.NAMETAG_SUFFIX))) }
-        badge?.let { built.append(SPACE).append(coloured(it, colourOf(resolution, CosmeticSlot.BADGE))) }
+        parts.suffix?.let {
+            built.append(SPACE).append(coloured(it, colourOf(resolution, CosmeticSlot.NAMETAG_SUFFIX)))
+        }
+        parts.badge?.let {
+            built.append(SPACE).append(coloured(it, colourOf(resolution, CosmeticSlot.BADGE)))
+        }
         return built
+    }
+
+    /**
+     * The same layout, as plain text.
+     *
+     * For `/sqcos resolve`, and it exists because **you cannot see your own nametag** — Minecraft's
+     * `shouldShowName` excludes the camera entity, so the one player whose cosmetics somebody is most likely
+     * to be testing is the one player they cannot look at. Without this, checking your own nametag means
+     * finding a second person.
+     *
+     * It shares [layout] with [decorate] rather than rebuilding the string, for the reason the cinematic
+     * counter had to learn: two functions that are supposed to produce the same text will eventually not.
+     */
+    public fun preview(resolution: CosmeticResolution, name: String): String? {
+        val parts = layout(resolution) ?: return null
+        return buildString {
+            parts.title?.let { append('[').append(it).append("] ") }
+            parts.prefix?.let { append(it).append(' ') }
+            append(name)
+            parts.suffix?.let { append(' ').append(it) }
+            parts.badge?.let { append(' ').append(it) }
+        }
+    }
+
+    private class Parts(val title: String?, val prefix: String?, val suffix: String?, val badge: String?)
+
+    /** What each text slot contributes, or null when none of them contribute anything. */
+    private fun layout(resolution: CosmeticResolution): Parts? {
+        val parts = Parts(
+            title = textOf(resolution, CosmeticSlot.TITLE),
+            prefix = textOf(resolution, CosmeticSlot.NAMETAG_PREFIX),
+            suffix = textOf(resolution, CosmeticSlot.NAMETAG_SUFFIX),
+            badge = textOf(resolution, CosmeticSlot.BADGE),
+        )
+        if (parts.title == null && parts.prefix == null && parts.suffix == null && parts.badge == null) {
+            return null
+        }
+        return parts
     }
 
     /**
@@ -74,9 +115,12 @@ public object NametagDecorator {
      * A cosmetic with no text contributes nothing here even when it resolved. That is not a failure: an
      * asset-backed badge is an image, and this bridge draws text — the image needs a different surface, which
      * does not exist yet, so the honest thing is to draw nothing rather than its internal name.
+     *
+     * Trimmed, because the layout supplies its own spacing. A cosmetic whose text ends in a space — which is
+     * the natural way to write a prefix — would otherwise render with a gap twice as wide as its neighbours.
      */
     private fun textOf(resolution: CosmeticResolution, slot: CosmeticSlot): String? =
-        resolution[slot]?.cosmetic?.text?.takeIf { it.isNotBlank() }?.take(MAX_LENGTH)
+        resolution[slot]?.cosmetic?.text?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_LENGTH)
 
     /** A cosmetic's rarity colour, which is what makes a legendary title read as one. */
     private fun colourOf(resolution: CosmeticResolution, slot: CosmeticSlot): Int? =

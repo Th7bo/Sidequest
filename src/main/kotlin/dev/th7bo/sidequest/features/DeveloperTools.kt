@@ -20,6 +20,7 @@ import dev.th7bo.sidequest.platform.core.notification.notification
 import dev.th7bo.sidequest.platform.event.EventSource
 import dev.th7bo.sidequest.platform.event.SidequestEvent
 import dev.th7bo.sidequest.platform.permission.Permission
+import dev.th7bo.sidequest.cosmetic.NametagDecorator
 import dev.th7bo.sidequest.platform.cinematic.Cinematic
 import dev.th7bo.sidequest.platform.core.preview.PreviewData
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings
@@ -174,6 +175,8 @@ class DeveloperTools(
                     done.size == 1 && done.first().lowercase() == "remove" ->
                         CosmeticSlot.entries.map { it.name.lowercase() }
                     done.size == 1 && done.first().lowercase() == "settings" -> COSMETIC_SETTINGS
+                    done.size == 1 && done.first().lowercase() in setOf("dress", "resolve") ->
+                        context.players.all().map { it.username }
                     else -> emptyList()
                 }
             },
@@ -1241,12 +1244,36 @@ class DeveloperTools(
                 tell("Removed whatever was in ${slot.displayName}.")
             }
 
+            "dress" -> dress(arguments.getOrNull(1))
+
             "resolve" -> resolveCosmetics(arguments.getOrNull(1))
 
             "settings" -> cosmeticSettings(arguments.drop(1))
 
             else -> error("Usage: /sqcos [${COSMETIC_VERBS.joinToString("|")}] [id|slot]")
         }
+    }
+
+    /**
+     * Puts the preview loadout on somebody else, as if it had arrived from them.
+     *
+     * The only way to actually *look* at a nametag cosmetic. Goes through `setRemoteLoadout`, which is the
+     * same door the realtime stream uses, so what appears is what would appear if they really were wearing
+     * it — rather than a special case that proves nothing about the real path.
+     */
+    private fun dress(who: String?) {
+        if (who == null) {
+            error("Who? /sqcos dress <player>")
+            return
+        }
+        val target = context.players.resolveUsername(who)
+        if (target == null) {
+            error("Never seen anybody called '$who'. They have to be in your tab list.")
+            return
+        }
+        for (cosmetic in PreviewData.cosmetics) context.cosmetics.register(cosmetic)
+        context.cosmetics.setRemoteLoadout(target.id, PreviewData.fullLoadout(System.currentTimeMillis()))
+        tell("Dressed ${target.displayName}. Look at them — /sqcos resolve ${target.username} to see why anything is missing.")
     }
 
     /** Prints what would be drawn for somebody, and why the rest would not be. */
@@ -1261,7 +1288,21 @@ class DeveloperTools(
         }
 
         val resolution = context.cosmetics.resolve(subject)
-        heading("Cosmetics on ${context.players.byId(subject)?.displayName ?: subject}")
+        val name = context.players.byId(subject)?.displayName ?: subject.toString()
+        heading("Cosmetics on $name")
+
+        // The nametag as it would be drawn. Printed because **you cannot see your own** — Minecraft's
+        // `shouldShowName` excludes the camera entity, so the player somebody is most likely to be testing
+        // on is the one they cannot look at.
+        val nametag = NametagDecorator.preview(resolution, name)
+        if (nametag == null) {
+            line("nametag", "unchanged — nothing worn contributes text")
+        } else {
+            line("nametag", nametag)
+            if (subject == client.localPlayerId?.let { dev.th7bo.sidequest.platform.player.PlayerId.of(it) }) {
+                tell("  (your own nametag is never drawn for you — look at somebody else, or /sqcos dress them)")
+            }
+        }
         if (resolution.shown.isEmpty()) {
             line("shown", "nothing")
         } else {
@@ -1381,7 +1422,7 @@ class DeveloperTools(
 
         val ERROR_VERBS = listOf("list", "show", "clear")
 
-        val COSMETIC_VERBS = listOf("list", "wear", "remove", "preview", "resolve", "settings")
+        val COSMETIC_VERBS = listOf("list", "wear", "remove", "preview", "dress", "resolve", "settings")
 
         val COSMETIC_SETTINGS = listOf("on", "off", "skins", "effects", "jokes", "animation")
 
