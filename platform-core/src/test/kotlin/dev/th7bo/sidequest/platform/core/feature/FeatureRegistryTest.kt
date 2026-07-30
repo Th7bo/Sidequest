@@ -11,6 +11,7 @@ import dev.th7bo.sidequest.platform.notification.NotificationSink
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.storage.JsonFileStorage
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
+import dev.th7bo.sidequest.platform.core.rule.DefaultRuleEngine
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
@@ -91,6 +92,14 @@ class FeatureRegistryTest {
         party = DefaultPartyService(bus, players, NoopLogger),
         notifications = DefaultNotificationManager(NotificationSink.None, gameContext, NoopLogger),
         sounds = DefaultSoundManager(SoundSink.None, NoopLogger),
+        rules = DefaultRuleEngine(
+            events = bus,
+            context = gameContext,
+            party = DefaultPartyService(bus, players, NoopLogger),
+            players = players,
+            log = NoopLogger,
+            localPlayer = { null },
+        ),
         storage = JsonFileStorage(storageRoot, NoopLogger),
         permissions = DefaultPermissionService(NoopLogger, localPlayer = { null }),
         loggers = loggers,

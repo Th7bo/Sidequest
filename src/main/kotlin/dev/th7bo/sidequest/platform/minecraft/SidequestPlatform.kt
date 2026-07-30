@@ -17,6 +17,7 @@ import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
+import dev.th7bo.sidequest.platform.core.rule.DefaultRuleEngine
 import dev.th7bo.sidequest.platform.core.storage.JsonFileStorage
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.feature.DefaultFeatureRegistry
@@ -51,6 +52,15 @@ import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
+import dev.th7bo.sidequest.platform.notification.Notification
+import dev.th7bo.sidequest.platform.notification.NotificationCategory
+import dev.th7bo.sidequest.platform.notification.NotificationPriority
+import dev.th7bo.sidequest.platform.audio.SoundRequest
+import dev.th7bo.sidequest.platform.audio.SoundResult
+import dev.th7bo.sidequest.platform.rule.ActionHandler
+import dev.th7bo.sidequest.platform.rule.RuleAction
+import dev.th7bo.sidequest.platform.rule.RuleEngine
+import dev.th7bo.sidequest.platform.rule.RuleStore
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
 import dev.th7bo.sidequest.platform.scheduler.SchedulerThread
 import kotlin.time.Duration
@@ -235,6 +245,24 @@ class SidequestPlatform(
     val sounds: SoundManager get() = soundManager
 
     /**
+     * When this, then that.
+     *
+     * Built after the services its conditions read — the context, the party and the directory — because a
+     * condition that asks "am I in a party" needs somebody to ask. Its action handlers are registered in
+     * [start], once the managers they dispatch into exist.
+     */
+    private val ruleEngine = DefaultRuleEngine(
+        events = events,
+        context = contextService,
+        party = partyService,
+        players = playerDirectory,
+        log = loggers.create(LogCategory.FEATURE, SqId.sidequest("rules")),
+        localPlayer = { minecraftClient.localPlayerId?.let { PlayerId.of(it) } },
+    )
+
+    val rules: RuleEngine get() = ruleEngine
+
+    /**
      * The backend, when one is configured.
      *
      * Built lazily, and *not* started here. Everything it needs — the local player's account scope for its
@@ -279,6 +307,7 @@ class SidequestPlatform(
         party = partyService,
         notifications = notificationManager,
         sounds = soundManager,
+        rules = ruleEngine,
         storage = fileStorage,
         permissions = permissionService,
         loggers = loggers,
@@ -338,6 +367,8 @@ class SidequestPlatform(
         )
 
         partyService.install()
+        registerRuleActions()
+        ruleEngine.install()
         adapterScope.add(chatParser.registerAll(HypixelChatRules.all { minecraftClient.localPlayerName }, OwnerId.PLATFORM))
         val fixtureFailures = chatParser.verifyFixtures()
         if (fixtureFailures.isNotEmpty()) {
@@ -402,6 +433,7 @@ class SidequestPlatform(
                 // configuration comes from the settings, so the mod applies it rather than the platform
                 // guessing — the platform has no idea what the user typed.
                 if (backendClient == null) onFirstJoin?.invoke()
+                attachRuleStorage()
                 contextService.setOnHypixel(isHypixel(address))
                 events.post(MinecraftJoinEvent(address), EventSource.GAME)
             }.asRegistration(),
@@ -489,6 +521,121 @@ class SidequestPlatform(
         val host = address?.substringBefore(':')?.lowercase() ?: return false
         return host == HYPIXEL_DOMAIN || host.endsWith(".$HYPIXEL_DOMAIN")
     }
+
+    /**
+     * Teaches the rule engine how to do things.
+     *
+     * The engine imports no subsystem — this is the one place the two meet, and it is here rather than in the
+     * engine because *which* subsystems exist is the mod's business and not the engine's. Four kinds are
+     * handled today; the rest of [RuleAction] is deliberately unhandled, which the engine logs and skips.
+     * A rule that grants currency and plays a sound plays the sound.
+     */
+    private fun registerRuleActions() {
+        ruleEngine.handle("notify") { action, outcome ->
+            val notify = action as? RuleAction.Notify ?: return@handle false
+            // Unknown names fall back rather than dropping the notification. A rule from the backend naming a
+            // category this version has never heard of should still tell the player something.
+            val category = NotificationCategory.entries
+                .firstOrNull { it.name.equals(notify.category, ignoreCase = true) }
+                ?: NotificationCategory.PROGRESSION
+            val priority = NotificationPriority.entries
+                .firstOrNull { it.name.equals(notify.priority, ignoreCase = true) }
+                ?: NotificationPriority.NORMAL
+            notificationManager.notify(
+                Notification(
+                    id = java.util.UUID.randomUUID().toString(),
+                    category = category,
+                    priority = priority,
+                    // Substituted here, so one action serves every tier of a rule.
+                    title = outcome.format(notify.title),
+                    subtitle = notify.subtitle?.let { outcome.format(it) },
+                    // Keyed on the rule and tier, so a rule that fires twice in a moment replaces rather than
+                    // stacks — and a *different* tier is a different thing worth saying.
+                    dedupeKey = "rule.${outcome.rule.id.value}.${outcome.tier ?: ""}",
+                    groupingKey = "rule.${outcome.rule.id.value}",
+                ),
+            )
+            // True regardless of what the policy decided. The action *ran*; a switched-off category is the
+            // user's answer, not a failure, and reporting it as one would put a warning in the log for
+            // working as configured.
+            true
+        }
+        ruleEngine.handle("sound") { action, outcome ->
+            val sound = action as? RuleAction.PlaySound ?: return@handle false
+            val result = soundManager.play(
+                SoundRequest(
+                    soundId = sound.soundId,
+                    volume = sound.volume,
+                    // Positioned when the firing knew where it happened, so a rule about a place is heard
+                    // from that direction.
+                    position = outcome.location?.position,
+                ),
+            )
+            result != SoundResult.MISSING
+        }
+        ruleEngine.handle("sound_pool") { action, _ ->
+            val pool = action as? RuleAction.PlaySoundPool ?: return@handle false
+            soundManager.playPool(pool.poolId) != SoundResult.MISSING
+        }
+        ruleEngine.handle("stat") { action, outcome ->
+            val stat = action as? RuleAction.WriteStat ?: return@handle false
+            // No statistics service yet, and this is the honest interim: the number is logged rather than
+            // silently dropped, so a rule wired to a stat can be *seen* working before there is a screen to
+            // show it on. Replaced, not extended, when §27 lands.
+            log.debug { "Stat ${stat.statId} += ${stat.amount} from ${outcome.rule.id}" }
+            true
+        }
+    }
+
+    /**
+     * Loads and persists rule progress for the signed-in account.
+     *
+     * Account-scoped, because progress follows the account: it is the same player whichever profile they are
+     * on, and a rule that resets per profile says so with [RuleReset.ON_PROFILE_CHANGE] rather than by being
+     * filed under one.
+     *
+     * Called on join, not at construction, for the same reason as the backend client: the account is not known
+     * before login, and a repository scoped to nobody would write one player's progress into another's file.
+     */
+    private fun attachRuleStorage() {
+        val playerId = minecraftClient.localPlayerId?.let { PlayerId.of(it) } ?: return
+        if (ruleStorageAccount == playerId) return
+        ruleStorageAccount = playerId
+
+        val repository = fileStorage.repository(
+            id = SqId.sidequest("rules"),
+            scope = StorageScope.Account(playerId),
+            serializer = RuleStore.serializer(),
+            default = { RuleStore() },
+        )
+
+        scheduler.async(OwnerId.PLATFORM) {
+            val stored = repository.load()
+            if (stored.report.isWorthReporting) log.warn { "Rule progress: ${stored.report}" }
+            // Applied on the client thread, so a rule evaluating on the same tick sees either the old state or
+            // the new one and never a half-loaded map.
+            scheduler.onMain(OwnerId.PLATFORM) { ruleEngine.load(stored.value) }
+        }
+
+        // Debounced through a flag rather than saved per change: a rule that adds progress on every kill would
+        // otherwise write the file twenty times a second. The engine's callback is synchronous and can run on
+        // any thread, so it may do nothing but set a bit.
+        ruleEngine.onStoreChanged = { pendingRuleStore = it }
+        adapterScope.add(
+            scheduler.every(OwnerId.PLATFORM, RULE_SAVE_INTERVAL, thread = SchedulerThread.ASYNC) {
+                val store = pendingRuleStore ?: return@every
+                pendingRuleStore = null
+                scheduler.async(OwnerId.PLATFORM) { repository.save(store) }
+            },
+        )
+    }
+
+    /** Which account's rule progress is loaded, so a rejoin does not re-attach. */
+    private var ruleStorageAccount: PlayerId? = null
+
+    /** The most recent rule state not yet written. See [attachRuleStorage]. */
+    @Volatile
+    private var pendingRuleStore: RuleStore? = null
 
     /**
      * Builds and starts the backend client for the signed-in account.
@@ -597,6 +744,22 @@ class SidequestPlatform(
         started = false
         features.disableAll()
         partyService.close()
+        ruleEngine.close()
+        // The last state, written on the way out rather than lost to the save interval. Fire-and-forget: the
+        // storage layer's flush is what actually waits for it.
+        pendingRuleStore?.let { store ->
+            pendingRuleStore = null
+            ruleStorageAccount?.let { account ->
+                scheduler.async(OwnerId.PLATFORM) {
+                    fileStorage.repository(
+                        id = SqId.sidequest("rules"),
+                        scope = StorageScope.Account(account),
+                        serializer = RuleStore.serializer(),
+                        default = { RuleStore() },
+                    ).save(store)
+                }
+            }
+        }
         stopBackendJobs()
         // The realtime loop and the backend's jobs are owned by the platform, so cancelling its scheduler
         // registrations is the whole of their shutdown. Nothing here has to be told to stop.
@@ -630,6 +793,14 @@ class SidequestPlatform(
 
         /** How often the group listing is re-fetched, for names and roles that changed. */
         val GROUP_REFRESH: Duration = 5.minutes
+
+        /**
+         * How often rule progress is written, when it changed.
+         *
+         * Ten seconds. Long enough that a burst of firings is one write, short enough that a crash costs at
+         * most a few seconds of progress — and [stop] writes what is pending anyway.
+         */
+        val RULE_SAVE_INTERVAL: Duration = 10.seconds
     }
 }
 

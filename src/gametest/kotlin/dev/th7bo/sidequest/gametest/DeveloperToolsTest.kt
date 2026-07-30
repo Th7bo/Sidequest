@@ -26,7 +26,7 @@ class DeveloperToolsTest : FabricClientGameTest {
         // that get written once and never exercised.
         context.runOnClient<RuntimeException> {
             Sidequest.platform.commands.all().map { it.spec.name }.let { names ->
-                for (expected in listOf("sqstatus", "sqlog", "sqtest", "sqdiag", "sqchat", "sqboard")) {
+                for (expected in listOf("sqstatus", "sqlog", "sqtest", "sqdiag", "sqchat", "sqboard", "sqrule")) {
                     check(expected in names) { "/$expected was not registered; have: $names" }
                 }
             }
@@ -90,6 +90,62 @@ class DeveloperToolsTest : FabricClientGameTest {
                 // And a click on something that has gone must not throw.
                 action.spec.handler(listOf("no-such-notification", "go"))
                 action.spec.handler(listOf("gametest-action"))
+            }
+
+            /*
+             * The rule engine, on the real path.
+             *
+             * The headless tests drive the engine directly; what they cannot check is the wiring in
+             * `SidequestPlatform` — that the engine is subscribed to the *live* bus, and that its action
+             * handlers reach the real notification and sound managers. Both of those live above the engine, so
+             * a passing unit suite says nothing about them.
+             */
+            context.runOnClient<RuntimeException> {
+                val before = Sidequest.platform.notifications.history().size
+                val test = checkNotNull(Sidequest.platform.commands["sqtest"])
+                test.spec.handler(listOf("rule"))
+
+                val ruleId = dev.th7bo.sidequest.platform.id.SqId.sidequest("dev.rule")
+                val progress = Sidequest.platform.rules.progressOf(ruleId)
+                // Two tiers, so two firings. One would mean the tier logic did not see the second crossing;
+                // three would mean it re-awarded one.
+                check(progress.firings == 2) {
+                    // The diagnostics are in the message rather than in a log: a gametest failure is read
+                    // once, in CI output, and "wanted 2 got 0" without the registry and the trace is a
+                    // failure that has to be reproduced before it can be understood.
+                    "the test rule fired ${progress.firings} time(s) on the live bus, wanted 2. " +
+                        "registered: ${Sidequest.platform.rules.rules().map { it.id.value }}; " +
+                        "trace: ${Sidequest.platform.rules.trace().map { it.toString().take(120) }}; " +
+                        "listeners: ${Sidequest.platform.listenerCount()}"
+                }
+                check(progress.progress == 3) { "progress was ${progress.progress}, wanted 3" }
+
+                // The notify handler is registered by the platform, not the engine. This is the only place that
+                // is checked at all.
+                val after = Sidequest.platform.notifications.history().size
+                check(after > before) {
+                    "a rule fired but no notification reached the manager, so the notify handler is not wired"
+                }
+            }
+
+            // The inspection commands, including the paths for a rule that does not exist.
+            context.runOnClient<RuntimeException> {
+                val rule = checkNotNull(Sidequest.platform.commands["sqrule"]) { "/sqrule is not registered" }
+                rule.spec.handler(emptyList())
+                rule.spec.handler(listOf("list"))
+                rule.spec.handler(listOf("trace"))
+                rule.spec.handler(listOf("show", "dev.rule"))
+                rule.spec.handler(listOf("fire", "dev.rule"))
+                rule.spec.handler(listOf("reset", "dev.rule"))
+                rule.spec.handler(listOf("show", "no.such.rule"))
+                rule.spec.handler(listOf("fire"))
+                rule.spec.handler(listOf("nonsense"))
+
+                // The reset above is the assertion: state a command claims to have cleared must be cleared.
+                val ruleId = dev.th7bo.sidequest.platform.id.SqId.sidequest("dev.rule")
+                check(Sidequest.platform.rules.progressOf(ruleId).progress == 0) {
+                    "/sqrule reset left progress behind"
+                }
             }
 
             // Log levels are settable at runtime, which is the difference between a debug line that is written

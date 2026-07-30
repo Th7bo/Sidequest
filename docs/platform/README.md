@@ -31,7 +31,7 @@ rather than at runtime on somebody else's machine.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 348 tests that take a couple of seconds.
+testable at full speed with no game running — 1,149 tests that take a couple of seconds.
 
 ---
 
@@ -704,6 +704,115 @@ there is something to gate.
 
 ---
 
+## When this, then that
+
+The plan wants an engine behind achievements, soundboard triggers, contracts, evidence automation,
+cosmetic rewards, titles and notifications. All seven are the same shape — watch for something, check
+some conditions, do some things — and writing them seven times is how a mod ends up with seven
+slightly different ideas of what a cooldown means.
+
+```kotlin
+context.rules.register(
+    Rule(
+        id = SqId.sidequest("achievement.hyperion"),
+        displayName = "Big spender",
+        trigger = RuleTrigger.of<RareDropEvent>(),
+        condition = Condition.all(
+            Condition.ItemIs(setOf("HYPERION")),
+            Condition.OnIsland(setOf(Island.CRIMSON_ISLE)),
+        ),
+        tiers = listOf(1, 5),
+        actions = listOf(
+            RuleAction.AddProgress(),
+            RuleAction.Notify("{rule} · tier {tier}", "that is {progress} of them"),
+            RuleAction.PlaySound(SqId.sidequest("sound.fanfare")),
+        ),
+    ),
+)
+```
+
+### A rule is data
+
+There is no code in one beyond its conditions and actions, and both of those are values. That is what
+makes a rule inspectable: `/sqrule show <id>` can print it, `/sqrule fire <id>` can run it on demand,
+and a rule that arrives from the backend can be checked before it is trusted rather than being a piece
+of code somebody has to take on faith.
+
+### A skip is explained, never swallowed
+
+`Condition` is a sealed tree rather than a lambda, and this is the reason. A lambda is opaque: when a
+rule does not fire, all anybody can say is "the condition was false". A tree can be walked, so
+`Condition.explain` names *the branch that failed* — and "which condition stopped it" is the only
+question anybody ever asks about a rule that is not working.
+
+```
+sidequest:achievement.hyperion  on the Hub
+sidequest:contract.debt         progress 2, next tier 3
+sidequest:soundboard.laugh      on cooldown for another 4200ms
+```
+
+Every evaluation produces one of those, and the last few hundred are kept in `rules.trace()`, which is
+what `/sqrule trace` prints. They are logged at TRACE and not DEBUG on purpose: a skip happens on
+nearly every event, and at DEBUG they would drown everything else.
+
+### An unhandled action is skipped, not fatal
+
+Actions are data dispatched by `kind` to an `ActionHandler` the engine looks up, and the engine imports
+no subsystem — the mod registers the handlers in `SidequestPlatform`. Today that is `notify`, `sound`,
+`sound_pool` and `stat`; `currency`, `evidence`, `cosmetic`, `cinematic` and the rest have no subsystem
+yet. A rule naming one of those **does the half that works** and logs the rest. Half-supported beats
+broken, and it is what lets the engine exist before the things it will eventually drive.
+
+### Tiers, and why they are not three rules
+
+"Kill 10, 100, 1000" is one rule and three achievements. Modelled as three rules it is three copies of
+one condition that can drift apart, so instead a rule carries `tiers` and fires each time progress
+crosses one. Progress is added *before* the check, because a tier is a threshold on the new total, and
+the **highest** newly-crossed tier wins: progress that jumps from 0 to 150 past tiers of 10 and 100 has
+earned the 100, and announcing the 10 would be announcing the wrong thing. `{tier}`, `{progress}` and
+`{firings}` are substituted into an action's text, so one action serves every tier.
+
+### State is per subject
+
+Most rules are about the local player, but "Alice has paid three debts" is the same machinery with a
+different subject, and building it for one player means rebuilding it later. Cooldowns are per subject
+too: a rule about a party member's drops should not go quiet because a different member triggered it a
+second ago.
+
+A null subject means *the subject the engine would have picked itself* — the local player — everywhere.
+That cost a real bug. An event files progress under the local player, so `progressOf(id)` without a
+subject returned zero and `/sqrule list` showed every rule at nothing. Every headless test passed an
+explicit subject, so none of them noticed; a real client run did. Clearing everybody is now its own
+method, `resetEverySubject`, because a default that means two things is exactly what went wrong.
+
+### Which conditions exist
+
+Typed today: island, activity, activity confidence, party state, custom friend, chat phrase, item (by
+SkyBlock id *or* display name, because a drop read from chat has only a name), numeric value, own or
+another rule's progress, whether another rule has fired, and a window since one last fired.
+
+The plan also lists death cause, debt state, ping response, current title and current cosmetic. Each of
+those needs a subsystem that does not exist yet, and inventing a condition against a data model nobody
+has written is how migrations get made. `Condition.Custom` covers them in the meantime and is honest
+about it: it names itself in `explain` and says nothing more, because a predicate cannot be walked.
+
+### Cost
+
+Rules are indexed by their trigger's event class, and the index is walked up the event's class
+hierarchy so a rule on `ChatDerivedEvent` sees a `RareDropEvent` without being registered under each.
+A hundred rules evaluating their conditions on every event at twenty ticks a second is a lot of work to
+conclude nothing. Cheap checks come first inside an evaluation too — a firing limit and a cooldown are
+two map lookups, and most evaluations end there.
+
+The engine takes one `IMMEDIATE` subscription on `SidequestEvent` rather than one per rule, which would
+have to be torn down and rebuilt every time a rule was registered. `RuleFiredEvent` is excluded from
+it: a rule triggered on one and firing would trigger itself, and one recursion is all it takes.
+
+Progress is persisted per account and written on a ten-second timer rather than per change, because a
+rule that adds progress on every kill would otherwise write the file twenty times a second.
+
+---
+
 ## Seeing what the mod is doing
 
 Everything here is layered behind an interface, which is what makes it testable and also what makes it
@@ -715,7 +824,8 @@ are how the difference gets seen.
 | --- | --- |
 | `/sqstatus` | one screen of everything: location, activity, party, backend, parsers, players, permissions |
 | `/sqlog <category> <level>` | turns a log category up or down at runtime; `/sqlog all debug` |
-| `/sqtest <what>` | fires a subsystem: `notify` `sound` `queue` `presence` `chat` `item` |
+| `/sqtest <what>` | fires a subsystem: `notify` `sound` `queue` `presence` `chat` `item` `rule` |
+| `/sqrule [list\|show\|fire\|reset\|trace] [id]` | lists rules with their progress, prints one, fires one on demand, or shows why recent ones did not |
 | `/sqdiag` | ticks, joins, uptime |
 | `/sqchat` | toggles chat tracing and prints the parser's counters |
 | `/sqboard` | dumps both boards and both readings, with `§` as `&` |
@@ -734,6 +844,16 @@ testing the manager should not also require a working asset pipeline.
 without entering a dungeon.
 
 `/sqtest item` reads whatever is in hand, which is the one thing no headless test can do.
+
+`/sqrule fire <id>` is the plan's manual admin trigger. It is the only way to check a rule about something
+nobody can arrange — a rare drop is not something a developer can produce on demand — and it reports the
+*reason* when nothing happens, so an unfired rule names the condition that stopped it. The event it passes is
+a stand-in, and the command says so: a condition about text or an item cannot hold against an event carrying
+neither, so a skip there is not proof the rule is broken.
+
+`/sqtest rule` drives a tiered test rule through the **live bus** rather than calling the engine, which is the
+part most likely to be wrong. A rule that fires when invoked directly and never fires in play is exactly the
+bug that catches.
 
 ### Log levels at runtime
 
@@ -773,9 +893,9 @@ though it could be pressed, which is worse than plain: it would look broken rath
 `/sqaction` is registered by the *platform*, not by a feature, because a notification's actions have to work
 whatever is switched on.
 
-### Two bugs the in-game test caught
+### Three bugs the in-game test caught
 
-`DeveloperToolsTest` drives every one of these commands on a real client, and found two failures that no
+`DeveloperToolsTest` drives every one of these commands on a real client, and found three failures that no
 headless test could:
 
 **The mod crashed on startup.** The notification sink asked the platform for a logger, and the platform took
@@ -785,7 +905,12 @@ logger is now resolved on use.
 **Every notification threw.** Platform notification ids are UUIDs; `UiId` paths are `[a-z0-9_]` and reject a
 hyphen. Both rules are right for their own type, and the translation between them was missing.
 
-Neither is subtle in hindsight. Both are exactly what happens when two layers that were each tested alone
+**Rule progress read as zero.** The engine fired correctly, twice, and `progressOf(id)` returned nothing —
+because an event files progress under the local player while a null subject meant "nobody in particular". The
+432 headless rule tests all passed an explicit subject, so none of them could see it. A null subject now means
+the local player everywhere, and clearing everybody has its own method.
+
+None is subtle in hindsight. All three are exactly what happens when two layers that were each tested alone
 meet for the first time.
 
 ---

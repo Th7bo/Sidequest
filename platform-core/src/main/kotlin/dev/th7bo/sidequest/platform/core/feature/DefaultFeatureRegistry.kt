@@ -17,6 +17,7 @@ import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.log.LogCategory
 import dev.th7bo.sidequest.platform.audio.SoundManager
 import dev.th7bo.sidequest.platform.notification.NotificationManager
+import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.party.PartyService
 import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.storage.StorageProvider
@@ -50,6 +51,7 @@ public class DefaultFeatureRegistry(
     private val party: PartyService,
     private val notifications: NotificationManager,
     private val sounds: SoundManager,
+    private val rules: RuleEngine,
     private val storage: StorageProvider,
     private val permissions: PermissionService,
     private val loggers: LoggerFactory,
@@ -137,6 +139,7 @@ public class DefaultFeatureRegistry(
             party = party,
             notifications = notifications,
             sounds = sounds,
+            rules = rules,
             storage = storage,
             permissions = permissions,
             log = loggers.create(LogCategory.FEATURE, descriptor.id),

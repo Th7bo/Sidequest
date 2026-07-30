@@ -16,6 +16,7 @@ import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.notification.NotificationManager
+import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.party.PartyService
 import dev.th7bo.sidequest.platform.permission.Permission
 import dev.th7bo.sidequest.platform.permission.PermissionService
@@ -174,6 +175,15 @@ public interface FeatureContext {
      * somebody else's ears.
      */
     public val sounds: SoundManager
+
+    /**
+     * Rules: when this, then that.
+     *
+     * A feature contributes rules the same way it contributes chat patterns, rather than wiring its own
+     * listener and remembering its own cooldown. Seven features each implementing "fire once, then not for a
+     * minute" is seven slightly different ideas of what a cooldown means.
+     */
+    public val rules: RuleEngine
 
     // -- storage ------------------------------------------------------------
 

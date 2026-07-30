@@ -17,7 +17,15 @@ import dev.th7bo.sidequest.platform.notification.NotificationAction
 import dev.th7bo.sidequest.platform.notification.NotificationCategory
 import dev.th7bo.sidequest.platform.notification.NotificationPriority
 import dev.th7bo.sidequest.platform.core.notification.notification
+import dev.th7bo.sidequest.platform.event.EventSource
+import dev.th7bo.sidequest.platform.event.SidequestEvent
 import dev.th7bo.sidequest.platform.permission.Permission
+import dev.th7bo.sidequest.platform.rule.Rule
+import dev.th7bo.sidequest.platform.rule.RuleAction
+import dev.th7bo.sidequest.platform.rule.RuleEngine
+import dev.th7bo.sidequest.platform.rule.RuleEvaluation
+import dev.th7bo.sidequest.platform.rule.RuleReset
+import dev.th7bo.sidequest.platform.rule.RuleTrigger
 import dev.th7bo.sidequest.platform.text.SqStyle
 import dev.th7bo.sidequest.platform.text.SqText
 
@@ -55,6 +63,9 @@ class DeveloperTools(
         context.command("sqstatus", "Everything the mod currently believes") { status() }
         context.command("sqlog", "Turns a log category up or down: /sqlog <category> <level>") { logLevel(it) }
         context.command("sqtest", "Exercises a feature: /sqtest <what>") { test(it) }
+        context.command("sqrule", "Inspects and fires rules: /sqrule [list|show|fire|reset|trace] [id]") { rule(it) }
+
+        registerTestRule(context)
     }
 
     // -- status --------------------------------------------------------------
@@ -207,9 +218,10 @@ class DeveloperTools(
             "presence" -> testPresence()
             "chat" -> testChatRules()
             "item" -> testItem()
+            "rule", "rules" -> testRules()
             else -> {
                 heading("What can be tested")
-                tell("notify · sound · queue · presence · chat · item")
+                tell("notify · sound · queue · presence · chat · item · rule")
                 tell("Usage: /sqtest <what>")
             }
         }
@@ -325,7 +337,190 @@ class DeveloperTools(
         line("extra keys", item.extra.keys.joinToString(", ").ifEmpty { "—" })
     }
 
+    /**
+     * Drives the test rule through its tiers, on the real path.
+     *
+     * Posted on the bus rather than handed to [RuleEngine.evaluate], and that is the whole point of this
+     * particular test: `evaluate` skips the trigger index and the subscription, which is exactly the part most
+     * likely to be wrong. A rule that fires when called directly and never fires in play is the bug this
+     * catches.
+     */
+    private fun testRules() {
+        heading("Rules")
+        // Every subject, not just this player's: a developer running this twice wants the same output both
+        // times, and progress left under a stale uuid would change it.
+        context.rules.resetEverySubject(TEST_RULE)
+        // Three, because the rule's tiers are 1 and 3: the middle one should be a skip with a reason, which is
+        // the more interesting half of the output.
+        repeat(3) { context.post(RuleTestEvent(), EventSource.DERIVED) }
+
+        for (evaluation in context.rules.trace().take(3).reversed()) {
+            when (evaluation) {
+                is RuleEvaluation.Fired -> line(
+                    "fired",
+                    "tier ${evaluation.outcome.tier ?: "—"} at progress ${evaluation.outcome.progress}",
+                )
+                is RuleEvaluation.Skipped -> line("skipped", evaluation.reason)
+            }
+        }
+        val progress = context.rules.progressOf(TEST_RULE)
+        line("progress", "${progress.progress}, fired ${progress.firings}x, tiers ${progress.awardedTiers}")
+        tell("Two toasts and two sounds mean the notify and sound handlers are wired.")
+    }
+
+    // -- rules ---------------------------------------------------------------
+
+    /**
+     * Inspects rules, and fires one on demand.
+     *
+     * Firing by hand is the part that cannot be done any other way: a rule about a rare drop is a rule nobody
+     * can trigger deliberately, and "does this rule work" is otherwise a question answered by playing for a
+     * week. What it reports is the *reason*, so an unfired rule names the condition that stopped it.
+     */
+    private fun rule(arguments: List<String>) {
+        val id = arguments.getOrNull(1)?.let { name ->
+            context.rules.rules().firstOrNull { it.id.value.endsWith(name, ignoreCase = true) }
+        }
+        when (arguments.firstOrNull()?.lowercase()) {
+            null, "list" -> listRules()
+            "trace" -> traceRules()
+            "show" -> if (id == null) error("No such rule. /sqrule list") else showRule(id)
+            "fire" -> if (id == null) error("No such rule. /sqrule list") else fireRule(id)
+            "reset" -> if (id == null) {
+                error("No such rule. /sqrule list")
+            } else {
+                context.rules.resetEverySubject(id.id)
+                tell("Reset ${id.id} for every subject.")
+            }
+            else -> {
+                heading("Rules")
+                tell("/sqrule list · show <id> · fire <id> · reset <id> · trace")
+            }
+        }
+    }
+
+    private fun listRules() {
+        val rules = context.rules.rules()
+        heading("Rules (${rules.size})")
+        if (rules.isEmpty()) {
+            tell("None registered. Features contribute rules as they are built.")
+            return
+        }
+        for (rule in rules) {
+            val progress = context.rules.progressOf(rule.id)
+            // Hidden rules are listed here and nowhere a player would see, because the whole point of a hidden
+            // rule is that it is a surprise — and the whole point of this command is that it is not.
+            val flags = buildList {
+                if (!rule.isEnabled) add("off")
+                if (rule.isHidden) add("hidden")
+            }.joinToString(",")
+            line(
+                rule.id.value,
+                "${rule.trigger} · ${progress.progress}${rule.tiers.lastOrNull()?.let { "/$it" } ?: ""}" +
+                    " · ${progress.firings}x" + if (flags.isEmpty()) "" else " · $flags",
+            )
+        }
+    }
+
+    private fun showRule(rule: dev.th7bo.sidequest.platform.rule.Rule) {
+        heading(rule.displayName.ifEmpty { rule.id.value })
+        val progress = context.rules.progressOf(rule.id)
+        line("id", rule.id.value)
+        line("trigger", rule.trigger.toString())
+        line("condition", rule.condition.toString())
+        line("actions", rule.actions.joinToString(", ") { it.kind }.ifEmpty { "none" })
+        line("tiers", rule.tiers.joinToString(", ").ifEmpty { "—" })
+        line("cooldown", if (rule.cooldown == kotlin.time.Duration.ZERO) "none" else rule.cooldown.toString())
+        line("max firings", rule.maxFirings?.toString() ?: "unlimited")
+        line("reset", rule.reset.name.lowercase())
+        line("progress", "${progress.progress}, fired ${progress.firings}x")
+        line("awarded tiers", progress.awardedTiers.joinToString(", ").ifEmpty { "—" })
+    }
+
+    /**
+     * Fires a rule against a stand-in event.
+     *
+     * The event is synthetic, and the caveat below says so rather than leaving it implied: a condition that
+     * reads the event — a phrase, an item, a number — cannot hold against an event that carries none of them,
+     * so a skip here is not proof the rule is broken. What it *does* prove is everything else: the state
+     * checks, the context conditions, and the action handlers.
+     */
+    private fun fireRule(rule: dev.th7bo.sidequest.platform.rule.Rule) {
+        heading("Firing ${rule.id}")
+        val evaluation = context.rules.evaluate(rule.id, RuleTestEvent())
+        when (evaluation) {
+            null -> error("The engine does not know that rule.")
+            is RuleEvaluation.Fired -> {
+                line("result", "fired")
+                line("tier", evaluation.outcome.tier?.toString() ?: "—")
+                line("progress", evaluation.outcome.progress.toString())
+                line("firings", evaluation.outcome.firings.toString())
+            }
+            is RuleEvaluation.Skipped -> {
+                line("result", "did not fire")
+                line("because", evaluation.reason)
+            }
+        }
+        tell("The event was a stand-in, so conditions about text or items could not hold.")
+    }
+
+    private fun traceRules() {
+        val trace = context.rules.trace()
+        heading("Recent evaluations (${trace.size})")
+        if (trace.isEmpty()) {
+            tell("Nothing evaluated yet. Rules only wake for their own trigger.")
+            return
+        }
+        for (evaluation in trace.take(TRACE_LINES)) {
+            when (evaluation) {
+                is RuleEvaluation.Fired -> line(evaluation.rule.id.value, "fired at ${evaluation.outcome.progress}")
+                is RuleEvaluation.Skipped -> line(evaluation.rule.id.value, evaluation.reason)
+            }
+        }
+    }
+
     // -- test fixtures -------------------------------------------------------
+
+    /**
+     * One rule that exercises the engine end to end.
+     *
+     * Registered by the developer feature rather than by the platform, so switching the feature off takes it
+     * with it. Tiered on purpose: a tiered rule is the one shape where the engine does something a feature
+     * could not trivially do itself, so it is the shape worth having a test for.
+     */
+    private fun registerTestRule(context: FeatureContext) {
+        context.rules.register(
+            Rule(
+                id = TEST_RULE,
+                displayName = "Developer test rule",
+                description = "Fires at 1 and 3 progress. Driven by /sqtest rule.",
+                trigger = RuleTrigger(RuleTestEvent::class.java),
+                tiers = listOf(1, 3),
+                actions = listOf(
+                    RuleAction.AddProgress(),
+                    RuleAction.Notify(
+                        title = "{rule} · tier {tier}",
+                        subtitle = "progress {progress}, firing {firings}",
+                        // Not DEBUG, which is DISABLED by default: a test whose notification is switched off
+                        // proves nothing and looks like a broken handler. Somebody typing /sqtest rule wants
+                        // to see the toast.
+                        category = NotificationCategory.PROGRESSION.name,
+                    ),
+                    RuleAction.PlaySound(testSoundFor(SoundGroup.INTERFACE)),
+                    // Deliberately unhandled: proves that a rule with an action nobody handles still does the
+                    // rest, which is the difference between half-supported and broken.
+                    RuleAction.GrantCurrency(10),
+                ),
+                reset = RuleReset.ON_DISCONNECT,
+            ),
+        )
+    }
+
+    /** The stand-in event. Exists only so a rule has something to be triggered by on demand. */
+    private class RuleTestEvent : SidequestEvent() {
+        override fun describe(): String = "a developer test trigger"
+    }
+
 
     /**
      * Registers a sound per group, plus a pool and a deliberately broken one.
@@ -398,6 +593,10 @@ class DeveloperTools(
         val TEST_POOL = SqId.sidequest("dev.pool")
         val MISSING_SOUND = SqId.sidequest("dev.missing")
         val FALLBACK_SOUND = SqId.sidequest("dev.fallback")
+        val TEST_RULE = SqId.sidequest("dev.rule")
+
+        /** How much of the rule trace `/sqrule trace` prints. A chat window holds about this much. */
+        const val TRACE_LINES = 12
 
         const val LABEL = 0x9CA3AF
         const val VALUE = 0xE5E7EB
