@@ -239,6 +239,10 @@ object Sidequest : ClientModInitializer {
             // Auto-save only after the initial load, or loading would schedule a write
             // of what was just read.
             persistence.startAutoSave()
+            // And push what was read into the services. Without this the file is correct and the running mod
+            // is at its defaults until somebody opens the screen and touches something — which is the exact
+            // shape of bug where a setting "does not work" and then mysteriously starts working.
+            SidequestSettings.applyToPlatform()
         }
 
         FontReloadListener.register()
@@ -511,6 +515,18 @@ object Sidequest : ClientModInitializer {
     private fun itemStackFor(itemName: String): net.minecraft.world.item.ItemStack? =
         net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.TOTEM_OF_UNDYING)
             .takeIf { itemName.isNotBlank() }
+
+    /**
+     * Writes the configuration after something changed it from outside the screen.
+     *
+     * The ignore action on a drop's toast is the case this exists for: it edits a setting the screen owns,
+     * from a place the screen is not open. The controller normally saves when a *binding* changes, and a
+     * plain property write is invisible to it — so this asks for the save explicitly.
+     */
+    fun saveConfiguration() {
+        runCatching { persistence.scheduleSave() }
+            .onFailure { logger.warn("Could not save the configuration", it) }
+    }
 
     /** Schema version of the on-disk configuration. Bump alongside a new migration. */
     const val CONFIG_SCHEMA_VERSION: Int = 1

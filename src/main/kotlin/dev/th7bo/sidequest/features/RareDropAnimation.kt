@@ -1,5 +1,7 @@
 package dev.th7bo.sidequest.features
 
+import dev.th7bo.sidequest.Sidequest
+import dev.th7bo.sidequest.SidequestSettings
 import dev.th7bo.sidequest.platform.chat.DropRarity
 import dev.th7bo.sidequest.platform.chat.RareDropEvent
 import dev.th7bo.sidequest.platform.chat.TrophyCatchEvent
@@ -19,8 +21,6 @@ import dev.th7bo.sidequest.platform.core.drops.DropDecision
 import dev.th7bo.sidequest.platform.core.drops.RareDropPolicy
 import dev.th7bo.sidequest.platform.core.drops.RareDropSettings
 import dev.th7bo.sidequest.platform.core.notification.notification
-import dev.th7bo.sidequest.platform.storage.Repository
-import dev.th7bo.sidequest.platform.storage.StorageScope
 
 /**
  * The animation for a rare drop.
@@ -58,29 +58,31 @@ class RareDropAnimation(
     )
 
     private lateinit var context: FeatureContext
-    private lateinit var storage: Repository<RareDropSettings>
 
-    /** Read on the client thread and written from storage, so it is held rather than re-read. */
-    @Volatile
-    var settings: RareDropSettings = RareDropSettings()
-        private set
+    /**
+     * The user's choices, read from the configuration screen.
+     *
+     * Derived on each read rather than cached, because the config is the source of truth and a cached copy is
+     * a second one. It is four field reads and an allocation, against an event that fires when something rare
+     * drops — which is not a hot path by any definition.
+     */
+    val settings: RareDropSettings
+        get() = SidequestSettings.Drops.let { chosen ->
+            RareDropSettings(
+                isEnabled = chosen.isEnabled,
+                minimumRarity = chosen.minimumRarity,
+                durationMillis = chosen.durationSeconds * MILLIS_PER_SECOND,
+                useTotemAnimation = chosen.useTotemAnimation,
+                playsSound = chosen.playsSound,
+                ignoredItems = chosen.ignoredItems.toSet(),
+                ignoredIslands = chosen.ignoredIslands.toSet(),
+                takesScreenshot = chosen.takesScreenshot,
+            )
+        }
 
     override fun onEnable(context: FeatureContext) {
         this.context = context
 
-        // Global rather than per account, deliberately. An ignore list is about what a person finds
-        // interesting, and somebody tired of Enchanted Hay Bale is tired of it on their alt too.
-        storage = context.store(
-            name = "drops",
-            scope = StorageScope.Global,
-            serializer = RareDropSettings.serializer(),
-            default = { RareDropSettings() },
-        )
-        context.async {
-            val stored = storage.load()
-            if (stored.report.isWorthReporting) context.log.warn { "Drop settings: ${stored.report}" }
-            settings = stored.value
-        }
 
         // Registered here rather than assumed: the sound manager warns about an unknown id, and a feature
         // that played one it never declared would fill the log with its own mistake.
@@ -97,16 +99,8 @@ class RareDropAnimation(
 
         context.command(
             name = "sqdrops",
-            description = "What a rare drop does",
-            usage = "[show|ignore|unignore|totem|sound|off|on] [item]",
-            completions = { done ->
-                when {
-                    done.isEmpty() -> VERBS
-                    done.first().lowercase() == "unignore" -> settings.ignoredItems.toList()
-                    else -> emptyList()
-                }
-            },
-        ) { arguments -> command(arguments) }
+            description = "Why a drop was or was not announced",
+        ) { explain() }
     }
 
     // -- deciding ------------------------------------------------------------
@@ -216,55 +210,48 @@ class RareDropAnimation(
 
     // -- settings ------------------------------------------------------------
 
+    /**
+     * Adds an item to the ignore list, from the toast's own action.
+     *
+     * Writes into the configuration rather than into a store of its own, because that list is a *preference*
+     * and the settings screen is where somebody looks for it. Saving goes through the config controller for
+     * the same reason: two things writing the same list is how they end up disagreeing.
+     */
     private fun ignore(item: String) {
-        update { it.copy(ignoredItems = it.ignoredItems + item) }
+        if (SidequestSettings.Drops.ignoredItems.any { it.equals(item, ignoreCase = true) }) return
+        SidequestSettings.Drops.ignoredItems = SidequestSettings.Drops.ignoredItems + item
+        Sidequest.saveConfiguration()
         context.log.info { "Ignoring '$item'" }
     }
 
-    private fun update(transform: (RareDropSettings) -> RareDropSettings) {
-        settings = transform(settings)
-        val saved = settings
-        context.async { storage.save(saved) }
-    }
-
-    private fun command(arguments: List<String>) {
-        val notifications = context.notifications
-        fun tell(text: String) = notifications.notify(
-            notification(NotificationCategory.DEBUG, "Drops", subtitle = text),
+    /**
+     * What the feature would do, and where to change it.
+     *
+     * Deliberately not a way to *set* anything: the settings live on the configuration screen, and a second
+     * place to change them is a second place for them to disagree. This says what they currently are and
+     * points at where they are edited.
+     */
+    private fun explain() {
+        val current = settings
+        context.notifications.notify(
+            notification(
+                category = NotificationCategory.DEBUG,
+                title = "Rare drops",
+                subtitle = if (!current.isEnabled) {
+                    "Off. Turn it on under Rare drops in the settings."
+                } else {
+                    "From ${current.minimumRarity} · ${current.ignoredItems.size} ignored · " +
+                        (if (current.useTotemAnimation) "totem" else "cinematic")
+                },
+            ),
         )
-
-        when (arguments.firstOrNull()?.lowercase()) {
-            null, "show" -> {
-                tell(
-                    "${if (settings.isEnabled) "on" else "off"} · " +
-                        "from ${settings.minimumRarity} · " +
-                        "${settings.ignoredItems.size} ignored · " +
-                        (if (settings.useTotemAnimation) "totem" else "cinematic"),
-                )
-            }
-            "on" -> update { it.copy(isEnabled = true) }.also { tell("On.") }
-            "off" -> update { it.copy(isEnabled = false) }.also { tell("Off.") }
-            "totem" -> update { it.copy(useTotemAnimation = !it.useTotemAnimation) }
-                .also { tell(if (settings.useTotemAnimation) "Totem animation." else "Cinematic.") }
-            "sound" -> update { it.copy(playsSound = !it.playsSound) }
-                .also { tell(if (settings.playsSound) "Sound on." else "Sound off.") }
-            "ignore" -> {
-                val item = arguments.drop(1).joinToString(" ")
-                if (item.isBlank()) tell("Which item? /sqdrops ignore <name>") else { ignore(item); tell("Ignoring '$item'.") }
-            }
-            "unignore" -> {
-                val item = arguments.drop(1).joinToString(" ")
-                update { settings -> settings.copy(ignoredItems = settings.ignoredItems.filterNot { it.equals(item, true) }.toSet()) }
-                tell("No longer ignoring '$item'.")
-            }
-            else -> tell("One of: ${VERBS.joinToString(", ")}")
-        }
     }
 
     private companion object {
-        val VERBS = listOf("show", "ignore", "unignore", "totem", "sound", "off", "on")
 
         val SOUND = SqId.sidequest("drops.rare")
+
+        const val MILLIS_PER_SECOND = 1_000L
 
         /** Where the item appears, as a fraction of the run. Late enough to be a reveal, early enough to read. */
         const val REVEAL_AT = 0.5f

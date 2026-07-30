@@ -330,6 +330,50 @@ public class SectionBuilder internal constructor(
         ) as DropdownSetting<T>
     }
 
+    /**
+     * An editable list of values.
+     *
+     * [ListSetting] and its renderer have both existed since phase 2; this is the builder that was never
+     * written, so the control could only be reached by constructing the setting by hand. The first thing that
+     * actually needed one was the rare-drop ignore list — a set that grows from gameplay and has to be
+     * editable somewhere other than a chat command.
+     *
+     * @param createItem supplies a new entry when the user presses add. Null hides the add button, which is
+     *   right for a list that is only ever added to from elsewhere and pruned here.
+     */
+    public fun <T> list(
+        id: UiId,
+        title: String,
+        value: Binding<List<T>>,
+        elementSerializer: SettingSerializer<T>,
+        itemLabel: (T) -> String,
+        description: String? = null,
+        default: List<T> = value.state.peek(),
+        itemKey: (T) -> Any = { it as Any },
+        createItem: (() -> T)? = null,
+        isReorderable: Boolean = true,
+        maxItems: Int = Int.MAX_VALUE,
+        validator: Validator<List<T>>? = null,
+        block: MetadataBuilder.() -> Unit = {},
+    ): ListSetting<T> {
+        @Suppress("UNCHECKED_CAST")
+        return add(
+            ListSetting(
+                id = id,
+                metadata = metadata(title, description, block),
+                binding = value,
+                defaultValue = default,
+                elementSerializer = elementSerializer,
+                itemLabel = itemLabel,
+                itemKey = itemKey,
+                createItem = createItem,
+                isReorderable = isReorderable,
+                maxItems = maxItems,
+                validator = validator,
+            ),
+        ) as ListSetting<T>
+    }
+
     public fun colorPicker(
         id: UiId,
         title: String,

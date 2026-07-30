@@ -3,7 +3,6 @@ package dev.th7bo.sidequest.platform.core.cosmetic
 import dev.th7bo.sidequest.platform.core.backend.RealtimeMessageReceivedEvent
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticLoadout
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticService
-import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticSlot
 import dev.th7bo.sidequest.platform.cosmetic.EquippedCosmetic
 import dev.th7bo.sidequest.platform.cosmetic.LoadoutChangedEvent
@@ -21,16 +20,14 @@ import kotlinx.serialization.Serializable
 /**
  * What is written to disk.
  *
- * The loadout and the viewer's settings, which sound like one thing and are not: a loadout is *yours* and
- * belongs to the account, and the settings are about what *this machine's owner* is willing to look at. They
- * are stored together only because a single file per account is simpler than two, and the account scope is
- * right for both — somebody who has turned off particles has turned them off, not turned them off on their
- * alt.
+ * **The loadout only.** The viewer's settings used to live here too and no longer do: they are a *preference*,
+ * they belong in the configuration file with every other preference, and holding them in two places meant a
+ * value could be changed in one and lost from the other on the next launch. A loadout is not a preference —
+ * it is account data that syncs to the group — which is why it stays.
  */
 @Serializable
 public data class CosmeticStore(
     public val loadout: CosmeticLoadout = CosmeticLoadout.Empty,
-    public val settings: CosmeticSettings = CosmeticSettings.Default,
 )
 
 /**

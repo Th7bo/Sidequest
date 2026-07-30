@@ -1,0 +1,181 @@
+package dev.th7bo.sidequest
+
+import dev.th7bo.sidequest.platform.audio.SoundGroup
+import dev.th7bo.sidequest.platform.chat.DropRarity
+import dev.th7bo.sidequest.platform.cinematic.CinematicSettings
+import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings
+import dev.th7bo.sidequest.platform.notification.NotificationSettings
+import dev.th7bo.sidequest.platform.skyblock.Island
+import dev.th7bo.sidequest.ui.rendering.Color
+
+/**
+ * Every preference the mod has, as plain properties.
+ *
+ * **The config file is the source of truth for preferences, and this object is its in-memory shape.** That is
+ * a decision rather than an accident, and it is worth stating because the alternative was already half built:
+ * several services carried their own settings *and* their own persistence, so a value could be changed in two
+ * places and disagree on the next launch. Now the services hold the live value and this holds what the user
+ * chose; [applyToPlatform] is the one place the second becomes the first.
+ *
+ * Data that is not a preference keeps its own storage — a cosmetic loadout, marker store and rule progress are
+ * things that *happened*, not things somebody chose, and they belong with the feature that produced them.
+ *
+ * Plain properties on plain objects, because the config framework binds to them rather than owning them.
+ * Nothing here depends on the UI.
+ */
+public object SidequestSettings {
+
+    // -- appearance ----------------------------------------------------------
+
+    public var theme: String = "dark"
+    public var accentColor: Color = Color.parse("#8B5CF6")
+    public var compactMode: Boolean = false
+    public var hudScale: Float = 1.0f
+
+    /**
+     * Where the group's backend is.
+     *
+     * Defaulted to the group's own server rather than left blank, because this is a private mod for one
+     * friend group and asking every member to type a URL is asking for one of them to type it wrong. Blank is
+     * still supported and means "no backend": the local features are most of the mod, and somebody who clears
+     * this should get no errors and no retries rather than a broken-looking client.
+     */
+    public var backendUrl: String = DEFAULT_BACKEND_URL
+
+    public const val DEFAULT_BACKEND_URL: String = "https://sq.api.th7bo.dev"
+
+    public var debugOverlay: Boolean = false
+
+    /**
+     * One switch for every "serious mode".
+     *
+     * Notifications, sounds and cinematics each carry their own flag, and for a while the honest layout was
+     * three toggles with the same label in three categories — which is not a configuration screen, it is a
+     * quiz. Somebody turning this on wants the mod to stop being playful; there is no version of that where
+     * they want it for toasts and not for sounds.
+     */
+    public var seriousMode: Boolean = false
+
+    // -- notifications -------------------------------------------------------
+
+    public object Notifications {
+        public var isEnabled: Boolean = true
+        public var durationSeconds: Int = 5
+
+        /** Whether a toast waits for a safe moment rather than appearing mid-fight. */
+        public var queueWhileBusy: Boolean = true
+    }
+
+    // -- sound ---------------------------------------------------------------
+
+    public object Sound {
+        public var master: Float = 1f
+        public var interfaceVolume: Float = 1f
+        public var effects: Float = 1f
+        public var soundboard: Float = 1f
+    }
+
+    // -- cinematics ----------------------------------------------------------
+
+    public object Cinematics {
+        public var isEnabled: Boolean = true
+        public var letterbox: Boolean = true
+
+        /** Never take the screen; show the compact form of everything instead. */
+        public var compactOnly: Boolean = false
+
+        public var queueWhileUnsafe: Boolean = true
+        public var recap: Boolean = true
+    }
+
+    // -- rare drops ----------------------------------------------------------
+
+    public object Drops {
+        public var isEnabled: Boolean = true
+
+        /**
+         * The control that makes the feature bearable.
+         *
+         * Most drops Hypixel calls rare are not worth stopping for, and a mod that animates every one of them
+         * gets switched off within an hour of farming.
+         */
+        public var minimumRarity: DropRarity = DropRarity.VERY_RARE
+
+        public var durationSeconds: Int = 4
+        public var useTotemAnimation: Boolean = false
+        public var playsSound: Boolean = true
+        public var takesScreenshot: Boolean = false
+
+        /**
+         * Items never to announce.
+         *
+         * A list rather than a text field, because it grows from gameplay: the ignore action on a toast adds
+         * to it at the moment something has just interrupted somebody. This screen is where it gets pruned.
+         */
+        public var ignoredItems: List<String> = emptyList()
+
+        public var ignoredIslands: List<Island> = emptyList()
+    }
+
+    // -- cosmetics -----------------------------------------------------------
+
+    public object Cosmetics {
+        public var isEnabled: Boolean = true
+        public var showAppearanceOverrides: Boolean = true
+        public var showEffects: Boolean = true
+        public var showJokeCosmetics: Boolean = true
+        public var reducedAnimation: Boolean = false
+    }
+
+    /**
+     * Pushes every preference into the services that act on it.
+     *
+     * Called after the config loads and after any setting changes. One function rather than a callback per
+     * setting: a screen with fifty settings would otherwise need fifty wires, and the forty-ninth is the one
+     * somebody forgets — which produces a setting that looks like it works and does nothing until a restart.
+     *
+     * Cheap enough to run on every change. Each assignment is a data-class copy and a field write; nothing
+     * here touches disk or the network.
+     */
+    public fun applyToPlatform() {
+        val platform = Sidequest.platformOrNull ?: return
+
+        platform.applyPreferences(
+            notifications = NotificationSettings(
+                seriousMode = seriousMode,
+                queueWhileBusy = Notifications.queueWhileBusy,
+                // Kept from the live value rather than reset: per-category delivery is set by features, not
+                // by this screen, and overwriting it here would quietly undo them.
+                perCategory = platform.notifications.settings.perCategory,
+            ),
+            sounds = platform.sounds.settings.copy(
+                masterVolume = Sound.master,
+                seriousMode = seriousMode,
+                groupVolumes = mapOf(
+                    SoundGroup.INTERFACE to Sound.interfaceVolume,
+                    SoundGroup.EFFECTS to Sound.effects,
+                    SoundGroup.SOUNDBOARD to Sound.soundboard,
+                ),
+            ),
+            cinematics = CinematicSettings(
+                isEnabled = Cinematics.isEnabled,
+                letterbox = Cinematics.letterbox,
+                compactOnly = Cinematics.compactOnly,
+                queueWhileUnsafe = Cinematics.queueWhileUnsafe,
+                recap = Cinematics.recap,
+                seriousMode = seriousMode,
+            ),
+            cosmetics = CosmeticSettings(
+                isEnabled = Cosmetics.isEnabled,
+                showAppearanceOverrides = Cosmetics.showAppearanceOverrides,
+                showEffects = Cosmetics.showEffects,
+                showJokeCosmetics = Cosmetics.showJokeCosmetics,
+                reducedAnimation = Cosmetics.reducedAnimation,
+                // Preserved for the same reason as `perCategory`: these are set by right-clicking a player,
+                // not by this screen.
+                hiddenSlots = platform.cosmetics.settings.hiddenSlots,
+                hiddenPlayers = platform.cosmetics.settings.hiddenPlayers,
+            ),
+        )
+    }
+}

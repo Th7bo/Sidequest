@@ -338,6 +338,28 @@ class SidequestPlatform(
 
     val cosmetics: CosmeticService get() = cosmeticService
 
+    /**
+     * Applies the user's preferences to every service that acts on them.
+     *
+     * One method, because the services expose `val settings` on their interfaces and only the
+     * implementations are mutable — so the alternative is leaking the concrete types to whoever holds the
+     * config. Each service takes its settings through an `update` method rather than a plain assignment, and
+     * that is not ceremony: leaving serious mode has to *release what was held*, and an assignment would
+     * silently discard an hour of somebody's notifications. The setters are private precisely so that cannot
+     * be got wrong from outside.
+     */
+    fun applyPreferences(
+        notifications: dev.th7bo.sidequest.platform.notification.NotificationSettings,
+        sounds: dev.th7bo.sidequest.platform.audio.SoundSettings,
+        cinematics: dev.th7bo.sidequest.platform.cinematic.CinematicSettings,
+        cosmetics: dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings,
+    ) {
+        notificationManager.update(notifications)
+        soundManager.update(sounds)
+        cinematicDirector.update(cinematics)
+        cosmeticService.settings = cosmetics
+    }
+
     /** What has gone wrong this session, grouped by kind. Filled by every logger this factory makes. */
     val errors: ErrorLog get() = loggers.errors
 
@@ -841,9 +863,7 @@ class SidequestPlatform(
         }
         markerService.onStoreChanged = { pendingMarkerStore = it }
 
-        // Cosmetics, same scope again. The loadout is the account's — it follows you between profiles — and
-        // so are the viewer settings, because somebody who turned off particles turned them off, not turned
-        // them off on one profile.
+        // The cosmetic loadout, same scope again: it is the account's and follows you between profiles.
         val cosmeticRepository = fileStorage.repository(
             id = SqId.sidequest("cosmetics"),
             scope = StorageScope.Account(playerId),
@@ -853,14 +873,12 @@ class SidequestPlatform(
         scheduler.async(OwnerId.PLATFORM) {
             val stored = cosmeticRepository.load()
             if (stored.report.isWorthReporting) log.warn { "Cosmetics: ${stored.report}" }
-            scheduler.onMain(OwnerId.PLATFORM) {
-                cosmeticService.settings = stored.value.settings
-                // `wear` rather than assigning, so a loadout naming a cosmetic that has since been removed
-                // drops that slot and keeps the rest instead of failing whole.
-                cosmeticService.wear(stored.value.loadout)
-            }
+            // `wear` rather than assigning, so a loadout naming a cosmetic that has since been removed
+            // drops that slot and keeps the rest instead of failing whole. The viewer's settings are not
+            // here — they come from the configuration file, like every other preference.
+            scheduler.onMain(OwnerId.PLATFORM) { cosmeticService.wear(stored.value.loadout) }
         }
-        cosmeticService.onLoadoutChanged = { pendingCosmeticStore = CosmeticStore(it, cosmeticService.settings) }
+        cosmeticService.onLoadoutChanged = { pendingCosmeticStore = CosmeticStore(it) }
 
         adapterScope.add(
             scheduler.every(OwnerId.PLATFORM, RULE_SAVE_INTERVAL, thread = SchedulerThread.ASYNC) {

@@ -1298,6 +1298,58 @@ than none.
 
 ---
 
+## Settings
+
+**The configuration file is the source of truth for preferences.** `SidequestSettings` is its in-memory shape,
+and `applyToPlatform()` is the one place those choices become the services' live values.
+
+That is a decision, and it replaced something half built: several services carried their own settings *and*
+their own persistence, so a value could be changed in two places and disagree on the next launch. The cosmetic
+viewer settings used to live in `CosmeticStore` alongside the loadout; they are a preference and now live in
+the config, while the loadout stays — because a loadout is not a preference, it is account data that syncs.
+
+The split is: **a preference is something somebody chose; everything else is something that happened.** Rule
+progress, marker stores and cosmetic loadouts keep their own repositories.
+
+### Applying, once
+
+`SidequestPlatform.applyPreferences` is the only writer. The services expose `val settings` on their
+interfaces and take changes through an `update` method whose setter is private — which is not ceremony:
+leaving serious mode has to *release what was held*, and a plain assignment would silently discard an hour of
+somebody's notifications.
+
+Settings are applied on load as well as on change. Without that the file is correct and the running mod sits
+at its defaults until somebody opens the screen and touches something — the exact shape of bug where a setting
+"does not work" and then mysteriously starts working.
+
+### Serious mode is one switch
+
+Notifications, sounds and cinematics each carry the flag. For a while the honest layout was three toggles with
+the same label in three categories, which is not a configuration screen — it is a quiz. Somebody turning it on
+wants the mod to stop being playful; there is no version of that where they want it for toasts and not sounds.
+
+### Every switch reaches something
+
+The first version of this screen was a demonstration of the framework, with half its controls bound to
+properties nothing read. A settings screen whose switches do nothing is worse than none, because somebody will
+change one and believe it.
+
+The layout follows what a person is trying to do rather than how the code is arranged: rare drops are their
+own category because that is what someone comes to adjust, not filed under "chat" because that is where the
+message happens to be parsed.
+
+### `list`, finally
+
+`ListSetting` and its renderer had existed since phase 2 with no DSL builder, so the control was unreachable.
+The rare-drop ignore list needed one. It has no add button by design — an item is added by the Ignore action
+on its toast, at the moment it interrupted somebody, because that is the only time they know its exact name.
+The screen is where it gets pruned.
+
+`/sqdrops` is now diagnostic only. It says what the settings *are* and points at where they are edited; a
+second place to change them is a second place for them to disagree.
+
+---
+
 ## Rare drops
 
 The first feature off the plan's list, and it is mostly composition. The cinematic director already decides

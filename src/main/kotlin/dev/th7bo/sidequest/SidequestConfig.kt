@@ -1,62 +1,48 @@
 package dev.th7bo.sidequest
 
+import dev.th7bo.sidequest.platform.chat.DropRarity
+import dev.th7bo.sidequest.platform.skyblock.Island
 import dev.th7bo.sidequest.ui.binding.bind
 import dev.th7bo.sidequest.ui.components.Icons
 import dev.th7bo.sidequest.ui.config.ConfigScreen
+import dev.th7bo.sidequest.ui.config.SettingSerializers
 import dev.th7bo.sidequest.ui.config.configScreen
 import dev.th7bo.sidequest.ui.config.option
 import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.state.mutableStateOf
-import dev.th7bo.sidequest.ui.state.not
 import dev.th7bo.sidequest.ui.validation.ValidationResult
 import dev.th7bo.sidequest.ui.validation.Validator
 import dev.th7bo.sidequest.ui.validation.Validators
 
 /**
- * The mod's own settings.
+ * The configuration screen.
  *
- * A plain object with plain properties: the framework binds to them rather than owning
- * them, so nothing here depends on the UI.
- */
-public object SidequestSettings {
-
-    public var notifications: Boolean = true
-    public var notificationDuration: Int = 5
-    public var compactMode: Boolean = false
-    public var accentColor: Color = Color.parse("#8B5CF6")
-    public var theme: String = "dark"
-    public var playerName: String = ""
-    public var hudScale: Float = 1.0f
-    public var debugOverlay: Boolean = false
-
-    /**
-     * Where the group's backend is.
-     *
-     * Defaulted to the group's own server rather than left blank, because this is a private mod for one
-     * friend group and asking every member to type a URL is asking for one of them to type it wrong. Blank
-     * is still supported and means "no backend": the local features are most of the mod, and somebody who
-     * clears this should get no errors and no retries rather than a broken-looking client.
-     */
-    public var backendUrl: String = DEFAULT_BACKEND_URL
-
-    /** The group's server. Overridable, but this is the one anybody actually wants. */
-    public const val DEFAULT_BACKEND_URL: String = "https://sq.api.th7bo.dev"
-}
-
-/**
- * Builds the configuration screen.
+ * One declarative block; no widget or renderer class appears anywhere in it.
  *
- * The whole screen is one declarative block; no widget or renderer class appears
- * anywhere in it.
+ * **Every setting here reaches something.** That is worth stating because the first version of this file did
+ * not: it was a demonstration of the framework, with half its controls bound to properties nothing read. A
+ * settings screen whose switches do nothing is worse than no settings screen, because somebody will change
+ * one and believe it.
+ *
+ * The layout follows what a person is trying to do rather than how the code is arranged. Rare drops are their
+ * own category because that is what somebody comes here to adjust; they are not filed under "chat" because
+ * that happens to be where the message is parsed.
  */
 public fun buildSidequestConfigScreen(): ConfigScreen {
-    val compactState = mutableStateOf(SidequestSettings.compactMode, "compactMode")
-    val notificationsState = mutableStateOf(SidequestSettings.notifications, "notifications")
+    // Mirrors for the settings that gate others. Read by `visibleWhen`, which needs observable state rather
+    // than a plain property.
+    val notificationsOn = mutableStateOf(SidequestSettings.Notifications.isEnabled, "notifications.enabled")
+    val cinematicsOn = mutableStateOf(SidequestSettings.Cinematics.isEnabled, "cinematics.enabled")
+    val dropsOn = mutableStateOf(SidequestSettings.Drops.isEnabled, "drops.enabled")
+    val cosmeticsOn = mutableStateOf(SidequestSettings.Cosmetics.isEnabled, "cosmetics.enabled")
+
+    /** Every change pushes into the services. See [SidequestSettings.applyToPlatform]. */
+    fun applied() = SidequestSettings.applyToPlatform()
 
     return configScreen(id("config"), "Sidequest", "Configure how Sidequest looks and behaves.") {
-        category(id("general"), "General", description = "Core behaviour", icon = Icons.gear) {
-            section("Interface", description = "How the mod looks and behaves", icon = Icons.sliders) {
+        category(id("general"), "General", description = "Appearance and the master switches", icon = Icons.gear) {
+            section("Appearance", description = "How every Sidequest screen looks", icon = Icons.palette) {
                 dropdown(
                     id = id("general.theme"),
                     title = "Theme",
@@ -70,68 +56,384 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 )
                 colorPicker(
                     id = id("general.accent_color"),
-                    title = "Accent Colour",
-                    description = "Used for highlights, sliders and progress bars",
+                    title = "Accent colour",
+                    description = "Highlights, sliders and progress bars. A cosmetic style overrides this.",
                     value = bind(SidequestSettings::accentColor),
-                    presets = listOf(
-                        Color.parse("#8B5CF6"),
-                        Color.parse("#A855F7"),
-                        Color.parse("#34D399"),
-                        Color.parse("#FBBF24"),
-                        Color.parse("#F87171"),
-                        Color.parse("#38BDF8"),
-                    ),
+                    presets = ACCENT_PRESETS,
                 )
                 toggle(
                     id = id("general.compact_mode"),
-                    title = "Compact Mode",
+                    title = "Compact mode",
                     description = "Tighter spacing throughout",
                     value = bind(SidequestSettings::compactMode),
                 ) {
                     keywords("density", "spacing", "small")
                 }
-            }
-
-            section("Notifications", description = "In-game alerts and their timing", icon = Icons.bell) {
-                toggle(
-                    id = id("general.notifications"),
-                    title = "Show In-Game Notifications",
-                    value = bind(SidequestSettings::notifications),
-                )
-                slider(
-                    id = id("general.notification_duration"),
-                    title = "Notification Duration",
-                    description = "How long a notification stays on screen",
-                    value = bind(SidequestSettings::notificationDuration),
-                    range = 1..60,
-                    format = { "$it s" },
-                    validator = Validators.intRange(1..60),
-                ) {
-                    visibleWhen = notificationsState
-                    // Reads as the intent: enabled while compact mode is off.
-                    enabledWhen = !compactState
-                }
-            }
-        }
-
-        category(id("hud"), "HUD", description = "On-screen elements", icon = Icons.monitor) {
-            section("Appearance", description = "On-screen element presentation", icon = Icons.palette) {
                 decimalSlider(
-                    id = id("hud.scale"),
-                    title = "HUD Scale",
+                    id = id("general.hud_scale"),
+                    title = "HUD scale",
                     value = bind(SidequestSettings::hudScale),
                     range = 0.5f..2.5f,
                     step = 0.1f,
                     format = { String.format("%.1f×", it) },
                 )
-                textField(
-                    id = id("hud.player_name"),
-                    title = "Display Name Override",
-                    description = "Leave empty to use your account name",
-                    value = bind(SidequestSettings::playerName),
-                    placeholder = "Your name",
-                    validator = Validators.length(0..32),
+            }
+
+            section("Serious mode", description = "When you would rather it stayed out of the way", icon = Icons.bell) {
+                toggle(
+                    id = id("general.serious_mode"),
+                    title = "Serious mode",
+                    description = "Silences the playful half: cinematics, effect sounds and non-essential toasts",
+                    value = bind(
+                        get = { SidequestSettings.seriousMode },
+                        set = { SidequestSettings.seriousMode = it; applied() },
+                        debugName = "seriousMode",
+                    ),
+                ) {
+                    // One switch rather than the three the services actually carry. See the property's own note.
+                    keywords("quiet", "focus", "silent", "no distractions")
+                }
+            }
+        }
+
+        category(id("notifications"), "Notifications", description = "Toasts and their timing", icon = Icons.bell) {
+            section("Toasts", icon = Icons.bell) {
+                toggle(
+                    id = id("notifications.enabled"),
+                    title = "Show notifications",
+                    value = bind(
+                        get = { SidequestSettings.Notifications.isEnabled },
+                        set = { SidequestSettings.Notifications.isEnabled = it; notificationsOn.value = it; applied() },
+                        debugName = "notifications.enabled",
+                    ),
                 )
+                slider(
+                    id = id("notifications.duration"),
+                    title = "How long they stay",
+                    value = bind(
+                        get = { SidequestSettings.Notifications.durationSeconds },
+                        set = { SidequestSettings.Notifications.durationSeconds = it; applied() },
+                        debugName = "notifications.duration",
+                    ),
+                    range = 1..30,
+                    format = { "$it s" },
+                    validator = Validators.intRange(1..30),
+                ) {
+                    visibleWhen = notificationsOn
+                }
+                toggle(
+                    id = id("notifications.queue_while_busy"),
+                    title = "Hold them while you are busy",
+                    description = "A toast waits for a safe moment instead of appearing mid-fight",
+                    value = bind(
+                        get = { SidequestSettings.Notifications.queueWhileBusy },
+                        set = { SidequestSettings.Notifications.queueWhileBusy = it; applied() },
+                        debugName = "notifications.queue",
+                    ),
+                ) {
+                    visibleWhen = notificationsOn
+                }
+            }
+        }
+
+        category(id("sound"), "Sound", description = "Volumes and mutes", icon = Icons.bell) {
+            section("Volume", icon = Icons.sliders) {
+                decimalSlider(
+                    id = id("sound.master"),
+                    title = "Master",
+                    value = bind(
+                        get = { SidequestSettings.Sound.master },
+                        set = { SidequestSettings.Sound.master = it; applied() },
+                        debugName = "sound.master",
+                    ),
+                    range = 0f..1f,
+                    step = 0.05f,
+                    format = ::percent,
+                )
+                decimalSlider(
+                    id = id("sound.interface"),
+                    title = "Interface",
+                    description = "Confirmations and clicks. Serious mode leaves these alone — they are how you know something worked.",
+                    value = bind(
+                        get = { SidequestSettings.Sound.interfaceVolume },
+                        set = { SidequestSettings.Sound.interfaceVolume = it; applied() },
+                        debugName = "sound.interface",
+                    ),
+                    range = 0f..1f,
+                    step = 0.05f,
+                    format = ::percent,
+                )
+                decimalSlider(
+                    id = id("sound.effects"),
+                    title = "Effects",
+                    description = "Drops, progression, cinematics",
+                    value = bind(
+                        get = { SidequestSettings.Sound.effects },
+                        set = { SidequestSettings.Sound.effects = it; applied() },
+                        debugName = "sound.effects",
+                    ),
+                    range = 0f..1f,
+                    step = 0.05f,
+                    format = ::percent,
+                )
+                decimalSlider(
+                    id = id("sound.soundboard"),
+                    title = "Soundboard",
+                    description = "Sounds other people trigger in your ears. Set this to zero and they cannot.",
+                    value = bind(
+                        get = { SidequestSettings.Sound.soundboard },
+                        set = { SidequestSettings.Sound.soundboard = it; applied() },
+                        debugName = "sound.soundboard",
+                    ),
+                    range = 0f..1f,
+                    step = 0.05f,
+                    format = ::percent,
+                )
+            }
+        }
+
+        category(id("cinematics"), "Cinematics", description = "The things worth stopping for", icon = Icons.monitor) {
+            section("Playback", icon = Icons.monitor) {
+                toggle(
+                    id = id("cinematics.enabled"),
+                    title = "Play cinematics",
+                    value = bind(
+                        get = { SidequestSettings.Cinematics.isEnabled },
+                        set = { SidequestSettings.Cinematics.isEnabled = it; cinematicsOn.value = it; applied() },
+                        debugName = "cinematics.enabled",
+                    ),
+                )
+                toggle(
+                    id = id("cinematics.compact_only"),
+                    title = "Never take the screen",
+                    description = "Shows the compact form of everything instead of the full animation",
+                    value = bind(
+                        get = { SidequestSettings.Cinematics.compactOnly },
+                        set = { SidequestSettings.Cinematics.compactOnly = it; applied() },
+                        debugName = "cinematics.compact",
+                    ),
+                ) {
+                    visibleWhen = cinematicsOn
+                }
+                toggle(
+                    id = id("cinematics.letterbox"),
+                    title = "Letterbox",
+                    description = "Bars at the top and bottom while one plays",
+                    value = bind(
+                        get = { SidequestSettings.Cinematics.letterbox },
+                        set = { SidequestSettings.Cinematics.letterbox = it; applied() },
+                        debugName = "cinematics.letterbox",
+                    ),
+                ) {
+                    visibleWhen = cinematicsOn
+                }
+                toggle(
+                    id = id("cinematics.queue_while_unsafe"),
+                    title = "Hold them until it is safe",
+                    description = "Rather than dropping one that arrives mid-fight",
+                    value = bind(
+                        get = { SidequestSettings.Cinematics.queueWhileUnsafe },
+                        set = { SidequestSettings.Cinematics.queueWhileUnsafe = it; applied() },
+                        debugName = "cinematics.queue",
+                    ),
+                ) {
+                    visibleWhen = cinematicsOn
+                }
+                toggle(
+                    id = id("cinematics.recap"),
+                    title = "Recap what was held",
+                    description = "One summary afterwards instead of playing a backlog in a row",
+                    value = bind(
+                        get = { SidequestSettings.Cinematics.recap },
+                        set = { SidequestSettings.Cinematics.recap = it; applied() },
+                        debugName = "cinematics.recap",
+                    ),
+                ) {
+                    visibleWhen = cinematicsOn
+                }
+            }
+        }
+
+        category(id("drops"), "Rare drops", description = "What gets announced", icon = Icons.eye) {
+            section("When", icon = Icons.sliders) {
+                toggle(
+                    id = id("drops.enabled"),
+                    title = "Announce rare drops",
+                    value = bind(
+                        get = { SidequestSettings.Drops.isEnabled },
+                        set = { SidequestSettings.Drops.isEnabled = it; dropsOn.value = it },
+                        debugName = "drops.enabled",
+                    ),
+                )
+                dropdown(
+                    id = id("drops.minimum_rarity"),
+                    title = "From this tier upwards",
+                    description = "Most drops Hypixel calls rare are not worth stopping for. Pets always announce.",
+                    value = bind(
+                        get = { SidequestSettings.Drops.minimumRarity },
+                        set = { SidequestSettings.Drops.minimumRarity = it },
+                        debugName = "drops.rarity",
+                    ),
+                    options = DropRarity.entries
+                        // A pet is a kind rather than a tier and is exempt from the threshold, so offering it
+                        // as one would be offering a setting that does nothing.
+                        .filter { it != DropRarity.PET }
+                        .map { option(it.name.lowercase(), it.readable(), it) },
+                ) {
+                    visibleWhen = dropsOn
+                }
+            }
+
+            section("How", icon = Icons.palette) {
+                toggle(
+                    id = id("drops.totem"),
+                    title = "Use Minecraft's totem animation",
+                    description = "The familiar one, which does not cover the screen",
+                    value = bind(
+                        get = { SidequestSettings.Drops.useTotemAnimation },
+                        set = { SidequestSettings.Drops.useTotemAnimation = it },
+                        debugName = "drops.totem",
+                    ),
+                ) {
+                    visibleWhen = dropsOn
+                }
+                slider(
+                    id = id("drops.duration"),
+                    title = "How long it runs",
+                    value = bind(
+                        get = { SidequestSettings.Drops.durationSeconds },
+                        set = { SidequestSettings.Drops.durationSeconds = it },
+                        debugName = "drops.duration",
+                    ),
+                    range = 2..10,
+                    format = { "$it s" },
+                    validator = Validators.intRange(2..10),
+                ) {
+                    visibleWhen = dropsOn
+                }
+                toggle(
+                    id = id("drops.sound"),
+                    title = "Play a sound",
+                    value = bind(
+                        get = { SidequestSettings.Drops.playsSound },
+                        set = { SidequestSettings.Drops.playsSound = it },
+                        debugName = "drops.sound",
+                    ),
+                ) {
+                    visibleWhen = dropsOn
+                }
+                toggle(
+                    id = id("drops.screenshot"),
+                    title = "Take a screenshot",
+                    description = "Writes a file for every announced drop",
+                    value = bind(
+                        get = { SidequestSettings.Drops.takesScreenshot },
+                        set = { SidequestSettings.Drops.takesScreenshot = it },
+                        debugName = "drops.screenshot",
+                    ),
+                ) {
+                    visibleWhen = dropsOn
+                }
+            }
+
+            section("Ignored", description = "Things you would rather not hear about", icon = Icons.wrench) {
+                list(
+                    id = id("drops.ignored_items"),
+                    title = "Items",
+                    description = "Added by the Ignore button on a drop's notification. Remove them here.",
+                    value = bind(
+                        get = { SidequestSettings.Drops.ignoredItems },
+                        set = { SidequestSettings.Drops.ignoredItems = it },
+                        debugName = "drops.ignored_items",
+                    ),
+                    elementSerializer = SettingSerializers.string,
+                    itemLabel = { it },
+                    // No add button. An item is added from the toast at the moment it interrupted somebody,
+                    // which is the only time they know its exact name — typing one here would mostly produce
+                    // entries that never match.
+                    createItem = null,
+                    isReorderable = false,
+                ) {
+                    visibleWhen = dropsOn
+                }
+                list(
+                    id = id("drops.ignored_islands"),
+                    title = "Islands",
+                    description = "Nothing is announced while you are here",
+                    value = bind(
+                        get = { SidequestSettings.Drops.ignoredIslands },
+                        set = { SidequestSettings.Drops.ignoredIslands = it },
+                        debugName = "drops.ignored_islands",
+                    ),
+                    elementSerializer = SettingSerializers.option { Island.entries.map { option(it.name, it.displayName, it) } },
+                    itemLabel = { it.displayName },
+                    createItem = { Island.GARDEN },
+                    isReorderable = false,
+                ) {
+                    visibleWhen = dropsOn
+                }
+            }
+        }
+
+        category(id("cosmetics"), "Cosmetics", description = "What you are willing to look at", icon = Icons.palette) {
+            section("What you see", description = "These beat what other people chose", icon = Icons.palette) {
+                toggle(
+                    id = id("cosmetics.enabled"),
+                    title = "Show cosmetics",
+                    value = bind(
+                        get = { SidequestSettings.Cosmetics.isEnabled },
+                        set = { SidequestSettings.Cosmetics.isEnabled = it; cosmeticsOn.value = it; applied() },
+                        debugName = "cosmetics.enabled",
+                    ),
+                )
+                toggle(
+                    id = id("cosmetics.appearance"),
+                    title = "Skins and capes",
+                    description = "Let other people's cosmetics replace how they look",
+                    value = bind(
+                        get = { SidequestSettings.Cosmetics.showAppearanceOverrides },
+                        set = { SidequestSettings.Cosmetics.showAppearanceOverrides = it; applied() },
+                        debugName = "cosmetics.appearance",
+                    ),
+                ) {
+                    visibleWhen = cosmeticsOn
+                }
+                toggle(
+                    id = id("cosmetics.effects"),
+                    title = "Particle effects",
+                    value = bind(
+                        get = { SidequestSettings.Cosmetics.showEffects },
+                        set = { SidequestSettings.Cosmetics.showEffects = it; applied() },
+                        debugName = "cosmetics.effects",
+                    ),
+                ) {
+                    visibleWhen = cosmeticsOn
+                }
+                toggle(
+                    id = id("cosmetics.jokes"),
+                    title = "Joke cosmetics",
+                    description = "The group's sense of humour is not everybody's",
+                    value = bind(
+                        get = { SidequestSettings.Cosmetics.showJokeCosmetics },
+                        set = { SidequestSettings.Cosmetics.showJokeCosmetics = it; applied() },
+                        debugName = "cosmetics.jokes",
+                    ),
+                ) {
+                    visibleWhen = cosmeticsOn
+                }
+                toggle(
+                    id = id("cosmetics.reduced_animation"),
+                    title = "Reduced animation",
+                    description = "Cosmetics stop moving. They are still shown — this is about motion, not about hiding them.",
+                    value = bind(
+                        get = { SidequestSettings.Cosmetics.reducedAnimation },
+                        set = { SidequestSettings.Cosmetics.reducedAnimation = it; applied() },
+                        debugName = "cosmetics.reduced_animation",
+                    ),
+                ) {
+                    visibleWhen = cosmeticsOn
+                    keywords("accessibility", "motion", "still")
+                }
             }
         }
 
@@ -143,9 +445,9 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     description = "Leave empty to use Sidequest entirely offline",
                     value = bind(SidequestSettings::backendUrl),
                     placeholder = SidequestSettings.DEFAULT_BACKEND_URL,
-                    // Refused rather than accepted-and-broken. A URL over plain http would put this
-                    // device's bearer token on the wire in clear, and the realtime socket carries one in
-                    // its query string — so an address that is not https is not a typo to tolerate.
+                    // Refused rather than accepted-and-broken. A URL over plain http would put this device's
+                    // bearer token on the wire in clear, and the realtime socket carries one in its query
+                    // string — so an address that is not https is not a typo to tolerate.
                     validator = Validator { field, value ->
                         when {
                             value.isBlank() -> ValidationResult.valid()
@@ -188,25 +490,37 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 )
                 toggle(
                     id = id("advanced.debug_overlay"),
-                    title = "Debug Overlay",
+                    title = "Debug overlay",
                     description = "Draws layout bounds and frame timings",
                     value = bind(SidequestSettings::debugOverlay),
                 ) {
                     experimental = true
                 }
                 divider(id("advanced.rule"))
-                button(
-                    id = id("advanced.reset"),
-                    title = "Reset Everything",
-                    label = "Reset",
-                    description = "Restores every setting to its default",
-                    destructive = true,
-                ) {
-                    Sidequest.logger.info("Configuration reset requested")
-                }
+                description(
+                    id = id("advanced.commands"),
+                    body = "/sqstatus for everything at once · /sqerr for what has gone wrong · " +
+                        "/sqcos resolve to see why a cosmetic is not showing · /sqtest to fire a subsystem",
+                )
             }
         }
     }
 }
+
+/** A percentage, for the volume sliders. Zero reads as "off" rather than as "0%", which looks like a bug. */
+private fun percent(value: Float): String = if (value <= 0f) "off" else "${(value * 100).toInt()}%"
+
+/** `VERY_RARE` → `Very rare`. Hypixel's tiers, spelled for a human. */
+private fun DropRarity.readable(): String =
+    name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+private val ACCENT_PRESETS = listOf(
+    Color.parse("#8B5CF6"),
+    Color.parse("#A855F7"),
+    Color.parse("#34D399"),
+    Color.parse("#FBBF24"),
+    Color.parse("#F87171"),
+    Color.parse("#38BDF8"),
+)
 
 private fun id(path: String) = UiId.of(Sidequest.MOD_ID, path)
