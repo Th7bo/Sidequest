@@ -10,6 +10,7 @@ import dev.th7bo.sidequest.platform.backend.HttpTransport
 import dev.th7bo.sidequest.platform.backend.PairingProgress
 import dev.th7bo.sidequest.platform.backend.PairingStatus
 import dev.th7bo.sidequest.platform.backend.StoredSession
+import dev.th7bo.sidequest.protocol.AccountId
 import dev.th7bo.sidequest.platform.backend.TokenStore
 import dev.th7bo.sidequest.platform.event.EventBus
 import dev.th7bo.sidequest.platform.event.EventSource
@@ -93,6 +94,15 @@ public class DefaultBackendClient(
     private var session: SessionTokens? = null
 
     private var stored: StoredSession? = null
+
+    /**
+     * Who this client is, once it has paired.
+     *
+     * Null before pairing, which callers treat as "not yet" rather than as an error — a mod that has not been
+     * paired is a supported state, and anything that needs to name itself on the wire simply does nothing
+     * until it can.
+     */
+    public val accountId: AccountId? get() = stored?.let { AccountId(it.accountId) }
 
     /**
      * Serialises token refresh.

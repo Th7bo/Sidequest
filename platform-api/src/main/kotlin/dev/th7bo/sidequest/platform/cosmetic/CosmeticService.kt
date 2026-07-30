@@ -146,9 +146,44 @@ public interface CosmeticService {
      */
     public fun resolve(wearer: PlayerId): CosmeticResolution
 
+    /**
+     * What the local player's *personal* cosmetics do to this client.
+     *
+     * The counterpart to [resolve] for the slots nobody else can see. Kept separate because it answers a
+     * different question — [resolve] is "what does this person look like", this is "what does my interface
+     * look like" — and because it is read from render paths that have no player to ask about.
+     */
+    public fun personalStyle(): CosmeticStyle
+
     // -- the viewer's preferences -------------------------------------------
 
     public var settings: CosmeticSettings
+}
+
+/**
+ * What the personal slots amount to.
+ *
+ * Flattened into one small value rather than handed out as cosmetics, because the things that read it — a
+ * theme provider, the sound manager — want the *effect*, not the cosmetic that caused it. Null everywhere
+ * means "leave it alone", so the default is the mod's own appearance rather than a styled one.
+ */
+public data class CosmeticStyle(
+    /** Replaces the interface's accent colour. Drives notifications, cinematics and everything else themed. */
+    public val accentColour: Int? = null,
+    /**
+     * The sound pack in effect, as an id prefix.
+     *
+     * A pack does not carry its own sounds; it names a *variant*. A request for `sidequest:levelup` under the
+     * pack `pack.arcade` looks for `sidequest:pack.arcade.levelup` and takes the ordinary sound when there is
+     * no such variant — so a pack that only replaces three sounds replaces three sounds, rather than
+     * silencing everything it does not define.
+     */
+    public val soundPack: String? = null,
+) {
+    public companion object {
+        /** The mod's own look. */
+        public val None: CosmeticStyle = CosmeticStyle()
+    }
 }
 
 /** Posted when the local player's loadout changes, so the backend can publish it. */

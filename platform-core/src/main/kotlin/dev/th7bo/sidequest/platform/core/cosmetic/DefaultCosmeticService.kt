@@ -9,6 +9,7 @@ import dev.th7bo.sidequest.platform.cosmetic.CosmeticService
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettingsChangedEvent
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticSlot
+import dev.th7bo.sidequest.platform.cosmetic.CosmeticStyle
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticVisibility
 import dev.th7bo.sidequest.platform.cosmetic.EquippedCosmetic
 import dev.th7bo.sidequest.platform.cosmetic.HiddenCosmetic
@@ -186,6 +187,30 @@ public class DefaultCosmeticService(
 
         val kept = resolveConflicts(candidates, hidden)
         return CosmeticResolution(wearer, kept, hidden)
+    }
+
+    /**
+     * The personal slots, flattened.
+     *
+     * Goes through [resolve] rather than reading the loadout directly, so a personal cosmetic obeys the same
+     * rules as every other one — the master switch turns it off, a condition can gate it, a missing asset
+     * hides it. A second path that read the loadout would be a second set of rules to keep in step.
+     */
+    override fun personalStyle(): CosmeticStyle {
+        val me = localPlayer() ?: return CosmeticStyle.None
+        val resolution = resolve(me)
+        if (resolution.shown.isEmpty()) return CosmeticStyle.None
+
+        // The notification style wins the accent, and the cinematic style is the fallback. Two cosmetics
+        // asking for different accents is a thing somebody can wear, so the order is fixed rather than
+        // whichever the map happened to yield.
+        val accent = resolution[CosmeticSlot.NOTIFICATION_STYLE]?.cosmetic?.accentColour
+            ?: resolution[CosmeticSlot.CINEMATIC_STYLE]?.cosmetic?.accentColour
+
+        // The pack's own path is the prefix, so a pack needs no field of its own to say what it is called.
+        val pack = resolution[CosmeticSlot.SOUND_PACK]?.cosmetic?.id?.path
+
+        return if (accent == null && pack == null) CosmeticStyle.None else CosmeticStyle(accent, pack)
     }
 
     private sealed interface Decision {

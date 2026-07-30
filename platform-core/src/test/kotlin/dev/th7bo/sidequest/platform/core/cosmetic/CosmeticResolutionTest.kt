@@ -378,6 +378,86 @@ class CosmeticResolutionTest {
         assertEquals(3, service.resolve(friend).shown.size)
     }
 
+    // -- personal slots ------------------------------------------------------
+
+    /**
+     * A style recolours your own interface and nothing else.
+     *
+     * This is what makes notification style and cinematic style need no code of their own: both are an
+     * accent, and everything the mod draws already takes its accent from the theme.
+     */
+    @Test
+    fun `a worn style supplies the interface accent`() {
+        val style = Cosmetic(
+            id = SqId.sidequest("neon"),
+            slot = CosmeticSlot.NOTIFICATION_STYLE,
+            displayName = "Neon",
+            accentColour = 0xFF2D95,
+        ).also { service.register(it) }
+        wornBy(me, style)
+
+        assertEquals(0xFF2D95, service.personalStyle().accentColour)
+    }
+
+    @Test
+    fun `a sound pack is named by its own id path`() {
+        val pack = Cosmetic(
+            id = SqId.sidequest("pack.arcade"),
+            slot = CosmeticSlot.SOUND_PACK,
+            displayName = "Arcade",
+        ).also { service.register(it) }
+        wornBy(me, pack)
+
+        assertEquals("pack.arcade", service.personalStyle().soundPack)
+    }
+
+    /**
+     * The notification style wins the accent, deterministically.
+     *
+     * Two styles asking for different colours is something a person can wear, so the order is fixed rather
+     * than whichever the map happened to yield first.
+     */
+    @Test
+    fun `the notification style beats the cinematic style for the accent`() {
+        val toasts = Cosmetic(
+            id = SqId.sidequest("toast_style"),
+            slot = CosmeticSlot.NOTIFICATION_STYLE,
+            displayName = "Toasts",
+            accentColour = 0x111111,
+        ).also { service.register(it) }
+        val cinematics = Cosmetic(
+            id = SqId.sidequest("cine_style"),
+            slot = CosmeticSlot.CINEMATIC_STYLE,
+            displayName = "Cinematics",
+            accentColour = 0x222222,
+        ).also { service.register(it) }
+        wornBy(me, toasts, cinematics)
+
+        repeat(5) { assertEquals(0x111111, service.personalStyle().accentColour) }
+    }
+
+    /** Personal cosmetics obey the same rules as every other one, including the master switch. */
+    @Test
+    fun `turning cosmetics off also turns off the style`() {
+        val style = Cosmetic(
+            id = SqId.sidequest("neon"),
+            slot = CosmeticSlot.NOTIFICATION_STYLE,
+            displayName = "Neon",
+            accentColour = 0xFF2D95,
+        ).also { service.register(it) }
+        wornBy(me, style)
+        assertNotNull(service.personalStyle().accentColour)
+
+        service.settings = CosmeticSettings.AllOff
+
+        assertNull(service.personalStyle().accentColour, "the master switch has to reach the style too")
+    }
+
+    @Test
+    fun `wearing nothing personal leaves the mod looking like itself`() {
+        assertEquals(dev.th7bo.sidequest.platform.cosmetic.CosmeticStyle.None, service.personalStyle())
+    }
+
     // -- loadouts ------------------------------------------------------------
 
     @Test

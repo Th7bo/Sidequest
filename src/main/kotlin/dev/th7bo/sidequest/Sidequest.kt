@@ -28,7 +28,9 @@ import dev.th7bo.sidequest.ui.state.UiScheduler
 import dev.th7bo.sidequest.ui.theme.DarkTheme
 import dev.th7bo.sidequest.ui.theme.HighContrastDarkTheme
 import dev.th7bo.sidequest.ui.theme.LightTheme
+import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.theme.Theme
+import dev.th7bo.sidequest.ui.theme.ThemeTokens
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -128,11 +130,51 @@ object Sidequest : ClientModInitializer {
     }
 
     /** Resolves the configured theme name to a theme. */
-    fun activeTheme(): Theme = when (SidequestSettings.theme) {
-        "light" -> LightTheme
-        "high_contrast_dark" -> HighContrastDarkTheme
-        else -> DarkTheme
+    fun activeTheme(): Theme = styled(
+        when (SidequestSettings.theme) {
+            "light" -> LightTheme
+            "high_contrast_dark" -> HighContrastDarkTheme
+            else -> DarkTheme
+        },
+    )
+
+    /**
+     * The theme with the player's own cosmetic style applied.
+     *
+     * One hook for every personal slot that changes how the mod looks, which is why notification style and
+     * cinematic style need no code of their own: both amount to an accent, and everything the mod draws —
+     * toasts, cinematics, HUDs, the configuration screen — already takes its accent from the theme.
+     *
+     * The chosen theme is still the base. A style recolours the mod; it does not replace somebody's choice of
+     * light or high-contrast, which is a legibility setting rather than a decoration.
+     */
+    private fun styled(base: Theme): Theme {
+        val accent = platformOrNull?.cosmetics?.personalStyle()?.accentColour ?: return base
+        // Opaque: a cosmetic names a colour, not a transparency, and an accent that could be made invisible
+        // would let somebody wear a style that hides every button in the mod.
+        val colour = Color(accent or ALPHA_OPAQUE)
+        return object : Theme by base {
+            // Only the tokens are replaced. Delegating the rest means a theme that grows a member does not
+            // silently lose it here — which is exactly what an explicit `object : Theme` would have done,
+            // and did, the first time this was written.
+            override val tokens: ThemeTokens = base.tokens.copy(
+                colors = base.tokens.colors.copy(
+                    accent = colour,
+                    // Derived rather than taken as three separate settings: a cosmetic that let somebody pick
+                    // a hover colour unrelated to its base would let them make a button that looks broken.
+                    accentHover = colour.lerp(Color.White, HOVER_LIFT),
+                    accentPressed = colour.lerp(Color.Black, PRESS_DROP),
+                ),
+            )
+        }
     }
+
+    /** How far a styled accent moves towards white on hover, and towards black when pressed. */
+    private const val HOVER_LIFT = 0.15f
+    private const val PRESS_DROP = 0.15f
+
+    /** Forces full opacity on a cosmetic's colour. */
+    private const val ALPHA_OPAQUE = 0xFF000000.toInt()
 
     /** Creates the configuration screen, ready to hand to `Minecraft.setScreen`. */
     fun createConfigScreen(): SidequestConfigScreen =
@@ -272,7 +314,16 @@ object Sidequest : ClientModInitializer {
         )
     }
 
-    val platform: SidequestPlatform by lazy {
+    /**
+     * The platform, but only if it has already been built.
+     *
+     * For the render loop. [platform] is a `lazy`, so touching it from a frame would *construct the whole
+     * platform on the render thread* the first time — which is exactly the situation a nametag mixin is in,
+     * since it runs before anything else has had a reason to ask for it.
+     */
+    val platformOrNull: SidequestPlatform? get() = if (lazyPlatform.isInitialized()) lazyPlatform.value else null
+
+    private val lazyPlatform: Lazy<SidequestPlatform> = lazy {
         SidequestPlatform(
             minecraftVersion = MINECRAFT,
             notificationSink = notificationSink,
@@ -284,6 +335,8 @@ object Sidequest : ClientModInitializer {
             storageRoot = loader.configDir.resolve(MOD_ID).resolve("data"),
         )
     }
+
+    val platform: SidequestPlatform get() = lazyPlatform.value
 
     /**
      * Applies the configured server address to the platform.

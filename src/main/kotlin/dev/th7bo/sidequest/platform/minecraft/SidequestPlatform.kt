@@ -21,7 +21,10 @@ import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.asset.DefaultAssetManager
+import dev.th7bo.sidequest.platform.core.cosmetic.CosmeticStore
 import dev.th7bo.sidequest.platform.core.cosmetic.DefaultCosmeticService
+import dev.th7bo.sidequest.platform.core.cosmetic.LoadoutPublisher
+import dev.th7bo.sidequest.platform.core.cosmetic.RemoteCosmeticReceiver
 import dev.th7bo.sidequest.platform.core.marker.DefaultMarkerService
 import dev.th7bo.sidequest.platform.core.marker.RemoteMarkerReceiver
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
@@ -325,6 +328,13 @@ class SidequestPlatform(
         isFriend = { playerDirectory.byId(it)?.isCustomFriend == true },
         isInParty = { partyService.party.isInParty },
     )
+
+    init {
+        // The sound manager asks the cosmetic service which pack is on. Set here rather than passed to the
+        // constructor because the two are built in the other order — the cosmetic service needs the asset
+        // manager, and the sound manager is older than both.
+        soundManager.soundPack = { cosmeticService.personalStyle().soundPack }
+    }
 
     val cosmetics: CosmeticService get() = cosmeticService
 
@@ -830,6 +840,28 @@ class SidequestPlatform(
             scheduler.onMain(OwnerId.PLATFORM) { markerService.load(stored.value) }
         }
         markerService.onStoreChanged = { pendingMarkerStore = it }
+
+        // Cosmetics, same scope again. The loadout is the account's — it follows you between profiles — and
+        // so are the viewer settings, because somebody who turned off particles turned them off, not turned
+        // them off on one profile.
+        val cosmeticRepository = fileStorage.repository(
+            id = SqId.sidequest("cosmetics"),
+            scope = StorageScope.Account(playerId),
+            serializer = CosmeticStore.serializer(),
+            default = { CosmeticStore() },
+        )
+        scheduler.async(OwnerId.PLATFORM) {
+            val stored = cosmeticRepository.load()
+            if (stored.report.isWorthReporting) log.warn { "Cosmetics: ${stored.report}" }
+            scheduler.onMain(OwnerId.PLATFORM) {
+                cosmeticService.settings = stored.value.settings
+                // `wear` rather than assigning, so a loadout naming a cosmetic that has since been removed
+                // drops that slot and keeps the rest instead of failing whole.
+                cosmeticService.wear(stored.value.loadout)
+            }
+        }
+        cosmeticService.onLoadoutChanged = { pendingCosmeticStore = CosmeticStore(it, cosmeticService.settings) }
+
         adapterScope.add(
             scheduler.every(OwnerId.PLATFORM, RULE_SAVE_INTERVAL, thread = SchedulerThread.ASYNC) {
                 pendingRuleStore?.let { store ->
@@ -839,6 +871,10 @@ class SidequestPlatform(
                 pendingMarkerStore?.let { store ->
                     pendingMarkerStore = null
                     scheduler.async(OwnerId.PLATFORM) { markerRepository.save(store) }
+                }
+                pendingCosmeticStore?.let { store ->
+                    pendingCosmeticStore = null
+                    scheduler.async(OwnerId.PLATFORM) { cosmeticRepository.save(store) }
                 }
             },
         )
@@ -854,6 +890,10 @@ class SidequestPlatform(
     /** The most recent marker state not yet written. Same debounce, same reason. */
     @Volatile
     private var pendingMarkerStore: MarkerStore? = null
+
+    /** The most recent cosmetic state not yet written. Same debounce again. */
+    @Volatile
+    private var pendingCosmeticStore: CosmeticStore? = null
 
     /**
      * Builds and starts the backend client for the signed-in account.
@@ -933,6 +973,35 @@ class SidequestPlatform(
         ).also { it.install() }
         remoteMarkerReceiver = remoteMarkers
 
+        // What friends are wearing, and what we are. Same shape as markers and for the same reason: one
+        // place turns the stream into cosmetics, so there is one idea of what arriving means.
+        val remoteCosmetics = RemoteCosmeticReceiver(
+            cosmetics = cosmeticService,
+            events = events,
+            log = loggers.create(LogCategory.REALTIME, SqId.sidequest("cosmetics.remote")),
+        ).also { it.install() }
+        remoteCosmeticReceiver = remoteCosmetics
+
+        val publisher = LoadoutPublisher(
+            events = events,
+            log = loggers.create(LogCategory.REALTIME, SqId.sidequest("cosmetics.publish")),
+            account = { client.accountId },
+            send = { payload ->
+                scheduler.async(OwnerId.PLATFORM) {
+                    realtime.send(
+                        RealtimeMessage(
+                            messageId = java.util.UUID.randomUUID().toString(),
+                            // The server's clock, like every other timestamp that crosses the wire.
+                            timestampMillis = client.serverTime.toServer(System.currentTimeMillis()),
+                            scope = payload.scope,
+                            payload = payload,
+                        ),
+                    )
+                }
+            },
+        ).also { it.install() }
+        loadoutPublisher = publisher
+
         backendJobs = listOf(
             scheduler.async(OwnerId.PLATFORM) { client.start() },
             scheduler.async(OwnerId.PLATFORM) { realtime.run() },
@@ -943,6 +1012,11 @@ class SidequestPlatform(
                     client.fetchGroup().valueOrNull()?.let {
                         presence.onGroup(it)
                         remoteMarkers.onGroup(presence.accountToPlayer)
+                        remoteCosmetics.onGroup(presence.accountToPlayer)
+                        // Republished on every group refresh, not only on change: somebody who came online
+                        // after our last change would otherwise never learn what we are wearing, and there is
+                        // no "tell me your loadout" request for them to make.
+                        publisher.publish(cosmeticService.loadout())
                     }
                 }
             },
@@ -955,6 +1029,10 @@ class SidequestPlatform(
     private var presencePublisher: PresencePublisher? = null
 
     private var remoteMarkerReceiver: RemoteMarkerReceiver? = null
+
+    private var remoteCosmeticReceiver: RemoteCosmeticReceiver? = null
+
+    private var loadoutPublisher: LoadoutPublisher? = null
 
     /**
      * Handles for the backend's two long-lived jobs.
@@ -971,6 +1049,10 @@ class SidequestPlatform(
         presencePublisher = null
         remoteMarkerReceiver?.close()
         remoteMarkerReceiver = null
+        remoteCosmeticReceiver?.close()
+        remoteCosmeticReceiver = null
+        loadoutPublisher?.close()
+        loadoutPublisher = null
     }
 
     /** Disables every feature and unhooks the adapter. Safe to call more than once. */

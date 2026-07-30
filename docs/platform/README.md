@@ -1206,6 +1206,59 @@ will never show".
 Render layer, then rarity, then id. A tie broken by map order would show two people different things and
 neither could tell which was right.
 
+### What actually renders
+
+The service decides; bridges draw. Today that is:
+
+| Slot | |
+| --- | --- |
+| nametag prefix, suffix, title, badge | **drawn** — `EntityRendererMixin` decorates the nametag |
+| notification style, cinematic style | **drawn** — an accent, applied through the theme |
+| sound pack | **applied** — remaps a sound id to a variant |
+| skin, cape | not yet — needs a runtime texture swap |
+| particle trail, aura, join, death | not yet — needs a per-player emitter |
+| profile border | not yet — there is no profile screen to put one on |
+
+`EntityRendererMixin` hooks `getNameTag`, which is three lines because that method returns the `Component`
+that will be drawn and is spelled identically on 26.1.2 and 26.2. Decorating its return value needs no
+knowledge of poses, buffers or render states, and none of it changes when Mojang moves the rendering around.
+
+All four text slots land on **one line** — `[Inner Circle] ♛ chrooted ✦ ◆` — because Minecraft's nametag *is*
+one line: it is drawn with a single `drawInBatch`, so a newline renders as a glyph. A second line means
+submitting separate text at a different height, which is a much more version-sensitive mixin.
+
+`NametagDecorator` runs once per player per frame and does nothing but map lookups and string building. It
+never asks the asset manager to do IO, and it catches its own failures — a throw there would be a crash in
+the render loop, once a frame, forever.
+
+The personal slots need no rendering code of their own. Both amount to an accent, and everything the mod
+draws already takes its accent from the theme, so `Sidequest.activeTheme()` applies one override and toasts,
+cinematics, HUDs and the config screen all follow. The theme is *delegated* rather than reimplemented, so a
+theme that grows a member does not silently lose it here — which is exactly what the first version did.
+
+A sound pack **names** sounds rather than carrying them: wearing `pack.arcade` makes a request for
+`sidequest:levelup` look for `sidequest:pack.arcade.levelup` and fall through when there is no such variant.
+The alternative — treating a pack as a complete set — means every pack has to define every sound or go silent.
+
+### Crossing the wire
+
+`RealtimePayload.LoadoutChanged` carries the **whole loadout, not a diff**, for the same reason `GroupChanged`
+carries no detail: a client that missed one message would otherwise be permanently wrong with nothing to tell
+it so. An empty message means "wearing nothing", not "no change".
+
+`RemoteCosmeticReceiver` trusts none of it:
+
+- the wearer comes from the **message envelope**, never the payload — otherwise anybody could dress anybody
+- **personal slots are refused** from other people; a friend does not get to restyle your interface
+- unknown slot names are dropped rather than guessed at, so a newer client loses that slot and keeps the rest
+- a malformed id is caught rather than taking the rest of the message with it
+
+The loadout is republished on every group refresh, not only on change — somebody who came online after your
+last change would otherwise never learn what you are wearing, and there is no request for them to make.
+
+Persistence is account-scoped, alongside rules and markers, on the same debounced timer. The viewer's settings
+live in the same file: somebody who turned off particles turned them off, not turned them off on one profile.
+
 ### Conditions are their own tree
 
 Not the rule engine's `Condition`. A rule's condition is about one subject and an event; a cosmetic's is

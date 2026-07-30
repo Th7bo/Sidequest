@@ -62,8 +62,30 @@ public class DefaultSoundManager(
         pools[pool.id] = pool
     }
 
+    /**
+     * The sound pack in effect, if any. Set by whoever owns cosmetics.
+     *
+     * A supplier rather than a value, because a pack goes on and comes off while the mod runs and a captured
+     * value would be whichever one was worn at startup.
+     */
+    public var soundPack: () -> String? = { null }
+
+    /**
+     * The variant a pack asks for, or the original.
+     *
+     * A pack **names** sounds rather than carrying them: wearing `pack.arcade` makes a request for
+     * `sidequest:levelup` look for `sidequest:pack.arcade.levelup` first. Falling through to the ordinary
+     * sound is what lets a pack replace three sounds and leave the rest alone — the alternative, treating a
+     * pack as a complete set, means every pack has to define every sound or go silent.
+     */
+    private fun packed(soundId: SqId): SqId {
+        val pack = soundPack() ?: return soundId
+        val variant = SqId.of(soundId.namespace, "$pack.${soundId.path}")
+        return if (variant in definitions) variant else soundId
+    }
+
     override fun play(request: SoundRequest): SoundResult {
-        val definition = definitions[request.soundId] ?: run {
+        val definition = definitions[packed(request.soundId)] ?: run {
             // A bug rather than a condition. Silence would leave somebody wondering why a feature does
             // nothing, and the id is right there in the message.
             log.warn { "No sound registered as ${request.soundId}" }

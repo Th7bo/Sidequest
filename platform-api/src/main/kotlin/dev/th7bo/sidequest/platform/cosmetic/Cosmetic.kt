@@ -248,6 +248,14 @@ public data class Cosmetic(
     public val isJoke: Boolean = false,
     /** Whether it moves. Covered by reduced-animation mode. */
     public val isAnimated: Boolean = false,
+    /**
+     * An accent colour this cosmetic imposes on the mod's own interface.
+     *
+     * Only meaningful for the personal slots — a notification style, a cinematic style. Kept separate from
+     * [rarity]'s colour, which says how rare the thing is rather than what it looks like, and conflating the
+     * two would mean every legendary cosmetic recoloured somebody's toasts orange.
+     */
+    public val accentColour: Int? = null,
 ) {
     init {
         require(displayName.isNotBlank()) { "A cosmetic needs a name: $id" }

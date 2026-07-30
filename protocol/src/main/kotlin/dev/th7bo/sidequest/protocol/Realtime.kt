@@ -310,6 +310,37 @@ public sealed class RealtimePayload {
     public data class GroupChanged(public val revision: Long) : RealtimePayload() {
         override val scope: Permission get() = Permission.VIEW_ONLINE_STATUS
     }
+
+    /**
+     * Somebody changed what they are wearing.
+     *
+     * **The whole loadout, not a diff**, and for the same reason [GroupChanged] carries no detail: a client
+     * that missed one message would otherwise be permanently wrong about what somebody is wearing, with
+     * nothing to tell it so. A loadout is a handful of short strings, so sending all of it costs nothing next
+     * to the cost of being wrong.
+     *
+     * This is why it exists alongside [CosmeticChanged], which is a different event: that one is an *grant*
+     * — an admin gave somebody a cosmetic — and this one is a person putting one on.
+     *
+     * Keyed by slot name rather than by an ordinal, so a client on an older version drops the slots it does
+     * not recognise instead of misreading them as the wrong ones.
+     */
+    @Serializable
+    @SerialName("loadout_changed")
+    public data class LoadoutChanged(
+        public val subject: AccountId,
+        /** Slot name to cosmetic id. An absent slot is empty; there is no separate "unequipped" message. */
+        public val equipped: Map<String, String> = emptyMap(),
+    ) : RealtimePayload() {
+        /**
+         * Seeing what a friend wears is part of seeing that they are there.
+         *
+         * Not its own permission: a cosmetic is public by construction — the wearer already decided who may
+         * see it through `CosmeticVisibility`, and a second gate here would mean two places deciding one
+         * question.
+         */
+        override val scope: Permission get() = Permission.VIEW_ONLINE_STATUS
+    }
 }
 
 // -- connection control ----------------------------------------------------

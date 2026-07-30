@@ -165,7 +165,37 @@ public object PreviewData {
         condition = CosmeticCondition.OnIsland(setOf(Island.CATACOMBS)),
     )
 
+    /**
+     * A style, which is how the personal slots show up at all.
+     *
+     * Nobody else ever sees this. It recolours the mod's own accent — toasts, cinematics, HUDs, the
+     * configuration screen — through the theme, which is why neither the notification style nor the cinematic
+     * style needs code of its own.
+     */
+    public val neonStyle: Cosmetic = Cosmetic(
+        id = SqId.sidequest("preview.style.neon"),
+        slot = CosmeticSlot.NOTIFICATION_STYLE,
+        displayName = "Neon",
+        rarity = CosmeticRarity.RARE,
+        accentColour = 0xFF2D95,
+    )
+
+    /**
+     * A sound pack.
+     *
+     * Its id's path is the prefix: wearing this makes a request for `sidequest:levelup` look for
+     * `sidequest:pack.arcade.levelup` and fall through to the ordinary sound when there is no such variant.
+     */
+    public val arcadePack: Cosmetic = Cosmetic(
+        id = SqId.sidequest("pack.arcade"),
+        slot = CosmeticSlot.SOUND_PACK,
+        displayName = "Arcade",
+        rarity = CosmeticRarity.UNCOMMON,
+    )
+
     public val cosmetics: List<Cosmetic> = listOf(
+        neonStyle,
+        arcadePack,
         plainBadge,
         friendsOnlyTitle,
         jokeHat,
@@ -184,6 +214,9 @@ public object PreviewData {
             CosmeticSlot.TITLE to EquippedCosmetic(friendsOnlyTitle.id, equippedAtMillis),
             CosmeticSlot.AURA to EquippedCosmetic(animatedAura.id, equippedAtMillis),
             CosmeticSlot.NAMETAG_PREFIX to EquippedCosmetic(expiringCrown.id, equippedAtMillis),
+            // The personal ones, so a preview shows the interface restyled as well as the character dressed.
+            CosmeticSlot.NOTIFICATION_STYLE to EquippedCosmetic(neonStyle.id, equippedAtMillis),
+            CosmeticSlot.SOUND_PACK to EquippedCosmetic(arcadePack.id, equippedAtMillis),
         ),
     )
 
