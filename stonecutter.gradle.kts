@@ -51,7 +51,7 @@ tasks.register("runActive") {
 // architecture, not a convention: feature code physically cannot reach a
 // Minecraft class, so version-specific detail cannot leak out of the adapters.
 // ---------------------------------------------------------------------------
-val sharedModulePrefixes = listOf("ui-", "platform-")
+val sharedModulePrefixes = listOf("ui-", "platform-", "protocol", "backend")
 
 configure(subprojects.filter { project -> sharedModulePrefixes.any { project.name.startsWith(it) } }) {
     apply(plugin = "org.jetbrains.kotlin.jvm")

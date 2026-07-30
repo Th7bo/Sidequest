@@ -39,6 +39,15 @@ include("platform-api")
 include("platform-core")
 include("platform-testkit")
 
+// The wire format, shared by the mod and the backend so the two cannot disagree about it.
+// Depends on platform-api for the domain vocabulary — an island, an item, a permission —
+// because duplicating those server-side is a guaranteed drift.
+include("protocol")
+
+// The self-hosted backend. A Ktor server, not a Minecraft module: it is in this build so
+// that a protocol change breaks both sides at compile time instead of at runtime.
+include("backend")
+
 dependencyResolutionManagement {
     versionCatalogs {
         // One catalog per Minecraft version, resolved in build.gradle.kts via `versioned(...)`.

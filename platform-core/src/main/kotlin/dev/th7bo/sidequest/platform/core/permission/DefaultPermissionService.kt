@@ -41,9 +41,15 @@ public class DefaultPermissionService(
         }
     }
 
-    override fun roleOf(player: PlayerId): GroupRole =
-        settings.roles[player.value] ?: GroupRole.GUEST
+    override fun roleOf(player: PlayerId): GroupRole = settings.roleOf(player.value)
 
+    /**
+     * Delegates to [PermissionSettings], which is where the rules live.
+     *
+     * The service's job is the *warning*, not the decision. The client asks about itself and the server
+     * asks about everybody; two implementations of the same rule would eventually disagree, and a
+     * disagreement about a permission is a leak.
+     */
     override fun can(actor: PlayerId, permission: Permission): Boolean {
         if (!permission.isCapability) {
             // Asking the wrong question. Answered as no rather than as a plausible yes: a disclosure is
@@ -51,12 +57,7 @@ public class DefaultPermissionService(
             log.warn { "can() was asked about the disclosure $permission; use shares() instead" }
             return false
         }
-
-        // The override wins in both directions. Granting a member an admin capability and denying an
-        // admin one are both things a group needs, and a role-only model can do neither.
-        settings.overrides[actor.value]?.get(permission)?.let { return it }
-
-        return roleOf(actor).isAtLeast(permission.defaultRole)
+        return settings.can(actor.value, permission)
     }
 
     override fun shares(permission: Permission, viewer: PlayerId): Boolean {
@@ -64,27 +65,19 @@ public class DefaultPermissionService(
             log.warn { "shares() was asked about the capability $permission; use can() instead" }
             return false
         }
-
-        // Sharing with ourselves is always allowed. Without this, the local HUD showing our own
-        // position would be gated on us having agreed to share it with somebody.
-        if (viewer.value == localPlayer()?.value) return true
-
-        val audience = settings.disclosures[permission]
-            // No entry means the permission's own default, which is off for anything that reveals where
-            // a person physically is.
-            ?: return permission.sharedByDefault
-
-        return PermissionSettings.EVERYONE in audience || viewer.value in audience
+        // The local player is the subject: these are *our* disclosures, and a client holds settings with
+        // exactly one subject in them.
+        val subject = localPlayer()?.value ?: return permission.sharedByDefault
+        return settings.shares(subject, permission, viewer.value)
     }
 
     override fun sharesWithAnybody(permission: Permission): Boolean {
         if (!permission.isDisclosure) return false
-        val audience = settings.disclosures[permission] ?: return permission.sharedByDefault
-        return audience.isNotEmpty()
+        val subject = localPlayer()?.value ?: return permission.sharedByDefault
+        return settings.sharesWithAnybody(subject, permission)
     }
 
-    override fun capabilitiesOf(actor: PlayerId): Set<Permission> =
-        Permission.CAPABILITIES.filterTo(LinkedHashSet()) { can(actor, it) }
+    override fun capabilitiesOf(actor: PlayerId): Set<Permission> = settings.capabilitiesOf(actor.value)
 
     // -- editing -----------------------------------------------------------
 
@@ -121,7 +114,11 @@ public class DefaultPermissionService(
      */
     public fun setDisclosure(permission: Permission, audience: Set<String>): PermissionSettings {
         require(permission.isDisclosure) { "$permission is a capability, not a disclosure" }
-        update(settings.copy(disclosures = settings.disclosures + (permission to audience)))
+        // Keyed by subject, because the same shape holds one person's settings on a client and
+        // everybody's on the server. Ours is the only subject a client ever writes.
+        val subject = localPlayer()?.value ?: return settings
+        val mine = settings.disclosures[subject].orEmpty() + (permission to audience)
+        update(settings.copy(disclosures = settings.disclosures + (subject to mine)))
         return settings
     }
 
@@ -135,6 +132,9 @@ public class DefaultPermissionService(
             settings.copy(
                 roles = settings.roles - player.value,
                 overrides = settings.overrides - player.value,
+                // Their disclosures go too. Keeping a departed member's privacy settings would mean the
+                // server still holding a record of what they had agreed to share.
+                disclosures = settings.disclosures - player.value,
             ),
         )
         return settings

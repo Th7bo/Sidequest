@@ -149,14 +149,20 @@ public enum class Permission(
 }
 
 /**
- * The group's permission settings, as stored.
+ * The group's permission settings, as stored — and the evaluation of them.
  *
- * Roles and overrides for other people; disclosures for ourselves. Kept as one serialisable value so
- * the whole thing is one repository and one sync payload rather than three that can disagree.
+ * **The rules live here, not in the service.** The client asks about itself and the server asks about
+ * everybody, and if each had its own copy of the logic a permission would eventually mean two different
+ * things on the two sides of a connection. A disagreement about a permission is a leak, so there is one
+ * implementation and both sides call it.
+ *
+ * Disclosures are keyed by *subject* for the same reason. A client holds settings with one subject in
+ * them — itself — and the server holds every member's; the shape is identical, so the same code answers
+ * both.
  */
 @Serializable
 public data class PermissionSettings(
-    /** Role per player. Anybody absent is a [GroupRole.GUEST]. */
+    /** Role per account. Anybody absent is a [GroupRole.GUEST]. */
     public val roles: Map<String, GroupRole> = emptyMap(),
     /**
      * Per-user capability overrides, as the plan asks for.
@@ -167,13 +173,53 @@ public data class PermissionSettings(
      */
     public val overrides: Map<String, Map<Permission, Boolean>> = emptyMap(),
     /**
-     * What we share, and with whom.
+     * Who each person shares what with: subject, then permission, then audience.
      *
-     * Absent means the permission's own default. An entry maps a permission to the set of players it
-     * is shared with, or [EVERYONE] for the whole group.
+     * An absent entry means the permission's own default. An **empty** audience means explicitly nobody,
+     * which is a different thing: somebody who has turned a disclosure off must stay off if the default
+     * ever changes.
      */
-    public val disclosures: Map<Permission, Set<String>> = emptyMap(),
+    public val disclosures: Map<String, Map<Permission, Set<String>>> = emptyMap(),
 ) {
+
+    /** [subject]'s role. [GroupRole.GUEST] for anybody the group has not decided about. */
+    public fun roleOf(subject: String): GroupRole = roles[subject] ?: GroupRole.GUEST
+
+    /**
+     * Whether [actor] may do [permission].
+     *
+     * Returns false for a disclosure rather than a plausible answer — a caller asking this about one has
+     * a bug, and a helpful answer would hide it while leaking the thing the split protects.
+     */
+    public fun can(actor: String, permission: Permission): Boolean {
+        if (!permission.isCapability) return false
+        overrides[actor]?.get(permission)?.let { return it }
+        return roleOf(actor).isAtLeast(permission.defaultRole)
+    }
+
+    /**
+     * Whether [subject] shares [permission] with [viewer].
+     *
+     * Sharing with yourself is always allowed; without that, a local HUD showing your own position would
+     * be gated on you having agreed to share it with somebody.
+     */
+    public fun shares(subject: String, permission: Permission, viewer: String): Boolean {
+        if (!permission.isDisclosure) return false
+        if (subject == viewer) return true
+        val audience = disclosures[subject]?.get(permission) ?: return permission.sharedByDefault
+        return EVERYONE in audience || viewer in audience
+    }
+
+    /** Whether [subject] shares [permission] with anybody at all. */
+    public fun sharesWithAnybody(subject: String, permission: Permission): Boolean {
+        if (!permission.isDisclosure) return false
+        val audience = disclosures[subject]?.get(permission) ?: return permission.sharedByDefault
+        return audience.isNotEmpty()
+    }
+
+    /** Everything [actor] may currently do. */
+    public fun capabilitiesOf(actor: String): Set<Permission> =
+        Permission.CAPABILITIES.filterTo(LinkedHashSet()) { can(actor, it) }
 
     public companion object {
         /** Stands in for "the whole group" in [disclosures]. Not a valid UUID, so it cannot collide. */
