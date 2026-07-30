@@ -1055,6 +1055,103 @@ pass would churn every `UiState` the nodes read and make a marker attached to a 
 The in-game test asserts the overlay count both after placing and after clearing. A bridge that adds but never
 removes leaves a waypoint on screen forever, which is the failure nobody notices until an hour in.
 
+A count is all it asserts, though, and for a long time that was all *any* test asserted about world overlays —
+which is how the projection came to be rotated 180° about the view axis without anything noticing. See
+[the projection](../guide/notifications-and-overlays.md#the-bug-that-shaped-this). The overlay layer now
+reports what it actually resolved, and the client test checks which side of the screen things land on.
+
+---
+
+## Assets
+
+Images, sounds and shared data, and the gate that makes cosmetics safe to add at all.
+
+| | |
+| --- | --- |
+| `AssetId` | the SHA-256 of the bytes |
+| `AssetKind` | what it is for, and therefore every limit it must satisfy |
+| `AssetManager` | fetch, validate, cache, evict |
+| `AssetTransport` / `AssetStore` | the two sinks: bytes off a network, bytes on a disk |
+
+```kotlin
+when (val result = context.assets.load(id, AssetKind.ICON)) {
+    is AssetResult.Ready -> draw(result.asset.bytes)
+    is AssetResult.Refused -> draw(fallback)     // and result.rejection says why
+}
+
+context.assets.resident(id)                      // no IO, for a render path that cannot wait
+context.assets.preload(loadout.iconIds, AssetKind.ICON)
+```
+
+### The id is the hash, and that decides most of the design
+
+Three of the plan's requirements fall out of content-addressing rather than needing machinery:
+
+- **Immutable versions.** Different bytes are a different id, so nobody can change what an id means. There is no
+  cache invalidation, because there is nothing that can go stale. Editing a cape produces a new asset.
+- **Integrity.** The id *is* the checksum. Whatever a download claims to be, it is accepted only if it hashes
+  back to the id that was asked for — so a corrupted transfer and a substituted file are caught by one check,
+  with no signature scheme.
+- **Deduplication.** Two people using the same badge store it once.
+
+### Never render arbitrary user-provided URLs
+
+The plan states the rule; the way it is *kept* is that no method takes a URL. `AssetManager` accepts an id and
+nothing else, and `AssetUrls` builds the address from the configured backend and a hash that has already been
+validated as 64 hex characters. There is no input to it that a remote party controls, so breaking the rule
+requires adding a method rather than passing a careless argument.
+
+The origin check on the way out is belt and braces, and is compared on scheme-host-port rather than as a string
+prefix — `https://sq.api.th7bo.dev.evil.example` starts with the real base and is a different host.
+
+### Validation, cheapest and most decisive first
+
+| | |
+| --- | --- |
+| size | against the kind's budget |
+| what the bytes are | sniffed from the signature, never from a header or an extension |
+| agreement | the server's `Content-Type` must match what the bytes are, or it is refused |
+| the format's own header | image dimensions, and that an Ogg really contains Vorbis or Opus |
+| the hash | last, because it is the only check that reads every byte |
+
+**The dimension check is the one that matters most and is easiest to leave out.** A PNG of one flat colour
+40,000 pixels square is a few hundred bytes on disk and 6.4 GB decoded. A size limit passes it. Only reading
+the dimensions out of the IHDR chunk catches it, and that has to happen *before* anything hands the file to a
+decoder — so `ImageHeaders` parses PNG and JPEG headers directly rather than calling an image library.
+
+Every parser there is total: a truncated or malformed file returns null and nothing throws. The input arrives
+from a network, and a header parser that throws on hostile input is a crash waiting to be triggered. The test
+walks every prefix of every fixture and asserts only that the call returns.
+
+The size limit is also enforced **on the stream**, not on the result. The obvious implementation asks for the
+whole body and checks its length, by which point the client has already allocated whatever the server decided
+to send. `JdkAssetTransport` reads incrementally and abandons the response at the cap; the `Content-Length`
+header is a cheap early exit and is not believed.
+
+### Three layers, each re-validating
+
+Memory, disk, network. A file on disk is checked again rather than trusted — it was written by an earlier
+version, or truncated by a full disk, and re-hashing bytes already in hand is nearly free. Skipping it would
+make the disk cache the one place a bad asset gets in unchecked. A cached file that no longer passes is
+deleted and refetched.
+
+**Concurrent requests for one asset share one download.** A loadout with the same badge on four slots is
+otherwise four parallel fetches, four validations and four writes of identical bytes.
+
+**Permanent refusals are remembered; temporary ones are not.** A render path asks every frame, so an asset of
+the wrong shape would be re-downloaded sixty times a second. But remembering a *timeout* would leave a server
+that blipped for a moment having broken every cosmetic until restart, which is why `AssetRejection` carries
+`isPermanent` rather than the caller guessing.
+
+**Eviction is by bytes.** A budget in entries is meaningless when one entry is a 4 MiB sound and another a
+2 KiB icon. Memory is a `LinkedHashMap` in access order, so a read is a reorder and eviction is "drop from the
+front"; disk is the same, keyed off the file times read once at startup.
+
+### What is not here
+
+Upload. The backend has no asset-upload endpoint yet, so today every id has to be put there by hand. That is a
+named gap rather than an oversight — see the backend's open items.
+
 ---
 
 ## Seeing what the mod is doing

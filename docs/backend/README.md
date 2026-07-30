@@ -301,7 +301,13 @@ exactly-once across a network boundary without a transaction.
 
 - **The web dashboard.** Until it exists, the operator token is the only way to approve a pairing or
   administer the group. `PAIR_APPROVE` is already shaped for a dashboard rather than for the token.
-- **Asset upload.** Evidence events carry metadata only; the bytes go through the asset manager, which is
-  a later plan item. A megabyte of PNG on the realtime connection would block every ping behind it.
+- **Asset upload.** Evidence events carry metadata only; the bytes go through the asset manager. A megabyte of
+  PNG on the realtime connection would block every ping behind it.
+
+  The client half now exists and expects `GET /v1/assets/<sha256>` to return the bytes. What is missing is the
+  other direction: something that accepts an upload, hashes it, applies the same limits the client applies, and
+  hands back the id. Until then an asset has to be put in place by hand. Note that the server must re-run the
+  checks rather than trusting the client's — the client validates what it *receives*, which protects that
+  client and nobody else.
 - **Acknowledgements are accepted and recorded nowhere.** Delivery is at-least-once, so nothing depends on
   them yet; the frame exists so a client can start sending them before the server starts caring.

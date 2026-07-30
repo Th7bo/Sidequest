@@ -3,6 +3,7 @@ package dev.th7bo.sidequest.platform.minecraft
 import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.command.CommandRegistry
 import dev.th7bo.sidequest.platform.command.CommandSpec
+import dev.th7bo.sidequest.platform.asset.AssetManager
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.core.backend.DefaultBackendClient
 import dev.th7bo.sidequest.platform.core.backend.DefaultRealtimeClient
@@ -17,6 +18,7 @@ import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
+import dev.th7bo.sidequest.platform.core.asset.DefaultAssetManager
 import dev.th7bo.sidequest.platform.core.marker.DefaultMarkerService
 import dev.th7bo.sidequest.platform.core.marker.RemoteMarkerReceiver
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
@@ -75,6 +77,11 @@ import dev.th7bo.sidequest.platform.marker.MarkerService
 import dev.th7bo.sidequest.platform.marker.MarkerStore
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
 import dev.th7bo.sidequest.platform.scheduler.SchedulerThread
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -275,6 +282,32 @@ class SidequestPlatform(
     val markers: MarkerService get() = markerService
 
     /**
+     * Where speculative asset work runs.
+     *
+     * Its own scope rather than the scheduler's, because a preload must outlive the caller that asked for it:
+     * a feature that gives up waiting should not cancel a download the next frame wants. Cancelled in [stop].
+     */
+    private val assetScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineName("sidequest.assets"),
+    )
+
+    /**
+     * Images, sounds and everything else the group shares.
+     *
+     * The cache lives under the storage root's throwaway directory, which is the point of
+     * [StorageScope.Cache] existing — deleting it wholesale must cost nothing but a re-download.
+     */
+    private val assetManager = DefaultAssetManager(
+        transport = JdkAssetTransport(),
+        store = FileAssetStore(storageRoot.resolve(StorageScope.Cache.path).resolve("assets")),
+        log = loggers.create(LogCategory.PERSISTENCE, SqId.sidequest("assets")),
+        scope = assetScope,
+        baseUrl = { backendConfig.baseUrl },
+    )
+
+    val assets: AssetManager get() = assetManager
+
+    /**
      * The things worth stopping the game for.
      *
      * Built after the notification manager, because a cinematic that cannot be shown falls back to a
@@ -365,6 +398,7 @@ class SidequestPlatform(
         cinematics = cinematicDirector,
         markers = markerService,
         rules = ruleEngine,
+        assets = assetManager,
         storage = fileStorage,
         permissions = permissionService,
         loggers = loggers,
@@ -940,6 +974,10 @@ class SidequestPlatform(
         // registrations is the whole of their shutdown. Nothing here has to be told to stop.
         scheduler.cancelAll(OwnerId.PLATFORM)
         if (!adapterScope.isClosed) adapterScope.cancel()
+        // Preloads are speculative and nobody is waiting on them, so they are simply dropped. The disk cache
+        // keeps whatever finished, which is why abandoning them costs nothing.
+        assetScope.cancel()
+        assetManager.releaseMemory()
         log.info { "Platform stopped" }
     }
 

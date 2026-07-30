@@ -1,5 +1,6 @@
 package dev.th7bo.sidequest.platform.feature
 
+import dev.th7bo.sidequest.platform.asset.AssetManager
 import dev.th7bo.sidequest.platform.audio.SoundManager
 import dev.th7bo.sidequest.platform.chat.ChatParser
 import dev.th7bo.sidequest.platform.chat.ChatRule
@@ -204,6 +205,15 @@ public interface FeatureContext {
      * minute" is seven slightly different ideas of what a cooldown means.
      */
     public val rules: RuleEngine
+
+    /**
+     * Images, sounds and other files the group shares.
+     *
+     * A feature names a hash and gets bytes. It cannot name a URL, and that is the point rather than an
+     * inconvenience: an asset comes from the configured backend or it does not come at all, so no cosmetic
+     * anybody uploads can make a client fetch from somewhere else.
+     */
+    public val assets: AssetManager
 
     // -- storage ------------------------------------------------------------
 

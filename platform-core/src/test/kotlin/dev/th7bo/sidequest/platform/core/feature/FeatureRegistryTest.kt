@@ -3,6 +3,7 @@ package dev.th7bo.sidequest.platform.core.feature
 import dev.th7bo.sidequest.platform.command.CommandCollisionException
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.context.DefaultGameContextService
+import dev.th7bo.sidequest.platform.asset.AssetManager
 import dev.th7bo.sidequest.platform.audio.SoundSink
 import dev.th7bo.sidequest.platform.core.audio.DefaultSoundManager
 import dev.th7bo.sidequest.platform.core.notification.DefaultNotificationManager
@@ -119,6 +120,7 @@ class FeatureRegistryTest {
             log = NoopLogger,
             localPlayer = { null },
         ),
+        assets = AssetManager.None,
         storage = JsonFileStorage(storageRoot, NoopLogger),
         permissions = DefaultPermissionService(NoopLogger, localPlayer = { null }),
         loggers = loggers,
