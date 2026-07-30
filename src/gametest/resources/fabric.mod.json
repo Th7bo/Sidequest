@@ -37,6 +37,10 @@
       {
         "value": "dev.th7bo.sidequest.gametest.ItemReaderTest",
         "adapter": "kotlin"
+      },
+      {
+        "value": "dev.th7bo.sidequest.gametest.PlayerTargetingTest",
+        "adapter": "kotlin"
       }
     ]
   },

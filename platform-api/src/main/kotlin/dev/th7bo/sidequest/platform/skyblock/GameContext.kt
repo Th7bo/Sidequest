@@ -33,6 +33,13 @@ public data class GameContext(
     public val kuudraTier: Int? = null,
     /** The profile's game mode, when the scoreboard has named one. */
     public val profileType: ProfileType = ProfileType.NORMAL,
+    /**
+     * What the player appears to be doing, and how sure we are.
+     *
+     * Its own confidence, separate from [confidence]: knowing the island for certain says very
+     * little about the activity, and a feature that needs one does not need the other.
+     */
+    public val activity: ActivityReading = ActivityReading.Unknown,
     /** How much of the above is believed, and why. */
     public val confidence: ContextConfidence = ContextConfidence.NONE,
 ) {
@@ -54,6 +61,15 @@ public data class GameContext(
 
     /** In a Kuudra fight. */
     public val isInKuudra: Boolean get() = kuudraTier != null
+
+    /**
+     * Whether interrupting would be unwelcome, from either the place or the activity.
+     *
+     * The one question the cinematic and notification policies ask, now that both halves exist.
+     * Standing in the Crimson Isle is not demanding and being mid-Kuudra is, and the island alone
+     * cannot tell them apart.
+     */
+    public val isDemanding: Boolean get() = isBusy || activity.activity.isDemanding
 
     /**
      * Whether the context is trustworthy enough to act on.

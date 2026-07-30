@@ -2,6 +2,7 @@ package dev.th7bo.sidequest.platform.minecraft
 
 import dev.th7bo.sidequest.platform.parser.ScoreboardSnapshot
 import dev.th7bo.sidequest.platform.parser.TabListSnapshot
+import dev.th7bo.sidequest.platform.player.PlayerId
 import net.minecraft.client.Minecraft
 import net.minecraft.world.scores.DisplaySlot
 import net.minecraft.world.scores.PlayerTeam
@@ -65,5 +66,26 @@ object MinecraftTabListReader {
             .map { info -> (info.tabListDisplayName ?: return@map info.profile.name).string }
 
         return TabListSnapshot(rawEntries = entries)
+    }
+}
+
+/**
+ * Who is on this server, with their identities.
+ *
+ * Distinct from the tab list *snapshot*, which is text: Hypixel fills the tab list with widgets and
+ * decorated display names, and none of that carries a UUID. The player list does, and a UUID is the
+ * only thing worth keying anything on.
+ *
+ * This is where the directory learns almost everything it knows. Being in a lobby with somebody is
+ * the client's one reliable source of "this name belongs to this account".
+ */
+object MinecraftPlayerListReader {
+
+    /** Every player the client has been told about, as id and name. */
+    fun read(): List<Pair<PlayerId, String>> {
+        val connection = Minecraft.getInstance().connection ?: return emptyList()
+        return connection.onlinePlayers.map { info ->
+            PlayerId(info.profile.id.toString()) to info.profile.name
+        }
     }
 }

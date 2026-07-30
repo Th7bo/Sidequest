@@ -15,6 +15,9 @@ import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.lifecycle.ownedBy
 import dev.th7bo.sidequest.platform.log.Logger
+import dev.th7bo.sidequest.platform.party.PartyService
+import dev.th7bo.sidequest.platform.player.PlayerDirectory
+import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import dev.th7bo.sidequest.platform.scheduler.Debounced
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
@@ -43,6 +46,9 @@ internal class DefaultFeatureContext(
     override val commands: CommandRegistry,
     override val chat: ChatParser,
     override val gameContext: GameContextService,
+    override val players: PlayerDirectory,
+    override val targeting: PlayerTargeting,
+    override val party: PartyService,
     override val log: Logger,
 ) : FeatureContext {
 

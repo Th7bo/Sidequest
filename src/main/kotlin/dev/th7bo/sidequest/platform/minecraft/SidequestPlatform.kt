@@ -5,6 +5,9 @@ import dev.th7bo.sidequest.platform.command.CommandRegistry
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.chat.HypixelChatRules
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
+import dev.th7bo.sidequest.platform.core.parser.TabListParser
+import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
+import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.feature.DefaultFeatureRegistry
 import dev.th7bo.sidequest.platform.core.log.LoggerFactory
@@ -28,6 +31,9 @@ import dev.th7bo.sidequest.platform.log.LogCategory
 import dev.th7bo.sidequest.platform.log.LogLevel
 import dev.th7bo.sidequest.platform.log.LogSink
 import dev.th7bo.sidequest.platform.log.Logger
+import dev.th7bo.sidequest.platform.party.PartyService
+import dev.th7bo.sidequest.platform.player.PlayerDirectory
+import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import org.slf4j.LoggerFactory as Slf4jLoggerFactory
@@ -104,9 +110,40 @@ class SidequestPlatform(
     private val contextService = DefaultGameContextService(
         events = events,
         log = loggers.create(LogCategory.PARSER, SqId.sidequest("context")),
+        isMoving = { minecraftClient.hasMovedRecently },
     )
 
     val gameContext: GameContextService get() = contextService
+
+    /**
+     * Who is who.
+     *
+     * Learned from the tab list and from every player the client can see, and keyed on UUID
+     * throughout — a Minecraft name can be released and claimed by somebody else, so nothing
+     * durable may key on one.
+     */
+    private val playerDirectory = DefaultPlayerDirectory(events)
+
+    val players: PlayerDirectory get() = playerDirectory
+
+    /** Finding the player somebody means. Needs the game, so it is an adapter. */
+    private val playerTargeting = MinecraftPlayerTargeting(playerDirectory)
+
+    val targeting: PlayerTargeting get() = playerTargeting
+
+    /**
+     * The party.
+     *
+     * Built from the chat rules and corroborated against the tab widget — no chat parsing of its
+     * own, which is the demonstration that the layering holds.
+     */
+    private val partyService = DefaultPartyService(
+        events = events,
+        players = playerDirectory,
+        log = loggers.create(LogCategory.PARSER, SqId.sidequest("party")),
+    )
+
+    val party: PartyService get() = partyService
 
     val features: FeatureRegistry = DefaultFeatureRegistry(
         gameVersion = version,
@@ -115,6 +152,9 @@ class SidequestPlatform(
         commands = commands,
         chat = chatParser,
         gameContext = contextService,
+        players = playerDirectory,
+        targeting = playerTargeting,
+        party = partyService,
         loggers = loggers,
     )
 
@@ -150,6 +190,7 @@ class SidequestPlatform(
         // The local player's name is needed to tell the player's own public message from a
         // system line shaped like one, and it is not known yet at this point — hence the
         // supplier rather than a value.
+        partyService.install()
         adapterScope.add(chatParser.registerAll(HypixelChatRules.all { minecraftClient.localPlayerName }, OwnerId.PLATFORM))
         val fixtureFailures = chatParser.verifyFixtures()
         if (fixtureFailures.isNotEmpty()) {
@@ -192,6 +233,7 @@ class SidequestPlatform(
             minecraftLifecycle.onClientTick {
                 events.post(ClientTickEvent(minecraftClient.tickCount), EventSource.GAME)
                 pollBoards()
+                pollPlayers()
             }.asRegistration(),
         )
         adapterScope.add(
@@ -206,6 +248,10 @@ class SidequestPlatform(
                 // an island from a server it has just left.
                 contextService.reset()
                 chatParser.reset()
+                // The directory is deliberately *not* cleared: who somebody is does not stop being
+                // true because we left the server, and re-learning every name on every hop would
+                // throw away the rename history that makes a stale name resolvable.
+                playerDirectory.forgetPresence()
                 contextService.setOnHypixel(false)
                 events.post(MinecraftDisconnectEvent(), EventSource.GAME)
             }.asRegistration(),
@@ -232,7 +278,29 @@ class SidequestPlatform(
     private fun pollBoards() {
         if (!contextService.context.isOnHypixel) return
         contextService.onScoreboard(MinecraftScoreboardReader.read())
-        contextService.onTabList(MinecraftTabListReader.read())
+        val tabList = MinecraftTabListReader.read()
+        contextService.onTabList(tabList)
+        // The party widget reaches the party service the same way the scoreboard reaches the context
+        // service: through the one poll, rather than the service listening for a board event and
+        // parsing the tab list a second time.
+        partyService.onPartyWidget(TabListParser.parse(tabList).partyMembers)
+    }
+
+    /**
+     * Feeds the online player list into the directory.
+     *
+     * Once a second rather than every tick. The list is up to eighty entries and changes when
+     * somebody joins the lobby, so twenty passes a second would be nineteen wasted — and unlike the
+     * boards this is not a source of anything time-sensitive.
+     *
+     * Not gated on Hypixel. Knowing who somebody is has nothing to do with which server they were
+     * met on, and a friend met in singleplayer is still that person.
+     */
+    private fun pollPlayers() {
+        if (minecraftClient.tickCount % PLAYER_POLL_TICKS != 0L) return
+        for ((id, name) in MinecraftPlayerListReader.read()) {
+            playerDirectory.remember(id, name)
+        }
     }
 
     /**
@@ -253,6 +321,7 @@ class SidequestPlatform(
         if (!started) return
         started = false
         features.disableAll()
+        partyService.close()
         if (!adapterScope.isClosed) adapterScope.cancel()
         log.info { "Platform stopped" }
     }
@@ -265,6 +334,9 @@ class SidequestPlatform(
 
     private companion object {
         const val HYPIXEL_DOMAIN = "hypixel.net"
+
+        /** How often the online player list is read. Once a second. */
+        const val PLAYER_POLL_TICKS = 20L
     }
 }
 

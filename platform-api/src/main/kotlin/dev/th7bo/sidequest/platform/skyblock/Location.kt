@@ -101,6 +101,16 @@ public enum class Island(
     public val isPersonalIsland: Boolean get() = this in PERSONAL
 
     /**
+     * Whether this island's coordinates are only meaningful within one profile.
+     *
+     * A private island and a garden are built per profile, so a position on one means nothing
+     * on another profile's. The Hub is the Hub everywhere. See
+     * [SqLocation][dev.th7bo.sidequest.platform.skyblock.SqLocation], which is where this
+     * matters.
+     */
+    public val isPerProfile: Boolean get() = this in PERSONAL
+
+    /**
      * Whether interrupting the player here is rude.
      *
      * Read by the cinematic and notification policies: a full-screen animation during a

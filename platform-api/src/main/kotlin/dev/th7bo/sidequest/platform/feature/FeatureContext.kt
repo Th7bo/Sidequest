@@ -14,6 +14,9 @@ import dev.th7bo.sidequest.platform.id.OwnerId
 import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.Logger
+import dev.th7bo.sidequest.platform.party.PartyService
+import dev.th7bo.sidequest.platform.player.PlayerDirectory
+import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import dev.th7bo.sidequest.platform.scheduler.Debounced
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
@@ -118,6 +121,30 @@ public interface FeatureContext {
      * [dev.th7bo.sidequest.platform.skyblock.GameContext.isReliable] first.
      */
     public val gameContext: GameContextService
+
+    // -- players ------------------------------------------------------------
+
+    /**
+     * Who is who, keyed on UUID.
+     *
+     * Anything a feature stores about a player keys on
+     * [dev.th7bo.sidequest.platform.player.PlayerId], never on a username: Minecraft names can be
+     * released and claimed by somebody else, so a record against a name can end up against a
+     * stranger.
+     */
+    public val players: PlayerDirectory
+
+    /** Finding the player somebody means: crosshair, last target, or a typed name. */
+    public val targeting: PlayerTargeting
+
+    /**
+     * The party.
+     *
+     * Read this instead of watching for party chat. A feature that parses "joined the party." is
+     * one of six copies of the same pattern, five of which will not be fixed when Hypixel rewords
+     * it.
+     */
+    public val party: PartyService
 
     // -- chat ---------------------------------------------------------------
 

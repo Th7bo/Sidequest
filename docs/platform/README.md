@@ -26,7 +26,7 @@ replaced without touching the other.
 Minecraft is not on the classpath of the first three. That is the enforcement mechanism,
 not a convention: feature code physically cannot reach a Minecraft class, so
 version-specific detail has nowhere to leak to. It also means the whole platform is
-testable at full speed with no game running — 206 tests that take a couple of seconds.
+testable at full speed with no game running — 261 tests that take a couple of seconds.
 
 ---
 
@@ -146,7 +146,10 @@ The client lifecycle: `MinecraftJoinEvent`, `MinecraftDisconnectEvent`, `ClientT
 `ClientShutdownEvent`, `FeatureStateChangedEvent`.
 
 The game context: `SkyBlockJoinEvent`, `SkyBlockLeaveEvent`, `IslandChangedEvent`,
-`SubLocationChangedEvent`, `ServerChangedEvent`, `ProfileChangedEvent`.
+`SubLocationChangedEvent`, `ServerChangedEvent`, `ProfileChangedEvent`, `ActivityChangedEvent`.
+
+Players and the party: `PlayerFirstSeenEvent`, `PlayerRenamedEvent`, `PlayerPresenceChangedEvent`,
+`PartyChangedEvent`, `ReadyCheckChangedEvent`.
 
 Chat, from the parser: `ChatMessageEvent` plus the derived family under
 `ChatDerivedEvent` — see [Chat](#chat).
@@ -440,6 +443,116 @@ invites a feature to parse it.
 
 ---
 
+## Players
+
+**Never key anything on a username.** Minecraft names can be released and claimed by another
+account, so a debt recorded against "Notch" can end up owed by a stranger. A UUID cannot be taken
+over.
+
+That is enforced structurally rather than by review. Nothing in the directory is *stored* under a
+name; there is a name index, and it is a resolution cache that could be rebuilt from the identities
+alone:
+
+```kotlin
+players.byId(playerId)              // the only lookup that is always right
+players.resolveUsername("Notch")    // best-effort, documented so, can be wrong
+```
+
+Renames are recorded rather than overwritten, so a name written down a year ago still finds the
+person. Where a name has been *taken over*, the current holder wins — right for "invite this
+person", and exactly why nothing durable may store one.
+
+The directory learns almost everything from the online player list, polled once a second: being in a
+lobby with somebody is the client's one reliable source of "this name belongs to this account".
+Nicknames are ours, never sent anywhere, and never used for resolution.
+
+`PlayerPresence` is separate from identity because it changes on a different timescale — an identity
+is worth persisting and a presence is worth nothing five minutes later. A disconnect calls
+`forgetPresence()`, not `clear()`: identities do not stop being true because we left a server.
+
+`isLocationShared` is the permission gate. A presence carries a location only when the player has
+opted in, and "not shared" is indistinguishable from "no data" on purpose — a feature that could tell
+them apart could tell the player something they did not agree to reveal.
+
+### Targeting
+
+```kotlin
+targeting.crosshairTarget           // raycast, line of sight required
+targeting.lastTargeted              // so a GUI can open after looking away
+targeting.resolveTarget(name)       // the whole chain: name, else crosshair, else last
+targeting.nearby(maxDistance = 16.0)
+```
+
+The crosshair pick is a real raycast against each player's bounding box, not the
+angle-to-look-vector approximation. The approximation prefers whoever is nearest the centre of the
+screen regardless of who is in front, so with two people in a line it targets the wrong one — and a
+"point at somebody" feature that picks the person behind them is worse than no feature.
+
+`TargetedPlayer` is a reading, not an entity. A feature holding an entity holds a reference into the
+world that goes stale when the player leaves render distance.
+
+---
+
+## The party
+
+**Features must not parse party chat.** The party is assembled once, from the chat rules and the tab
+widget, and a feature reads `context.party`. Six features each watching for "joined the party." is
+six patterns to fix when Hypixel rewords it, and five will not get fixed.
+
+```kotlin
+party.party.members          // [Throwpo (leader), CalMWolfs]
+party.party.confidence       // NONE | TRACKED | CONFIRMED
+party.readyCheck             // null when none is running
+```
+
+**Chat is a stream of changes, not a state.** A session that began mid-party never saw the joins, so
+the accumulation is silently empty there — which is what `PartyConfidence` exists to say out loud.
+The tab widget is a statement of who is in the party *right now*, so it wins where it has anything
+to say; where it does not, the accumulation stands at `TRACKED`.
+
+The service subscribes at `IMMEDIATE`, so the party is already up to date by the time a
+`PartyMemberJoinedEvent` reaches a feature. A feature reacting to somebody joining by reading the
+member list must not see the list from before they joined.
+
+`ReadyCheck` is a value with a deadline rather than a live object with a timer: a screen can show the
+countdown without asking anybody, and there is no timer to leak when a feature unloads. A response
+from somebody who was not asked is ignored — a check is over a fixed set of people, and letting a
+latecomer answer would change what "everybody is ready" means.
+
+---
+
+## Activity
+
+What the player is doing, at the level a feature cares about, with the confidence attached:
+
+```kotlin
+val reading = gameContext.context.activity
+reading.activity      // DUNGEONS, MINING, GARDEN, …
+reading.confidence    // CONFIRMED | PROBABLE | GUESSED | NONE
+reading.reason        // "scoreboard names floor F7"
+```
+
+Three tiers of signal, and the ordering is the whole design:
+
+| Signal | Confidence | Example |
+| --- | --- | --- |
+| the game states it | `CONFIRMED` | the scoreboard names the floor, or the Kuudra tier |
+| a widget implies it | `PROBABLE` | `Commissions:` only appears while doing commissions |
+| the island alone | `GUESSED` | the Crystal Hollows is for mining and nothing else |
+
+Falling through all three gives `UNKNOWN`, which the plan asks for explicitly. An invented activity
+is worse than an absent one, because features act on it — so the Hub is `EXPLORING` at `GUESSED` and
+never anything more definite.
+
+`reason` is not decoration. Detection is a pile of heuristics, and when one is wrong the only useful
+question is "what made you think that". Reconstructing the answer from a log afterwards is not the
+same as having it.
+
+`GameContext.isDemanding` combines the place and the activity, which is the distinction the island
+alone cannot make: standing in the Crimson Isle is not demanding and being mid-Kuudra is.
+
+---
+
 ## Scheduling
 
 ```kotlin
@@ -531,7 +644,12 @@ actually fires on a real client, that a command actually registers, and that dis
 feature really does stop it. `BoardReaderTest`: that the adapter pulls the right strings out
 of a real scoreboard, team prefixes and all. `ChatBridgeTest`: that a component sent over the
 network comes back out as a typed event. `ItemReaderTest`: that a stack shaped the way Hypixel
-builds one is read out of the components it actually lives in.
+builds one is read out of the components it actually lives in. `PlayerTargetingTest`: that the
+raycast and the line-of-sight test run against a real level at all.
+
+`PlayerTargetingTest` earned its place immediately. It asserted that the local player is in the
+directory, which failed — nothing was feeding the online player list in, and every headless test
+passed. The gap was a whole missing poll, and no fake could have shown it.
 
 `ChatBridgeTest` is the clearest example of why the far side has to be tested. Every chat
 fixture in the suite would still pass if `toLegacyFormatting` emitted the wrong colour code,
@@ -551,11 +669,13 @@ Feature code must not:
 - import a Minecraft class
 - parse raw scoreboard or tab-list text — read `gameContext`, or `TabWidget` for a widget
 - persist, cache or pass around an `ItemStack` — snapshot it as an `SqItem`
+- watch for party chat lines — read `party`
+- store a player by username — store a `PlayerId`
 - match a regex against a chat line — declare a `ChatRule` instead
 - perform HTTP requests or open WebSockets
 - read or write JSON files
 - download remote assets
-- resolve a player by username alone
+- resolve a player by username alone for anything durable
 
 Each of those has, or will have, a service. The first is enforced by the compiler; the
 rest are enforced by review, and by the fact that doing it the wrong way is more work.

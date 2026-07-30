@@ -3,6 +3,9 @@ package dev.th7bo.sidequest.platform.core.feature
 import dev.th7bo.sidequest.platform.command.CommandCollisionException
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.context.DefaultGameContextService
+import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
+import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
+import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.log.LoggerFactory
@@ -45,6 +48,7 @@ class FeatureRegistryTest {
     private lateinit var commands: DefaultCommandRegistry
     private lateinit var chat: DefaultChatParser
     private lateinit var gameContext: DefaultGameContextService
+    private lateinit var players: DefaultPlayerDirectory
     private lateinit var sink: RecordingLogSink
     private lateinit var loggers: LoggerFactory
 
@@ -57,12 +61,27 @@ class FeatureRegistryTest {
         commands = DefaultCommandRegistry()
         chat = DefaultChatParser(bus, NoopLogger)
         gameContext = DefaultGameContextService(bus, NoopLogger)
+        players = DefaultPlayerDirectory(bus)
     }
 
     private fun registry(
         version: GameVersion = GameVersion(26, 2),
         enabledByUser: (FeatureDescriptor) -> Boolean = { it.enabledByDefault },
-    ) = DefaultFeatureRegistry(version, bus, scheduler, commands, chat, gameContext, loggers, enabledByUser)
+    ) = DefaultFeatureRegistry(
+        // Named, not positional: the registry gains a service every time a plan section lands, and a
+        // positional call silently reorders into the wrong arguments when one is inserted.
+        gameVersion = version,
+        events = bus,
+        scheduler = scheduler,
+        commands = commands,
+        chat = chat,
+        gameContext = gameContext,
+        players = players,
+        targeting = PlayerTargeting.None,
+        party = DefaultPartyService(bus, players, NoopLogger),
+        loggers = loggers,
+        isEnabledByUser = enabledByUser,
+    )
 
     // ---------------------------------------------------------------
     // Declaration

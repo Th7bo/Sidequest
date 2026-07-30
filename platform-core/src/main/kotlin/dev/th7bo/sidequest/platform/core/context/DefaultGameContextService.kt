@@ -9,6 +9,7 @@ import dev.th7bo.sidequest.platform.parser.ScoreboardSnapshot
 import dev.th7bo.sidequest.platform.parser.TabListChangedEvent
 import dev.th7bo.sidequest.platform.parser.TabListSnapshot
 import dev.th7bo.sidequest.platform.parser.TabWidget
+import dev.th7bo.sidequest.platform.skyblock.ActivityChangedEvent
 import dev.th7bo.sidequest.platform.skyblock.ContextConfidence
 import dev.th7bo.sidequest.platform.skyblock.GameContext
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
@@ -42,6 +43,13 @@ import dev.th7bo.sidequest.platform.log.Logger
 public class DefaultGameContextService(
     private val events: EventBus,
     private val log: Logger,
+    /**
+     * Whether the player has moved recently.
+     *
+     * Supplied by the adapter, because only the client knows. The single thing separating "idle on a
+     * private island" from "building on one", and the activity detector says so rather than guessing.
+     */
+    private val isMoving: () -> Boolean = { true },
 ) : GameContextService {
 
     override var context: GameContext = GameContext.None
@@ -188,6 +196,7 @@ public class DefaultGameContextService(
         }
         add("tab list reading: island=${tabList.island} server=${tabList.serverId} " +
             "profile=${tabList.profile} players=${tabList.playerCount}")
+        add("activity: ${context.activity}")
         add("tab widgets (${tabList.widgets.size}):")
         for ((widget, lines) in tabList.widgets) {
             add("  $widget: ${lines.drop(1).joinToString(" | ")}")
@@ -236,6 +245,7 @@ public class DefaultGameContextService(
             dungeonFloor = scoreboard.dungeonFloor,
             kuudraTier = scoreboard.kuudraTier,
             profileType = scoreboard.profileType ?: context.profileType,
+            activity = ActivityDetector.detect(guestIsland, scoreboard, tabList, isMoving = isMoving()),
             confidence = when {
                 // Nothing to corroborate when the answer came from the authority.
                 fromServer?.island != null -> ContextConfidence.CONFIRMED
@@ -291,6 +301,9 @@ public class DefaultGameContextService(
         }
         if (previous.profile != next.profile && next.profile.isKnown) {
             events.post(ProfileChangedEvent(previous.profile, next.profile, next), EventSource.DERIVED)
+        }
+        if (previous.activity.activity != next.activity.activity) {
+            events.post(ActivityChangedEvent(previous.activity, next.activity, next), EventSource.DERIVED)
         }
         if (previous.subLocation != next.subLocation && next.subLocation.isKnown) {
             events.post(SubLocationChangedEvent(previous.subLocation, next.subLocation, next), EventSource.DERIVED)

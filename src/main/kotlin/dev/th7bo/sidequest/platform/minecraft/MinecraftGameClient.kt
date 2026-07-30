@@ -72,7 +72,50 @@ class MinecraftGameClient(
     internal var tickCounter: Long = 0
         private set
 
+    /**
+     * Whether the player has moved in the last few seconds.
+     *
+     * The only thing that separates "idle on a private island" from "building on one", and only the
+     * client knows it. Compared against a squared threshold on the position rather than reading a
+     * velocity: a player standing on a moving platform or in flowing water has a velocity and is not
+     * doing anything.
+     */
+    internal val hasMovedRecently: Boolean
+        get() = tickCounter - lastMovedTick <= STILL_TICKS
+
+    private var lastMovedTick: Long = 0
+    private var lastX = 0.0
+    private var lastY = 0.0
+    private var lastZ = 0.0
+
     internal fun onTick() {
         tickCounter++
+        trackMovement()
+    }
+
+    private fun trackMovement() {
+        val player = client.player ?: return
+        val dx = player.x - lastX
+        val dy = player.y - lastY
+        val dz = player.z - lastZ
+        if (dx * dx + dy * dy + dz * dz > MOVED_THRESHOLD_SQUARED) {
+            lastMovedTick = tickCounter
+        }
+        lastX = player.x
+        lastY = player.y
+        lastZ = player.z
+    }
+
+    private companion object {
+        /** How long a player has to be still before they count as idle. Five seconds. */
+        const val STILL_TICKS = 100L
+
+        /**
+         * How far counts as moving, squared.
+         *
+         * Small, but not zero: a standing player's position wobbles by fractions of a block from
+         * collision resolution alone, and a zero threshold would report constant movement.
+         */
+        const val MOVED_THRESHOLD_SQUARED = 0.0025
     }
 }
