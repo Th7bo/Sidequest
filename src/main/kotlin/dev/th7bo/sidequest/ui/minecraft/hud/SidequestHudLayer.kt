@@ -119,6 +119,9 @@ public object SidequestHudLayer : HudElement {
 
     private var themeProvider: () -> Theme = { dev.th7bo.sidequest.ui.theme.DarkTheme }
 
+    /** What the theme looked like last frame. See the comparison in `extractRenderState`. */
+    private var themeSignature: Pair<UiId, Int>? = null
+
     override fun extractRenderState(graphics: GuiGraphicsExtractor, deltaTracker: DeltaTracker) {
         val client = Minecraft.getInstance()
 
@@ -137,6 +140,21 @@ public object SidequestHudLayer : HudElement {
         }
 
         val current = runtime ?: build(client)
+
+        // Re-read the theme each frame, so changing the accent takes effect immediately rather than on the
+        // next time the whole HUD happens to be rebuilt — which, since the runtime outlives a world change,
+        // was never. Compared by *value*: `activeTheme()` composes a fresh wrapper on every call, so identity
+        // always differs and an identity check would remeasure the tree sixty times a second.
+        //
+        // Only the palette follows a live change. Nodes cache spacing and radii at construction, so a theme
+        // swap that altered those would still need a rebuild — no theme does, and the accent is what people
+        // actually change.
+        val theme = themeProvider()
+        val signature = theme.id to theme.tokens.colors.accent.argb
+        if (signature != themeSignature) {
+            themeSignature = signature
+            current.theme = theme
+        }
         val delta = deltaTracker.getRealtimeDeltaTicks() / TICKS_PER_SECOND
         frameIndex++
 

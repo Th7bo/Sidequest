@@ -1342,6 +1342,33 @@ The layout follows what a person is trying to do rather than how the code is arr
 own category because that is what someone comes to adjust, not filed under "chat" because that is where the
 message happens to be parsed.
 
+### Icons come from Minecraft
+
+The mod's own glyphs are flat monochrome shapes and look like a settings screen from somewhere else. A
+comparator, a bell, a diamond and an ender eye are what this game's interface is made of.
+
+**No new rendering was needed.** The framework's texture path already resolves a `UiId` to
+`assets/<namespace>/textures/<path>.png`, so `minecraft:item.diamond` finds vanilla's own file — at its own
+resolution, from whatever resource pack the player has on. A texture pack that restyles diamonds restyles this
+screen too, which is a property of using their files rather than copying them.
+
+They draw untinted, because the blit takes no colour, and that is right: an item texture recoloured to the
+interface accent looks like a bug rather than a choice.
+
+Every path was checked against both game jars rather than remembered — `item/barrier`, not `block/barrier`,
+because the block has no texture of its own. A wrong id draws the registry's hollow-square placeholder, which
+is deliberately unlike any real icon, so a mistake looks like a mistake.
+
+### The theme is re-read every frame
+
+`themeProvider()` was called once, when the HUD runtime was built. The runtime outlives a world change, so
+changing the accent took effect on the next full rebuild — which was never. It is now compared per frame by
+*value*, since `activeTheme()` composes a fresh wrapper on each call and an identity check would remeasure the
+tree sixty times a second.
+
+Only the palette follows a live change: nodes cache spacing and radii at construction, so a theme swap that
+altered those would still need a rebuild. No theme does, and the accent is what people actually change.
+
 ### Four categories, folding sections
 
 A category per feature turned the sidebar into a list of the code's own structure. Now: **General**,

@@ -3,6 +3,7 @@ package dev.th7bo.sidequest.ui.minecraft.screen
 import dev.th7bo.sidequest.Sidequest
 import dev.th7bo.sidequest.ui.components.hud.HudEditorScreenNode
 import dev.th7bo.sidequest.ui.components.registerStandardIcons
+import dev.th7bo.sidequest.ui.minecraft.registerMinecraftIcons
 import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.hud.HudLayerNode
 import dev.th7bo.sidequest.ui.core.hud.editor.HudEditorSession
@@ -46,6 +47,9 @@ public class SidequestHudEditorScreen(
 
     override fun onRuntimeCreated(runtime: UiRuntime) {
         icons.registerStandardIcons(registrationScope)
+        // Minecraft's own item textures alongside the mod's flat glyphs, so a screen can
+        // use whichever reads better in place.
+        icons.registerMinecraftIcons(registrationScope)
     }
 
     override fun buildTree(runtime: UiRuntime, measurer: TextMeasurer): UiNode {

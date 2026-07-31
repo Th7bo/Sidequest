@@ -3,6 +3,7 @@ package dev.th7bo.sidequest
 import dev.th7bo.sidequest.ui.components.Icons
 import dev.th7bo.sidequest.ui.components.hud.ProgressHudNode
 import dev.th7bo.sidequest.ui.components.registerStandardIcons
+import dev.th7bo.sidequest.ui.minecraft.registerMinecraftIcons
 import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.hud.HudElementNode
 import dev.th7bo.sidequest.ui.core.hud.HudLayerNode
@@ -54,9 +55,11 @@ public object SidequestHuds {
 
     /** Registers everything on the live HUD layer. */
     public fun register() {
-        SidequestHudLayer.icons.registerStandardIcons(
-            dev.th7bo.sidequest.ui.extension.RegistrationScope(UiId.of(Sidequest.MOD_ID, "hud_icons")),
-        )
+        val iconScope = dev.th7bo.sidequest.ui.extension.RegistrationScope(UiId.of(Sidequest.MOD_ID, "hud_icons"))
+        SidequestHudLayer.icons.registerStandardIcons(iconScope)
+        // Minecraft's own item textures alongside the mod's flat glyphs, so a screen can use whichever reads
+        // better in place.
+        SidequestHudLayer.icons.registerMinecraftIcons(iconScope)
         SidequestHudLayer.onPopulate = { layer, context -> populate(layer, context) }
         SidequestHudLayer.register { Sidequest.activeTheme() }
     }

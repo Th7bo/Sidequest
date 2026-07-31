@@ -2,6 +2,7 @@ package dev.th7bo.sidequest.ui.minecraft.screen
 
 import dev.th7bo.sidequest.ui.components.ConfigScreenController
 import dev.th7bo.sidequest.ui.components.registerStandardIcons
+import dev.th7bo.sidequest.ui.minecraft.registerMinecraftIcons
 import dev.th7bo.sidequest.ui.core.icon.IconRegistry
 import dev.th7bo.sidequest.ui.components.ConfigScreenLayoutNode
 import dev.th7bo.sidequest.ui.components.registerStandardControls
@@ -55,6 +56,9 @@ public open class SidequestConfigScreen(
     override fun onRuntimeCreated(runtime: UiRuntime) {
         registry.registerStandardControls(registrationScope)
         icons.registerStandardIcons(registrationScope)
+        // Minecraft's own item textures alongside the mod's flat glyphs, so a screen can
+        // use whichever reads better in place.
+        icons.registerMinecraftIcons(registrationScope)
     }
 
     override fun buildTree(runtime: UiRuntime, measurer: TextMeasurer): UiNode {
