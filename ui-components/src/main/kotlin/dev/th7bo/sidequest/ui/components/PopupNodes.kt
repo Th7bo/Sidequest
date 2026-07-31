@@ -24,11 +24,13 @@ import dev.th7bo.sidequest.ui.input.InputEvent
 import dev.th7bo.sidequest.ui.input.Key
 import dev.th7bo.sidequest.ui.input.KeyDownEvent
 import dev.th7bo.sidequest.ui.input.PointerDownEvent
+import dev.th7bo.sidequest.ui.input.ScrollEvent
 import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.rendering.Corners
 import dev.th7bo.sidequest.ui.rendering.TextRole
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
 import kotlin.math.max
+import kotlin.math.min
 
 /** One selectable line in a popup list. */
 public class PopupItemNode(
@@ -139,16 +141,71 @@ public abstract class PopupSurfaceNode(
         addChild(body)
     }
 
+    /**
+     * Clips the overflow.
+     *
+     * The body is taller than the surface once there are more items than fit, and the overflow has to be
+     * hidden rather than drawn over whatever is behind the popup.
+     */
+    override val clipsChildren: Boolean get() = true
+
+    /** How far the list is scrolled, in logical units. Zero when everything fits. */
+    public var scrollOffset: Float = 0f
+        private set
+
+    /** The full height of the item stack, which may exceed what the surface shows. */
+    private var contentHeight: Float = 0f
+
+    /** How much of it is visible. */
+    private var viewportHeight: Float = 0f
+
+    /** True when there is more than fits, so the wheel does something and a bar is worth drawing. */
+    public val isScrollable: Boolean get() = contentHeight > viewportHeight + 0.5f
+
+    /** The furthest [scrollOffset] may go. */
+    private val maxScroll: Float get() = max(0f, contentHeight - viewportHeight)
+
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        // Measured unbounded: the body's natural height is what decides whether there is anything to scroll,
+        // and passing the constraint down would let the column shrink itself and hide the overflow instead.
         val bodySize = body.measure(
-            Constraints(maxWidth = max(0f, constraints.maxWidth - padding * 2), maxHeight = constraints.maxHeight),
+            Constraints(maxWidth = max(0f, constraints.maxWidth - padding * 2)),
             context,
         )
-        return Size(bodySize.width + padding * 2, bodySize.height + padding * 2)
+        contentHeight = bodySize.height
+
+        val available = if (constraints.hasBoundedHeight) {
+            max(0f, constraints.maxHeight - padding * 2)
+        } else {
+            MAX_CONTENT_HEIGHT
+        }
+        viewportHeight = min(bodySize.height, min(available, MAX_CONTENT_HEIGHT))
+
+        // A list that shrank under the cursor must not leave the view past its end.
+        scrollOffset = scrollOffset.coerceIn(0f, maxScroll)
+
+        val barWidth = if (isScrollable) SCROLLBAR_WIDTH + tokens.spacing.xs.value else 0f
+        return Size(bodySize.width + padding * 2 + barWidth, viewportHeight + padding * 2)
     }
 
     override fun arrangeChildren(context: LayoutContext) {
-        body.arrange(Rect.of(Vec2(padding, padding), body.measuredSize), context)
+        body.arrange(Rect.of(Vec2(padding, padding - scrollOffset), body.measuredSize), context)
+    }
+
+    /** Returns the view to the start. */
+    public fun scrollToTop() {
+        if (scrollOffset == 0f) return
+        scrollOffset = 0f
+        invalidateArrange()
+    }
+
+    /** Scrolls by [delta] logical units, clamped. Returns whether anything moved. */
+    public fun scrollBy(delta: Float): Boolean {
+        val next = (scrollOffset + delta).coerceIn(0f, maxScroll)
+        if (next == scrollOffset) return false
+        scrollOffset = next
+        invalidateArrange()
+        return true
     }
 
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
@@ -161,15 +218,61 @@ public abstract class PopupSurfaceNode(
         renderer.roundedRect(bounds, corners, palette.elevatedPanelBackground.withAlpha(1f))
         renderer.border(bounds, corners, tokens.metrics.borderWidth, palette.borderStrong)
         context.diagnostics.drawCalls += 3
+
+        // Drawn with the surface rather than left to subclasses: without it a long list looks like a short
+        // one that has simply lost its remaining options.
+        paintScrollbar(renderer, bounds, context)
     }
 
     override fun onInputEvent(event: InputEvent) {
         // The popup absorbs presses that land on it, so they do not reach the overlay
         // root and dismiss the very popup being interacted with.
         if (event is PointerDownEvent && event.phase == EventPhase.TARGET) event.consume()
+
+        if (event is ScrollEvent && (event.phase == EventPhase.TARGET || event.phase == EventPhase.BUBBLE)) {
+            // Only consumed when it actually moved. A popup that swallowed the wheel at its ends would stop
+            // the screen behind it scrolling for no visible reason.
+            if (scrollBy(-event.scrollY * SCROLL_STEP)) event.consume()
+        }
+    }
+
+    /** Draws the scroll indicator, if there is anything to indicate. Called after the subclass's content. */
+    protected fun paintScrollbar(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
+        if (!isScrollable) return
+        val palette = context.theme.tokens.colors
+
+        val trackHeight = max(0f, bounds.height - padding * 2)
+        val x = bounds.right - padding - SCROLLBAR_WIDTH
+        // Proportional to how much is showing, with a floor so a very long list still has something to grab.
+        val thumbHeight = max(MIN_THUMB_HEIGHT, trackHeight * (viewportHeight / contentHeight))
+        val travel = max(0f, trackHeight - thumbHeight)
+        val progress = if (maxScroll <= 0f) 0f else scrollOffset / maxScroll
+
+        renderer.roundedRect(
+            Rect(x, bounds.y + padding + travel * progress, SCROLLBAR_WIDTH, thumbHeight),
+            tokens.radii.pill,
+            palette.border,
+        )
+        context.diagnostics.drawCalls++
     }
 
     protected val padding: Float get() = tokens.spacing.small.value
+
+    private companion object {
+        /**
+         * The tallest a popup gets before it scrolls.
+         *
+         * Roughly a dozen rows. The list of islands is forty, and a popup that grows to hold all of them
+         * covers the screen it is a control on — which is what a screenshot showed.
+         */
+        const val MAX_CONTENT_HEIGHT = 180f
+
+        /** Logical units per wheel notch. */
+        const val SCROLL_STEP = 24f
+
+        const val SCROLLBAR_WIDTH = 3f
+        const val MIN_THUMB_HEIGHT = 12f
+    }
 }
 
 /**
@@ -295,6 +398,9 @@ public class DropdownPopupNode<T>(
     public fun setQuery(value: String) {
         if (!isSearchable || queryState.peek() == value) return
         queryState.value = value
+        // Back to the top. Filtering a scrolled list otherwise leaves the view past the end of the new,
+        // shorter result — which looks exactly like a filter that matched nothing.
+        scrollToTop()
         rebuildItems()
     }
 
