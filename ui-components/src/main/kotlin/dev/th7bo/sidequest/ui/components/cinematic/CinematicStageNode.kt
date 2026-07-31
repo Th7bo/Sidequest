@@ -135,7 +135,7 @@ public class CinematicStageNode(
         layouts.clear()
         for (element in elements) {
             when (element) {
-                is StageElement.Title -> layout(context, element.text, TITLE_SCALE)
+                is StageElement.Title -> layout(context, element.text, TITLE_SCALE, bold = true)
                 is StageElement.Subtitle -> layout(context, element.text, SUBTITLE_SCALE)
                 is StageElement.Progress -> if (element.label.isNotEmpty()) layout(context, element.label, 1f)
                 is StageElement.Reveal -> layout(context, element.label, 1f)
@@ -161,10 +161,10 @@ public class CinematicStageNode(
         )
     }
 
-    private fun layout(context: LayoutContext, content: String, scale: Float) {
+    private fun layout(context: LayoutContext, content: String, scale: Float, bold: Boolean = false) {
         if (content.isEmpty()) return
-        layouts.getOrPut(key(content, scale)) {
-            context.textMeasurer.measure(content, TextStyle(scale = scale, shadow = true))
+        layouts.getOrPut(key(content, scale, bold)) {
+            context.textMeasurer.measure(content, TextStyle(scale = scale, bold = bold, shadow = true))
         }
     }
 
@@ -256,6 +256,9 @@ public class CinematicStageNode(
                 )
             }
 
+            // Bold, because the title *is* the rarity — `VERY RARE DROP` — and Hypixel writes it bold in
+            // chat. Matching that is what makes the cinematic read as the game announcing something rather
+            // than as the mod captioning it.
             is StageElement.Title -> text(
                 renderer,
                 bounds,
@@ -263,6 +266,7 @@ public class CinematicStageNode(
                 Color(OPAQUE or element.colour),
                 scale = TITLE_SCALE,
                 y = bounds.height * TITLE_Y,
+                bold = true,
             )
 
             is StageElement.Subtitle -> text(
@@ -346,11 +350,12 @@ public class CinematicStageNode(
         colour: Color,
         scale: Float,
         y: Float,
+        bold: Boolean = false,
     ) {
         if (content.isEmpty()) return
         // Whatever was measured. A missing layout means the string changed since the last measure pass, which
         // is a dropped frame of text rather than a wrong one — and the next pass has it.
-        val layout = layouts[key(content, scale)] ?: return
+        val layout = layouts[key(content, scale, bold)] ?: return
         renderer.text(
             layout,
             Vec2(bounds.x + (bounds.width - layout.size.width) / 2f, bounds.y + y),
@@ -361,7 +366,8 @@ public class CinematicStageNode(
     private companion object {
 
         /** One key for the measured-layout cache. Scale is part of it: the same words at two sizes differ. */
-        fun key(content: String, scale: Float): String = "$scale/$content"
+        fun key(content: String, scale: Float, bold: Boolean): String =
+            (if (bold) "b" else "") + "$scale/$content"
 
         /**
          * Fade in, hold, fade out.
