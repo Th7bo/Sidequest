@@ -15,7 +15,11 @@ import dev.th7bo.sidequest.ui.rendering.TextLayout
 import dev.th7bo.sidequest.ui.rendering.TextStyle
 import dev.th7bo.sidequest.ui.rendering.ItemRef
 import dev.th7bo.sidequest.ui.rendering.TextureRef
+import dev.th7bo.sidequest.ui.rendering.Transform
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * One thing to draw during a cinematic, with no idea what a cinematic is.
@@ -70,6 +74,8 @@ public sealed interface StageElement {
         public val texture: TextureRef,
         /** Side length, as a fraction of the viewport's *height*, so it scales with the screen. */
         public val sizeFraction: Float = DEFAULT_IMAGE_FRACTION,
+        /** A bloom behind it, in this colour. See [Item.glow]. */
+        public val glow: Int? = null,
     ) : StageElement
 
     /**
@@ -84,6 +90,14 @@ public sealed interface StageElement {
         public val item: ItemRef,
         /** Side length, as a fraction of the viewport's *height*. Matches [Image] so the two are swappable. */
         public val sizeFraction: Float = DEFAULT_IMAGE_FRACTION,
+        /**
+         * A bloom behind it, in this colour. Null draws none.
+         *
+         * Carried by the item rather than sitting on its own element because the two are one thing on screen:
+         * the glow is how rare this is, and an item and a halo that could be positioned separately would
+         * eventually be positioned separately.
+         */
+        public val glow: Int? = null,
     ) : StageElement
 }
 
@@ -233,6 +247,11 @@ public class CinematicStageNode(
             is StageElement.Progress -> PROGRESS_AT
             is StageElement.Reveal -> element.atFraction
         }
+        return entranceOf(at)
+    }
+
+    /** The same, for a cue already known. Split out so a draw can ask how far along its own entrance is. */
+    private fun entranceOf(at: Float): Float {
         if (at <= 0f) return 1f
         return ((progress - at) / ENTRANCE).coerceIn(0f, 1f)
     }
@@ -252,6 +271,106 @@ public class CinematicStageNode(
             side,
             side,
         )
+    }
+
+    /**
+     * Everything behind the item: the bloom, and the burst it lands with.
+     *
+     * Drawn before the item and never over it. The item is the thing being announced, and an effect that
+     * covered it would be decoration winning over the subject.
+     */
+    private fun flourish(renderer: UiRenderer, box: Rect, glow: Int?) {
+        if (glow == null) return
+        val colour = Color(OPAQUE or glow)
+        bloom(renderer, box, colour)
+        burst(renderer, box, colour)
+    }
+
+    /**
+     * A soft halo in the drop's own colour.
+     *
+     * Built from concentric discs rather than a radial gradient, because there is no radial primitive — the
+     * host's gradient is a vertical two-stop fill. Overlapping translucent discs accumulate into a falloff
+     * that is close enough, and costs a handful of rounded rectangles.
+     *
+     * It breathes rather than sitting still. A static halo reads as a graphic pasted behind the item; one that
+     * moves, even slightly, reads as light coming off it.
+     */
+    private fun bloom(renderer: UiRenderer, box: Rect, colour: Color) {
+        // Grows in with the item and then breathes. Held at full size while the item was still arriving, it
+        // read as a halo waiting for something to fill it.
+        val breath = pop((progress / ITEM_POP).coerceIn(0f, 1f)) *
+            (1f + BLOOM_BREATH * sin(progress * BLOOM_CYCLES * TAU))
+        if (breath <= 0f) return
+        val centre = Vec2(box.x + box.width / 2f, box.y + box.height / 2f)
+
+        for (ring in 0 until BLOOM_RINGS) {
+            // Outermost first, so the inner discs stack on top and the middle ends up brightest.
+            val spread = BLOOM_OUTER - (BLOOM_OUTER - BLOOM_INNER) * (ring / (BLOOM_RINGS - 1f))
+            val radius = box.width * spread * breath / 2f
+            renderer.roundedRect(
+                Rect(centre.x - radius, centre.y - radius, radius * 2f, radius * 2f),
+                Dp(radius),
+                colour.withAlpha(BLOOM_ALPHA),
+            )
+        }
+    }
+
+    /**
+     * Motes thrown outward as the item lands, then fading.
+     *
+     * Deterministic: each mote's direction comes from its index, so the burst is the same shape every time
+     * rather than flickering to a new arrangement each frame. There is no particle system here and there
+     * should not be — this is a dozen squares on a circle whose radius is a function of progress.
+     */
+    private fun burst(renderer: UiRenderer, box: Rect, colour: Color) {
+        val age = ((progress - BURST_AT) / BURST_LIFE).coerceIn(0f, 1f)
+        if (age <= 0f || age >= 1f) return
+
+        val centre = Vec2(box.x + box.width / 2f, box.y + box.height / 2f)
+        // Fast out, slowing down — the shape of something thrown rather than something travelling.
+        val eased = 1f - (1f - age) * (1f - age)
+        val distance = box.width * (BURST_FROM + (BURST_TO - BURST_FROM) * eased)
+        val size = box.width * BURST_SIZE * (1f - age)
+
+        for (mote in 0 until BURST_MOTES) {
+            // Two interleaved rings at different radii, so it does not read as a clock face.
+            val angle = mote * TAU / BURST_MOTES
+            val reach = distance * (if (mote % 2 == 0) 1f else BURST_INNER_RING)
+            val x = centre.x + cos(angle) * reach
+            val y = centre.y + sin(angle) * reach
+            renderer.fillRect(
+                Rect(x - size / 2f, y - size / 2f, size, size),
+                colour.withAlpha(BURST_ALPHA * (1f - age)),
+            )
+        }
+    }
+
+    /**
+     * Draws [content] scaled about the centre of [box], overshooting on the way in.
+     *
+     * The item arrives rather than appearing. It cannot fade — the host's item rendering has nowhere to take
+     * an opacity, as the renderer notes — so the entrance has to be motion, and a small overshoot is what
+     * makes it read as landing instead of growing.
+     */
+    private fun popped(renderer: UiRenderer, box: Rect, content: () -> Unit) {
+        // Driven straight off the run rather than off an entrance cue, because the item has no cue: it leads
+        // the cinematic and is on screen from the first frame. The growth *is* its entrance.
+        val scale = pop((progress / ITEM_POP).coerceIn(0f, 1f))
+        if (scale <= 0f) return
+
+        val centre = Vec2(box.x + box.width / 2f, box.y + box.height / 2f)
+        // A slow drift once it has settled, so the item is never completely still.
+        val drift = box.height * BOB_AMPLITUDE * sin(progress * BOB_CYCLES * TAU)
+
+        renderer.pushTransform(Transform.translation(Vec2(0f, drift)))
+        renderer.pushTransform(Transform.scale(scale, origin = centre))
+        try {
+            content()
+        } finally {
+            renderer.popTransform()
+            renderer.popTransform()
+        }
     }
 
     private fun draw(renderer: UiRenderer, bounds: Rect, element: StageElement) {
@@ -274,9 +393,15 @@ public class CinematicStageNode(
                 )
             }
 
-            is StageElement.Image -> renderer.image(element.texture, showcase(bounds, element.sizeFraction), Color.White)
+            is StageElement.Image -> showcase(bounds, element.sizeFraction).let { box ->
+                flourish(renderer, box, element.glow)
+                popped(renderer, box) { renderer.image(element.texture, box, Color.White) }
+            }
 
-            is StageElement.Item -> renderer.item(element.item, showcase(bounds, element.sizeFraction))
+            is StageElement.Item -> showcase(bounds, element.sizeFraction).let { box ->
+                flourish(renderer, box, element.glow)
+                popped(renderer, box) { renderer.item(element.item, box) }
+            }
 
             // Bold, because the title *is* the rarity — `VERY RARE DROP` — and Hypixel writes it bold in
             // chat. Matching that is what makes the cinematic read as the game announcing something rather
@@ -287,7 +412,9 @@ public class CinematicStageNode(
                 element.text,
                 Color(OPAQUE or element.colour),
                 scale = TITLE_SCALE,
-                y = bounds.height * TITLE_Y,
+                // Rises into place rather than appearing at it. The fade alone reads as a caption switching
+                // on; a few pixels of travel reads as the words arriving.
+                y = bounds.height * TITLE_Y + rise(TITLE_AT, bounds),
                 bold = true,
             )
 
@@ -297,7 +424,7 @@ public class CinematicStageNode(
                 element.text,
                 componentContext.theme.tokens.colors.textSecondary,
                 scale = SUBTITLE_SCALE,
-                y = bounds.height * SUBTITLE_Y,
+                y = bounds.height * SUBTITLE_Y + rise(SUBTITLE_AT, bounds),
             )
 
             is StageElement.Number -> {
@@ -358,11 +485,21 @@ public class CinematicStageNode(
                     element.label,
                     componentContext.theme.tokens.colors.textPrimary,
                     scale = 1f,
-                    y = bounds.height * (REVEAL_Y + index * REVEAL_SPACING),
+                    y = bounds.height * (REVEAL_Y + index * REVEAL_SPACING) + rise(element.atFraction, bounds),
                 )
             }
         }
     }
+
+    /**
+     * How far below its resting place a line still is, for something whose entrance began at [at].
+     *
+     * Falls to zero as the entrance completes, so a line travels only while it is fading in and is exactly
+     * where the layout says once it has arrived. Measured as a fraction of the viewport, like every other
+     * vertical distance here — a fixed pixel offset would be a different amount of travel at every GUI scale.
+     */
+    private fun rise(at: Float, bounds: Rect): Float =
+        bounds.height * RISE * (1f - entranceOf(at))
 
     /** Draws one centred line at [y], scaled. */
     private fun text(
@@ -405,6 +542,21 @@ public class CinematicStageNode(
 
         /** Bars slide fully in over the fade and stay. */
         fun slide(progress: Float): Float = (progress / FADE).coerceIn(0f, 1f)
+
+        /**
+         * Grows past its size and settles back.
+         *
+         * The overshoot is the whole effect: something that eases to exactly its final size reads as growing,
+         * and something that goes slightly too far and comes back reads as landing. Roughly eight percent at
+         * the peak — enough to notice, not enough to look like a bug.
+         */
+        fun pop(t: Float): Float {
+            val back = t - 1f
+            return 1f + OVERSHOOT_CUBIC * back * back * back + OVERSHOOT_SQUARE * back * back
+        }
+
+        private const val OVERSHOOT_SQUARE = 1.70158f
+        private const val OVERSHOOT_CUBIC = OVERSHOOT_SQUARE + 1f
 
         /**
          * Which counting step this progress falls on.
@@ -488,6 +640,51 @@ public class CinematicStageNode(
         const val NUMBER_AT = 0.20f
         const val PROGRESS_AT = 0.26f
         const val ENTRANCE = 0.10f
+
+        // -- the item's own animation ----------------------------------------
+
+        /** How much of the run the item spends growing into place. */
+        const val ITEM_POP = 0.12f
+
+        /** How far a line of text travels on its way in, as a fraction of the viewport's height. */
+        const val RISE = 0.022f
+
+        /** A full turn, for the two things here that go round in a circle. */
+        const val TAU = (2.0 * PI).toFloat()
+
+        /** How far the item drifts once settled, as a fraction of its own height, and how often. */
+        const val BOB_AMPLITUDE = 0.035f
+        const val BOB_CYCLES = 2f
+
+        /**
+         * The halo.
+         *
+         * Discs from [BLOOM_OUTER] down to [BLOOM_INNER] times the item's width, each at [BLOOM_ALPHA]. They
+         * overlap, so the alpha accumulates towards the middle rather than each ring being visible.
+         */
+        const val BLOOM_RINGS = 6
+        const val BLOOM_OUTER = 2.4f
+        const val BLOOM_INNER = 0.8f
+        const val BLOOM_ALPHA = 0.10f
+
+        /** How much the halo breathes, and how many times over the run. */
+        const val BLOOM_BREATH = 0.06f
+        const val BLOOM_CYCLES = 1.5f
+
+        /**
+         * The burst that lands with the item.
+         *
+         * It starts just after the pop finishes — the motes should look thrown *by* the landing, not present
+         * before it — and is gone within a fifth of the run, because a burst that lingers is confetti.
+         */
+        const val BURST_AT = ITEM_POP
+        const val BURST_LIFE = 0.20f
+        const val BURST_MOTES = 12
+        const val BURST_FROM = 0.35f
+        const val BURST_TO = 1.30f
+        const val BURST_INNER_RING = 0.72f
+        const val BURST_SIZE = 0.07f
+        const val BURST_ALPHA = 0.85f
 
         /** Alpha bits for a colour given as 0xRRGGBB. */
         const val OPAQUE = 0xFF000000.toInt()

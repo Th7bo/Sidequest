@@ -4,8 +4,10 @@ import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.runtime.UiRuntime
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.ids.UiId
+import dev.th7bo.sidequest.ui.geometry.Vec2
 import dev.th7bo.sidequest.ui.rendering.ItemRef
 import dev.th7bo.sidequest.ui.rendering.TextureRef
+import dev.th7bo.sidequest.ui.rendering.Transform
 import dev.th7bo.sidequest.ui.state.resetReactiveGraphForTesting
 import dev.th7bo.sidequest.ui.testkit.DrawCommand
 import dev.th7bo.sidequest.ui.testkit.FakeTextMeasurer
@@ -308,6 +310,90 @@ class CinematicStageTest {
         val asItem = renderer.commandsOfType<DrawCommand.DrawItem>().single()
         assertEquals(asPicture, asItem.bounds)
         assertEquals("ewogIC", asItem.item.skin, "the skin has to survive, or every head draws blank")
+    }
+
+    // -- the flourish --------------------------------------------------------
+
+    /**
+     * The item grows into place about its own centre.
+     *
+     * The check that matters, because a scale is only as good as its pivot: scaling about the origin instead
+     * would fling the item towards the top-left corner by a fraction of the screen, and the recorded bounds —
+     * which the transform is applied *to* — would still look perfectly correct in a test that only read them.
+     */
+    @Test
+    fun `the item is scaled about its own centre`() {
+        stage.elements = listOf(StageElement.Item(ItemRef("minecraft:diamond")))
+        // Part way through the pop, where the scale is neither 0 nor 1 and a bad pivot would show.
+        stage.progress = 0.05f
+
+        frame()
+
+        val box = renderer.commandsOfType<DrawCommand.DrawItem>().single().bounds
+        val centre = Vec2(box.x + box.width / 2f, box.y + box.height / 2f)
+        val composed = renderer.commandsOfType<DrawCommand.PushTransform>()
+            .fold(Transform.Identity) { acc, next -> acc.then(next.transform) }
+
+        assertTrue(composed.scaleX != 1f, "it should be mid-pop, was ${composed.scaleX}")
+        val moved = composed.apply(centre)
+        assertEquals(centre.x, moved.x, 0.01f, "the centre stays put horizontally")
+        // Vertically it may drift, because the item is never completely still — but by a few percent of its
+        // own height, not by the fraction of the *screen* that scaling about the origin would produce.
+        assertTrue(
+            kotlin.math.abs(moved.y - centre.y) < box.height * 0.1f,
+            "the pivot should be the item's centre, but it moved to ${moved.y} from ${centre.y}",
+        )
+    }
+
+    /** The halo is the rarity, so it has to be behind the thing it describes and never over it. */
+    @Test
+    fun `the glow is drawn behind the item`() {
+        stage.elements = listOf(StageElement.Item(ItemRef("minecraft:diamond"), glow = 0xFFAA00))
+        stage.progress = 0.5f
+
+        val commands = frame()
+
+        val lastGlow = commands.indexOfLast { it is DrawCommand.RoundedRect }
+        val item = commands.indexOfFirst { it is DrawCommand.DrawItem }
+        assertTrue(lastGlow >= 0, "the halo should have been drawn")
+        assertTrue(lastGlow < item, "every ring goes down before the item, not over it")
+    }
+
+    @Test
+    fun `no glow is drawn when none was asked for`() {
+        stage.elements = listOf(StageElement.Item(ItemRef("minecraft:diamond")))
+        stage.progress = 0.5f
+
+        val commands = frame()
+
+        assertTrue(commands.none { it is DrawCommand.RoundedRect }, "nothing behind it: $commands")
+    }
+
+    /**
+     * The burst is thrown by the landing, and then it is over.
+     *
+     * Both halves matter. Motes present before the item has finished growing would look like they arrived
+     * with it rather than off it, and motes still on screen at the end would read as confetti stuck to the
+     * frame rather than as an impact.
+     */
+    @Test
+    fun `the burst lands with the item and then clears`() {
+        stage.elements = listOf(StageElement.Item(ItemRef("minecraft:diamond"), glow = 0xFFAA00))
+
+        stage.progress = 0.02f
+        assertTrue(motes().isEmpty(), "nothing before the item has landed")
+
+        stage.progress = 0.18f
+        assertTrue(motes().isNotEmpty(), "the burst should be out")
+
+        stage.progress = 0.5f
+        assertTrue(motes().isEmpty(), "and gone well before the end")
+    }
+
+    /** Small squares are the burst; the letterbox draws wide bars and the glow draws rounded rects. */
+    private fun motes(): List<DrawCommand.FillRect> {
+        frame()
+        return renderer.commandsOfType<DrawCommand.FillRect>().filter { it.bounds.width < screen.width / 4f }
     }
 
     // -- the frame -----------------------------------------------------------

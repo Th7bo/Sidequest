@@ -209,7 +209,18 @@ public sealed interface CinematicComponent {
      * a Minecraft item, then against the game's own registry — and **skips the component when it cannot**.
      * Drawing a guess would be worse than drawing nothing, because nobody could tell it was wrong.
      */
-    public data class ItemIcon(public val itemName: String) : CinematicComponent {
+    public data class ItemIcon(
+        public val itemName: String,
+        /**
+         * A halo behind it, in this colour. Null draws none.
+         *
+         * On the icon rather than derived from the title, because the two are not always the same thing: a
+         * cinematic can name a colour for its headline and want a different one — or no glow at all — behind
+         * the item. Callers announcing a drop pass the rarity's colour, so the glow says how rare it was
+         * before anybody has read a word.
+         */
+        public val glowColour: Int? = null,
+    ) : CinematicComponent {
         override val kind: String get() = "item_icon"
     }
 

@@ -147,11 +147,11 @@ class MinecraftCinematicSink(
      * whose lookup has not landed yet falls through to the vanilla texture, which is the same outcome as
      * before the repository existed.
      */
-    private fun iconFor(itemName: String): StageElement? {
+    private fun iconFor(itemName: String, glow: Int?): StageElement? {
         items().resident(itemName)?.let { known ->
-            return StageElement.Item(ItemRef(known.minecraftId, known.skullTexture))
+            return StageElement.Item(ItemRef(known.minecraftId, known.skullTexture), glow = glow)
         }
-        return ItemTextures.textureFor(itemName)?.let { StageElement.Image(it) }
+        return ItemTextures.textureFor(itemName)?.let { StageElement.Image(it, glow = glow) }
     }
 
     private fun CinematicComponent.toStageElement(): StageElement? = when (this) {
@@ -162,7 +162,7 @@ class MinecraftCinematicSink(
         is CinematicComponent.AnimatedNumber -> StageElement.Number(value, prefix, suffix)
         is CinematicComponent.ProgressBar -> StageElement.Progress(fraction, label)
         is CinematicComponent.RewardReveal -> StageElement.Reveal(label, atFraction)
-        is CinematicComponent.ItemIcon -> iconFor(itemName)
+        is CinematicComponent.ItemIcon -> iconFor(itemName, glowColour)
         // Handled by the clock rather than drawn.
         is CinematicComponent.Sound -> null
         else -> null
