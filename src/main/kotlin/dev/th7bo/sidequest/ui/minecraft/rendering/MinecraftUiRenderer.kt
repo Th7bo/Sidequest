@@ -8,6 +8,7 @@ import dev.th7bo.sidequest.ui.rendering.Corners
 import dev.th7bo.sidequest.ui.rendering.FrameInfo
 import dev.th7bo.sidequest.ui.rendering.Gradient
 import dev.th7bo.sidequest.ui.rendering.Icon
+import dev.th7bo.sidequest.ui.rendering.ItemRef
 import dev.th7bo.sidequest.ui.rendering.Shadow
 import dev.th7bo.sidequest.ui.rendering.TextLayout
 import dev.th7bo.sidequest.ui.rendering.TextMeasurer
@@ -330,6 +331,34 @@ public class MinecraftUiRenderer(
     }
 
     /**
+     * Draws a real item, at whatever size the caller asked for.
+     *
+     * Minecraft draws an item at exactly one size — the sixteen-pixel inventory slot — so anything larger is a
+     * scale around it. The matrix is pushed and popped here rather than by the caller, because getting the
+     * translate-then-scale order wrong puts the item somewhere off screen and the caller has no way to know.
+     *
+     * **The opacity stack does not reach this.** Item rendering runs through the game's own pipeline with its
+     * own lighting and has nowhere to take a tint, so an item inside a fading subtree stays solid. Nothing
+     * currently fades one, and it is worth knowing before something tries.
+     */
+    override fun item(item: ItemRef, bounds: Rect) {
+        if (bounds.isEmpty) return
+        val stack = MinecraftItemStacks.stackFor(item) ?: return
+
+        val scale = min(bounds.width, bounds.height) / SLOT_SIZE
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        // Centred within the box it was given, so a non-square box does not shift it off its own axis.
+        pose.translate(
+            bounds.left + (bounds.width - SLOT_SIZE * scale) / 2f,
+            bounds.top + (bounds.height - SLOT_SIZE * scale) / 2f,
+        )
+        pose.scale(scale, scale)
+        graphics.item(stack, 0, 0)
+        pose.popMatrix()
+    }
+
+    /**
      * Resolves a texture id and blits it.
      *
      * The convention: `sidequest:gui.icon.gear` resolves to
@@ -441,5 +470,8 @@ public class MinecraftUiRenderer(
     private companion object {
         const val DEFAULT_STACK_DEPTH = 8
         const val MAX_SHADOW_STEPS = 6
+
+        /** The one size Minecraft draws an item at. Everything else is a scale around it. */
+        const val SLOT_SIZE = 16f
     }
 }

@@ -17,6 +17,7 @@ import dev.th7bo.sidequest.platform.lifecycle.ownedBy
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.asset.AssetManager
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticService
+import dev.th7bo.sidequest.platform.item.SkyBlockItemRepository
 import dev.th7bo.sidequest.platform.log.ErrorLog
 import dev.th7bo.sidequest.platform.audio.SoundManager
 import dev.th7bo.sidequest.platform.cinematic.CinematicDirector
@@ -69,6 +70,7 @@ internal class DefaultFeatureContext(
     override val markers: MarkerService,
     override val rules: RuleEngine,
     override val assets: AssetManager,
+    override val items: SkyBlockItemRepository,
     override val cosmetics: CosmeticService,
     override val errors: ErrorLog,
     override val storage: StorageProvider,

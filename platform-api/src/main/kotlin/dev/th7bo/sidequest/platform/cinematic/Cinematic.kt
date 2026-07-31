@@ -205,9 +205,9 @@ public sealed interface CinematicComponent {
      * announces `RARE DROP! Enchanted Book` and the client never sees a stack, so there is no [SqItem] to
      * build. A component demanding one would mean the thing this exists to illustrate can never use it.
      *
-     * The adapter resolves the name against the game's own items and **skips the component when it cannot**.
-     * Most SkyBlock drops have no vanilla counterpart — "Revenant Catalyst" is not a Minecraft item — and
-     * drawing a guess would be worse than drawing nothing.
+     * The adapter resolves the name — against a SkyBlock item database first, since "Revenant Catalyst" is not
+     * a Minecraft item, then against the game's own registry — and **skips the component when it cannot**.
+     * Drawing a guess would be worse than drawing nothing, because nobody could tell it was wrong.
      */
     public data class ItemIcon(public val itemName: String) : CinematicComponent {
         override val kind: String get() = "item_icon"

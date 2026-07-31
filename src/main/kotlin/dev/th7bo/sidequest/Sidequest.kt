@@ -5,6 +5,7 @@ import dev.th7bo.sidequest.features.RareDropAnimation
 import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
+import dev.th7bo.sidequest.platform.minecraft.ItemTextures
 import dev.th7bo.sidequest.platform.minecraft.MinecraftCinematicSink
 import dev.th7bo.sidequest.platform.minecraft.MinecraftMarkerBridge
 import dev.th7bo.sidequest.platform.minecraft.MinecraftNotificationSink
@@ -17,6 +18,7 @@ import dev.th7bo.sidequest.ui.config.ConfigScreen
 import dev.th7bo.sidequest.ui.core.persistence.ConfigPersistenceController
 import dev.th7bo.sidequest.ui.core.persistence.JsonFileConfigStore
 import dev.th7bo.sidequest.ui.minecraft.lifecycle.FontReloadListener
+import dev.th7bo.sidequest.ui.minecraft.rendering.MinecraftItemStacks
 import dev.th7bo.sidequest.ui.minecraft.lifecycle.SidequestKeybinds
 import dev.th7bo.sidequest.ui.core.hud.HudLayoutPersistence
 import dev.th7bo.sidequest.ui.hud.HudPlacement
@@ -259,6 +261,11 @@ object Sidequest : ClientModInitializer {
         }
 
         FontReloadListener.register()
+        // A resource pack can add or remove an item's texture, and both of these remember what they found the
+        // last time they looked. Registered here rather than left as methods nobody calls: an `invalidate` with
+        // no caller is a cache that documents a behaviour it does not have.
+        FontReloadListener.onReload { ItemTextures.invalidate() }
+        FontReloadListener.onReload { MinecraftItemStacks.invalidate() }
         SidequestKeybinds.register()
         SidequestHuds.register()
         SidequestWorld.register()
@@ -329,6 +336,7 @@ object Sidequest : ClientModInitializer {
             // to a notification — which is the right outcome on a loading screen.
             stage = { SidequestHudLayer.cinematicStage },
             sounds = { platform.sounds },
+            items = { platform.items },
         )
     }
 

@@ -39,6 +39,8 @@ public class AsciiCanvas(
                 is DrawCommand.Border -> outline(command.bounds, transform, clip)
                 is DrawCommand.DrawIcon -> fill(command.bounds, transform, clip, ICON)
                 is DrawCommand.Image -> fill(command.bounds, transform, clip, ICON)
+                // Same shade as a picture: at this resolution an item and an image are both "a thing here".
+                is DrawCommand.DrawItem -> fill(command.bounds, transform, clip, ICON)
                 is DrawCommand.Text -> write(command, transform, clip)
 
                 is DrawCommand.PushTransform -> transforms.add(command.transform)

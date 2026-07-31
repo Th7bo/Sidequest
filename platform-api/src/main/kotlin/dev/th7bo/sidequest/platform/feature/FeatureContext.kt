@@ -15,6 +15,7 @@ import dev.th7bo.sidequest.platform.event.EventSource
 import dev.th7bo.sidequest.platform.event.SidequestEvent
 import dev.th7bo.sidequest.platform.game.GameVersion
 import dev.th7bo.sidequest.platform.id.OwnerId
+import dev.th7bo.sidequest.platform.item.SkyBlockItemRepository
 import dev.th7bo.sidequest.platform.lifecycle.Registration
 import dev.th7bo.sidequest.platform.lifecycle.RegistrationScope
 import dev.th7bo.sidequest.platform.log.Logger
@@ -216,6 +217,15 @@ public interface FeatureContext {
      * anybody uploads can make a client fetch from somewhere else.
      */
     public val assets: AssetManager
+
+    /**
+     * What SkyBlock's own items are.
+     *
+     * Hypixel announces things by display name and nothing else, and the game knows perhaps a third of those
+     * names. This is how a feature turns `Revenant Catalyst` into something drawable — and, since a lookup can
+     * be a network round trip, why the useful move is to ask early and read the answer later.
+     */
+    public val items: SkyBlockItemRepository
 
     /**
      * Cosmetics: what people are wearing, and what this client draws of it.

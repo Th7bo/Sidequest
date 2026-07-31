@@ -5,9 +5,11 @@ import dev.th7bo.sidequest.platform.audio.SoundRequest
 import dev.th7bo.sidequest.platform.cinematic.Cinematic
 import dev.th7bo.sidequest.platform.cinematic.CinematicComponent
 import dev.th7bo.sidequest.platform.cinematic.CinematicSink
+import dev.th7bo.sidequest.platform.item.SkyBlockItemRepository
 import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.ui.components.cinematic.CinematicStageNode
 import dev.th7bo.sidequest.ui.components.cinematic.StageElement
+import dev.th7bo.sidequest.ui.rendering.ItemRef
 
 /**
  * Draws a cinematic on the HUD layer, and runs its clock.
@@ -28,6 +30,13 @@ class MinecraftCinematicSink(
     private val stage: () -> CinematicStageNode?,
     /** Cinematic sounds go through the manager, so volume groups and serious mode still apply. */
     private val sounds: () -> SoundManager,
+    /**
+     * What SkyBlock's items are, for the ones the game has never heard of.
+     *
+     * Asked without waiting — see [CinematicComponent.ItemIcon] below. Defaulted to knowing nothing so the
+     * sink can be built without it, in which case only vanilla-named drops get a picture.
+     */
+    private val items: () -> SkyBlockItemRepository = { SkyBlockItemRepository.None },
 ) : CinematicSink {
 
     private var playing: Cinematic? = null
@@ -125,6 +134,26 @@ class MinecraftCinematicSink(
      * two that need Minecraft's own model rendering. The director already logs those; returning null here is
      * what makes a cinematic naming them degrade instead of failing.
      */
+    /**
+     * A picture of what dropped, by the best route available.
+     *
+     * Three answers, in order. A SkyBlock item the repository already knows about is drawn as the real thing —
+     * model, shimmer, and for the custom-skinned heads that most of SkyBlock is, its actual skin. Failing that
+     * a vanilla name resolves to a flat texture, which covers the enchanted books and raw materials. Failing
+     * both, nothing: a plausible wrong item is worse than none, because nobody can tell it is wrong.
+     *
+     * **Only what is already resident.** This runs while deciding what to draw, and a cinematic cannot wait on
+     * a network round trip — so the drop is prefetched when it is announced and this reads the result. A drop
+     * whose lookup has not landed yet falls through to the vanilla texture, which is the same outcome as
+     * before the repository existed.
+     */
+    private fun iconFor(itemName: String): StageElement? {
+        items().resident(itemName)?.let { known ->
+            return StageElement.Item(ItemRef(known.minecraftId, known.skullTexture))
+        }
+        return ItemTextures.textureFor(itemName)?.let { StageElement.Image(it) }
+    }
+
     private fun CinematicComponent.toStageElement(): StageElement? = when (this) {
         is CinematicComponent.Letterbox -> StageElement.Letterbox(heightFraction)
         is CinematicComponent.Background -> StageElement.Backdrop(colour, opacity)
@@ -133,7 +162,7 @@ class MinecraftCinematicSink(
         is CinematicComponent.AnimatedNumber -> StageElement.Number(value, prefix, suffix)
         is CinematicComponent.ProgressBar -> StageElement.Progress(fraction, label)
         is CinematicComponent.RewardReveal -> StageElement.Reveal(label, atFraction)
-        is CinematicComponent.ItemIcon -> ItemTextures.textureFor(itemName)?.let { StageElement.Image(it) }
+        is CinematicComponent.ItemIcon -> iconFor(itemName)
         // Handled by the clock rather than drawn.
         is CinematicComponent.Sound -> null
         else -> null
@@ -143,12 +172,13 @@ class MinecraftCinematicSink(
         /**
          * What this sink can draw.
          *
-         * Item models and player heads are absent and that is a statement, not an oversight: both need
-         * Minecraft's own model rendering rather than the UI framework's primitives, which is a piece of
-         * adapter work in its own right. A cinematic naming one still plays the rest.
+         * `item` and `player_head` are absent and that is a statement, not an oversight. Both take something
+         * the *player already has* — a stack snapshot, another player's identity — where `item_icon` takes a
+         * name, and only the last of those is what a drop read from chat can supply.
          */
         val SUPPORTED = setOf(
             "letterbox", "background", "title", "subtitle", "number", "progress", "reward", "sound",
+            "item_icon",
         )
 
         const val MILLIS_PER_SECOND = 1000f

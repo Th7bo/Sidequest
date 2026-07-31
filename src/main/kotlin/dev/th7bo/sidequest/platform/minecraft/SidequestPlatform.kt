@@ -21,6 +21,8 @@ import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.asset.DefaultAssetManager
+import dev.th7bo.sidequest.platform.core.item.NeuItemRepository
+import dev.th7bo.sidequest.platform.item.SkyBlockItemRepository
 import dev.th7bo.sidequest.platform.core.cosmetic.CosmeticStore
 import dev.th7bo.sidequest.platform.core.cosmetic.DefaultCosmeticService
 import dev.th7bo.sidequest.platform.core.cosmetic.LoadoutPublisher
@@ -314,6 +316,19 @@ class SidequestPlatform(
     val assets: AssetManager get() = assetManager
 
     /**
+     * What SkyBlock's own items look like.
+     *
+     * Its own transport rather than the backend's, because it talks to a public repository and not to us —
+     * nothing about it should carry a session token. Nothing is fetched until something asks about an item.
+     */
+    private val itemRepository = NeuItemRepository(
+        transport = JdkHttpTransport(),
+        log = loggers.create(LogCategory.PLATFORM, SqId.sidequest("items")),
+    )
+
+    val items: SkyBlockItemRepository get() = itemRepository
+
+    /**
      * Cosmetics.
      *
      * Built after the asset manager, because a cosmetic that needs an image is hidden until the image is
@@ -481,6 +496,7 @@ class SidequestPlatform(
         storage = fileStorage,
         permissions = permissionService,
         loggers = loggers,
+        items = itemRepository,
     )
 
     /** The adapter's own hooks into the game, released on [stop]. */

@@ -8,6 +8,7 @@ import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.rendering.FrameInfo
 import dev.th7bo.sidequest.ui.rendering.Gradient
 import dev.th7bo.sidequest.ui.rendering.Icon
+import dev.th7bo.sidequest.ui.rendering.ItemRef
 import dev.th7bo.sidequest.ui.rendering.Shadow
 import dev.th7bo.sidequest.ui.rendering.TextLayout
 import dev.th7bo.sidequest.ui.rendering.TextMeasurer
@@ -127,6 +128,10 @@ public class RecordingRenderer(
         record(DrawCommand.Image(texture, bounds, tint))
     }
 
+    override fun item(item: ItemRef, bounds: Rect) {
+        record(DrawCommand.DrawItem(item, bounds))
+    }
+
     override fun pushClip(bounds: Rect) {
         // Nested clips intersect, exactly as a real scissor stack does.
         val effective = clipStack.lastOrNull()?.intersect(bounds) ?: bounds
@@ -197,6 +202,7 @@ public class RecordingRenderer(
         is DrawCommand.Text -> "text '${command.content}' at ${command.position} ${command.color}"
         is DrawCommand.DrawIcon -> "icon ${command.icon.id} ${command.bounds}"
         is DrawCommand.Image -> "image ${command.texture.id} ${command.bounds}"
+        is DrawCommand.DrawItem -> "item ${command.item.id} ${command.bounds}"
         is DrawCommand.PushClip -> "pushClip ${command.bounds}"
         DrawCommand.PopClip -> "popClip"
         is DrawCommand.PushTransform -> "pushTransform ${command.transform}"

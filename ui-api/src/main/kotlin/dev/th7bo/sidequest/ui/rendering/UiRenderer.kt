@@ -95,6 +95,16 @@ public interface UiRenderer {
 
     public fun image(texture: TextureRef, bounds: Rect, tint: Color = Color.White)
 
+    /**
+     * Draws one of the host's items, as the host draws it.
+     *
+     * Separate from [image] because an item is not a picture. It is a model with a lighting setup, an
+     * enchantment shimmer and — for the ones that matter most here — a skin fetched and cached by the host.
+     * Nothing the framework could composite out of textures would look like the game's own inventory slot,
+     * and that likeness is the entire point of drawing an item rather than a label.
+     */
+    public fun item(item: ItemRef, bounds: Rect)
+
     // -- state stacks -------------------------------------------------------
 
     /**
@@ -264,6 +274,24 @@ public data class Icon(
     val id: UiId,
     /** Intrinsic size in logical units, used when a caller does not specify bounds. */
     val intrinsicSize: Float = 16f,
+)
+
+/**
+ * One of the host's items, named rather than described.
+ *
+ * The framework cannot construct an item and does not try. It carries the two strings the host needs to build
+ * one and treats both as opaque, which is what keeps the game off this module's classpath.
+ */
+public data class ItemRef(
+    /** The host's own id for it — `minecraft:iron_sword`. */
+    public val id: String,
+    /**
+     * A skin, for the items that are player heads.
+     *
+     * Most of what SkyBlock adds is a head with a custom texture, so without this the interesting half of the
+     * items would all draw as the same blank skull.
+     */
+    public val skin: String? = null,
 )
 
 /** A host texture reference. Opaque to the framework. */

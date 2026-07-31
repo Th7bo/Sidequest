@@ -13,6 +13,7 @@ import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.rendering.TextLayout
 import dev.th7bo.sidequest.ui.rendering.TextStyle
+import dev.th7bo.sidequest.ui.rendering.ItemRef
 import dev.th7bo.sidequest.ui.rendering.TextureRef
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
 
@@ -68,6 +69,20 @@ public sealed interface StageElement {
     public data class Image(
         public val texture: TextureRef,
         /** Side length, as a fraction of the viewport's *height*, so it scales with the screen. */
+        public val sizeFraction: Float = DEFAULT_IMAGE_FRACTION,
+    ) : StageElement
+
+    /**
+     * The item itself, in the same place [Image] would go.
+     *
+     * A separate element rather than a flag on [Image] because the host draws it by a different route — its
+     * own item renderer, with the model and the shimmer and the skin — and the two cannot share a code path.
+     * Preferred whenever the host knows the item, since a real inventory-slot rendering is what makes the
+     * cinematic look like the game announcing a drop.
+     */
+    public data class Item(
+        public val item: ItemRef,
+        /** Side length, as a fraction of the viewport's *height*. Matches [Image] so the two are swappable. */
         public val sizeFraction: Float = DEFAULT_IMAGE_FRACTION,
     ) : StageElement
 }
@@ -150,7 +165,9 @@ public class CinematicStageNode(
                 }
                 // Nothing to measure: an image is sized from the viewport at paint time, and the bars are
                 // fractions of it.
-                is StageElement.Image, is StageElement.Letterbox, is StageElement.Backdrop -> Unit
+                is StageElement.Image, is StageElement.Item,
+                is StageElement.Letterbox, is StageElement.Backdrop,
+                -> Unit
             }
         }
         // The whole viewport. A cinematic is not laid out against anything, so an unbounded constraint means
@@ -211,13 +228,30 @@ public class CinematicStageNode(
             is StageElement.Subtitle -> SUBTITLE_AT
             // First of everything: the picture is what the cinematic is about, so it arrives before
             // the words describing it.
-            is StageElement.Image -> 0f
+            is StageElement.Image, is StageElement.Item -> 0f
             is StageElement.Number -> NUMBER_AT
             is StageElement.Progress -> PROGRESS_AT
             is StageElement.Reveal -> element.atFraction
         }
         if (at <= 0f) return 1f
         return ((progress - at) / ENTRANCE).coerceIn(0f, 1f)
+    }
+
+    /**
+     * Where the thing that dropped goes: square, centred, sitting above the title.
+     *
+     * Sized off the height rather than the width so an ultrawide screen does not get an enormous one. Shared
+     * by [StageElement.Image] and [StageElement.Item] so that swapping a flat texture for a real item does not
+     * move it — which it would if each computed its own box.
+     */
+    private fun showcase(bounds: Rect, sizeFraction: Float): Rect {
+        val side = bounds.height * sizeFraction
+        return Rect(
+            bounds.x + (bounds.width - side) / 2f,
+            bounds.y + bounds.height * IMAGE_Y - side / 2f,
+            side,
+            side,
+        )
     }
 
     private fun draw(renderer: UiRenderer, bounds: Rect, element: StageElement) {
@@ -240,21 +274,9 @@ public class CinematicStageNode(
                 )
             }
 
-            is StageElement.Image -> {
-                // Square, centred, sitting above the title. Sized off the height rather than the width so an
-                // ultrawide screen does not get an enormous one.
-                val side = bounds.height * element.sizeFraction
-                renderer.image(
-                    element.texture,
-                    Rect(
-                        bounds.x + (bounds.width - side) / 2f,
-                        bounds.y + bounds.height * IMAGE_Y - side / 2f,
-                        side,
-                        side,
-                    ),
-                    Color.White,
-                )
-            }
+            is StageElement.Image -> renderer.image(element.texture, showcase(bounds, element.sizeFraction), Color.White)
+
+            is StageElement.Item -> renderer.item(element.item, showcase(bounds, element.sizeFraction))
 
             // Bold, because the title *is* the rarity — `VERY RARE DROP` — and Hypixel writes it bold in
             // chat. Matching that is what makes the cinematic read as the game announcing something rather

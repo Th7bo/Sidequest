@@ -4,6 +4,7 @@ import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.runtime.UiRuntime
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.ids.UiId
+import dev.th7bo.sidequest.ui.rendering.ItemRef
 import dev.th7bo.sidequest.ui.rendering.TextureRef
 import dev.th7bo.sidequest.ui.state.resetReactiveGraphForTesting
 import dev.th7bo.sidequest.ui.testkit.DrawCommand
@@ -283,6 +284,28 @@ class CinematicStageTest {
 
         assertEquals(1, renderer.commandsOfType<DrawCommand.Image>().size, "the item leads")
         assertTrue(texts().isEmpty(), "the title has not started: ${texts()}")
+    }
+
+    /**
+     * A real item goes exactly where a flat picture would.
+     *
+     * The two are chosen between at the last moment — the host draws the item it recognises and falls back to
+     * a texture for the rest — so the swap has to be invisible. If they disagreed about the box, the same drop
+     * would appear in two different places depending on whether a lookup had landed yet.
+     */
+    @Test
+    fun `an item occupies the same box a picture would`() {
+        stage.elements = listOf(StageElement.Image(TextureRef(UiId.of("minecraft", "item.diamond"))))
+        stage.progress = 0.5f
+        frame()
+        val asPicture = renderer.commandsOfType<DrawCommand.Image>().single().bounds
+
+        stage.elements = listOf(StageElement.Item(ItemRef("minecraft:player_head", skin = "ewogIC")))
+        frame()
+
+        val asItem = renderer.commandsOfType<DrawCommand.DrawItem>().single()
+        assertEquals(asPicture, asItem.bounds)
+        assertEquals("ewogIC", asItem.item.skin, "the skin has to survive, or every head draws blank")
     }
 
     // -- the frame -----------------------------------------------------------

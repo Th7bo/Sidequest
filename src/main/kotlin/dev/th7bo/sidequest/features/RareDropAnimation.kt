@@ -178,7 +178,19 @@ class RareDropAnimation(
             return
         }
 
-        context.cinematics.submit(cinematicFor(item, amount, headline, colour, subtitle))
+        // Looked up before the cinematic is submitted, not while it draws.
+        //
+        // Turning a display name into something drawable can be a network round trip the first time anybody
+        // sees a given item, and a render path cannot wait on one — so the wait happens here instead, where
+        // there is nothing on screen yet to stall. The toast has already gone out, so the only cost is that
+        // the animation starts a fraction of a second later, and the gain is that the first Judgement Core
+        // somebody ever drops has its picture rather than the second one onwards.
+        context.scheduler.async(context.owner) {
+            context.items.prefetch(item)
+            context.scheduler.onMain(context.owner) {
+                context.cinematics.submit(cinematicFor(item, amount, headline, colour, subtitle))
+            }
+        }
     }
 
     private fun cinematicFor(

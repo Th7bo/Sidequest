@@ -14,6 +14,7 @@ import dev.th7bo.sidequest.platform.feature.FeatureRefusal
 import dev.th7bo.sidequest.platform.feature.FeatureRegistry
 import dev.th7bo.sidequest.platform.game.GameVersion
 import dev.th7bo.sidequest.platform.id.SqId
+import dev.th7bo.sidequest.platform.item.SkyBlockItemRepository
 import dev.th7bo.sidequest.platform.log.LogCategory
 import dev.th7bo.sidequest.platform.asset.AssetManager
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticService
@@ -65,6 +66,13 @@ public class DefaultFeatureRegistry(
     private val storage: StorageProvider,
     private val permissions: PermissionService,
     private val loggers: LoggerFactory,
+    /**
+     * SkyBlock's item database.
+     *
+     * Last and defaulted, so a harness that has no use for item lookups need not build one — every other
+     * service here is load-bearing for some feature's registration, and this one only answers questions.
+     */
+    private val items: SkyBlockItemRepository = SkyBlockItemRepository.None,
     /** Whether a feature should start. Backed by config once the config bridge exists. */
     private val isEnabledByUser: (FeatureDescriptor) -> Boolean = { it.enabledByDefault },
 ) : FeatureRegistry {
@@ -153,6 +161,7 @@ public class DefaultFeatureRegistry(
             markers = markers,
             rules = rules,
             assets = assets,
+            items = items,
             cosmetics = cosmetics,
             errors = errors,
             storage = storage,

@@ -6,6 +6,7 @@ import dev.th7bo.sidequest.ui.geometry.Vec2
 import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.rendering.Gradient
 import dev.th7bo.sidequest.ui.rendering.Icon
+import dev.th7bo.sidequest.ui.rendering.ItemRef
 import dev.th7bo.sidequest.ui.rendering.Shadow
 import dev.th7bo.sidequest.ui.rendering.TextureRef
 import dev.th7bo.sidequest.ui.rendering.Transform
@@ -49,6 +50,8 @@ public sealed class DrawCommand {
     public data class DrawIcon(val icon: Icon, val bounds: Rect, val tint: Color) : DrawCommand()
 
     public data class Image(val texture: TextureRef, val bounds: Rect, val tint: Color) : DrawCommand()
+
+    public data class DrawItem(val item: ItemRef, val bounds: Rect) : DrawCommand()
 
     public data class PushClip(val bounds: Rect) : DrawCommand()
 
