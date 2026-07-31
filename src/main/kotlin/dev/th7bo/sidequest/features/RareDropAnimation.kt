@@ -216,12 +216,48 @@ class RareDropAnimation(
      * Writes into the configuration rather than into a store of its own, because that list is a *preference*
      * and the settings screen is where somebody looks for it. Saving goes through the config controller for
      * the same reason: two things writing the same list is how they end up disagreeing.
+     *
+     * **Confirms, with an undo.** Silently swallowing the next hundred drops of something is a large
+     * consequence for one click, and that click is made in the moment an animation has just interrupted
+     * somebody — exactly when a misclick is likely. The confirmation carries an action, which is also what
+     * puts it in chat rather than only on a toast: notification actions are offered there because chat is the
+     * only surface clickable while the cursor is grabbed.
      */
     private fun ignore(item: String) {
         if (SidequestSettings.Drops.ignoredItems.any { it.equals(item, ignoreCase = true) }) return
         SidequestSettings.Drops.ignoredItems = SidequestSettings.Drops.ignoredItems + item
         Sidequest.saveConfiguration()
         context.log.info { "Ignoring '$item'" }
+
+        context.notifications.notify(
+            notification(
+                category = NotificationCategory.PROGRESSION,
+                title = "Ignoring $item",
+                subtitle = "Change it under Rare drops in the settings",
+                priority = NotificationPriority.LOW,
+            ).copy(
+                actions = listOf(
+                    NotificationAction(id = "unignore", label = "Undo") { unignore(item) },
+                ),
+            ),
+        )
+    }
+
+    /** Takes an item back off the list, and says so for the same reason. */
+    private fun unignore(item: String) {
+        val remaining = SidequestSettings.Drops.ignoredItems.filterNot { it.equals(item, ignoreCase = true) }
+        if (remaining.size == SidequestSettings.Drops.ignoredItems.size) return
+        SidequestSettings.Drops.ignoredItems = remaining
+        Sidequest.saveConfiguration()
+        context.log.info { "No longer ignoring '$item'" }
+
+        context.notifications.notify(
+            notification(
+                category = NotificationCategory.PROGRESSION,
+                title = "No longer ignoring $item",
+                priority = NotificationPriority.LOW,
+            ),
+        )
     }
 
     /**

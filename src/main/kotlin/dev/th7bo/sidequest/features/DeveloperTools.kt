@@ -10,6 +10,7 @@ import dev.th7bo.sidequest.platform.feature.FeatureContext
 import dev.th7bo.sidequest.platform.feature.FeatureDescriptor
 import dev.th7bo.sidequest.platform.feature.command
 import dev.th7bo.sidequest.platform.game.GameClient
+import dev.th7bo.sidequest.platform.parser.HypixelText
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.log.LogCategory
 import dev.th7bo.sidequest.platform.log.LogLevel
@@ -1013,7 +1014,9 @@ class DeveloperTools(
         val line = DROP_LINES[dropIndex % DROP_LINES.size]
         dropIndex++
         dev.th7bo.sidequest.Sidequest.platform.simulateChatLine(line)
-        tell("Sent: ${line.replace("§", "&")}")
+        // Cleaned rather than escaped. Echoing `&9&l…` shows the codes as literal text, which is unreadable
+        // and also says nothing useful: what matters is the line the parser sees, not how it was coloured.
+        tell("Sent: " + HypixelText.clean(line))
         tell("If nothing appeared: /sqdrops for the threshold, /sqcine safety for the gate.")
     }
 
@@ -1079,7 +1082,7 @@ class DeveloperTools(
             else -> KUUDRA_LINE
         }
         dev.th7bo.sidequest.Sidequest.platform.simulateChatLine(line)
-        tell("Sent: ${line.trim().replace("§", "&")}")
+        tell("Sent: " + HypixelText.clean(line))
         if (kind == "kuudra") {
             // Said out loud rather than left implicit: the pattern this exercises has no recorded line of
             // its own, so a pass here is this command agreeing with itself.
