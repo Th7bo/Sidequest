@@ -274,15 +274,37 @@ public class NeuItemRepository(
          * `GIANTS_SWORD` while `Necron's Handle` is `NECRON_HANDLE`, from the same possessive. So the list is
          * short and deliberately conservative: the plain reading, then the possessive dropped.
          *
-         * Nothing here guesses at pets (which carry a rarity), enchanted books (a level in roman numerals) or
-         * gemstones (a stat). Those need their own handling, and a wrong guess is worse than a miss — it draws
-         * a confident icon of the wrong item, which reads as a bug in the drop rather than in the lookup.
+         * Pets are filed by name *and* rarity — `BABY_YETI;3`, with plain `BABY_YETI` not existing at all — so
+         * the ladder is appended. **The tier does not have to be the right one:** a pet's skin is identical
+         * across its rarities and only the colour of its name changes, so whichever exists draws the correct
+         * picture. That is what makes trying them a lookup rather than a guess.
+         *
+         * Nothing here guesses at enchanted books (a level in roman numerals) or gemstones (a stat). Those
+         * need their own handling, and a wrong guess is worse than a miss — it draws a confident icon of the
+         * wrong item, which reads as a bug in the drop rather than in the lookup.
+         *
+         * The tail is only reached by a name that has already missed, and a miss is remembered, so the long
+         * list costs a handful of 404s once per unresolvable name rather than once per lookup.
          */
         public fun candidatesFor(displayName: String): List<String> {
-            val plain = internalNameFor(displayName)
-            val withoutPossessive = internalNameFor(POSSESSIVE.replace(HypixelText.clean(displayName), ""))
-            return listOf(plain, withoutPossessive).filter { it.isNotEmpty() }.distinct()
+            val cleaned = HypixelText.clean(displayName)
+            val plain = internalNameFor(cleaned)
+            val withoutPossessive = internalNameFor(POSSESSIVE.replace(cleaned, ""))
+
+            return buildList {
+                add(plain)
+                add(withoutPossessive)
+                if (plain.isNotEmpty()) for (tier in PET_TIERS) add("$plain;$tier")
+            }.filter { it.isNotEmpty() }.distinct()
         }
+
+        /**
+         * The rarities a pet can be filed under, likeliest first.
+         *
+         * Legendary and epic lead because they are what a pet drop is usually announcing. The numbers are the
+         * database's own ladder: common, uncommon, rare, epic, legendary, mythic.
+         */
+        private val PET_TIERS = listOf(4, 3, 2, 1, 0, 5)
 
         private val UNDERSCORE_RUN = Regex("_{2,}")
 

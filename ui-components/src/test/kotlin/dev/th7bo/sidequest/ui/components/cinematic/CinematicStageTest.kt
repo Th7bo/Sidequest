@@ -229,16 +229,18 @@ class CinematicStageTest {
     // -- the item ------------------------------------------------------------
 
     /**
-     * A drop's picture, drawn above the words.
+     * A drop's picture, drawn under the words that introduce it.
      *
-     * The name says what dropped; the item says it at a glance, which is most of why a cinematic is worth
-     * watching rather than reading.
+     * The announcement reads top to bottom: how rare it was, why, and then the thing itself. The picture
+     * carries the meaning — the name says what dropped and the item says it at a glance — but it arrives
+     * after the line that sets it up rather than competing with the headline for the top of the screen.
      */
     @Test
-    fun `an image is drawn centred above the title`() {
+    fun `an image is drawn centred below the subtitle`() {
         stage.elements = listOf(
             StageElement.Image(TextureRef(UiId.of("minecraft", "item.diamond"))),
             StageElement.Title("RARE DROP", colour = 0xFFAA00),
+            StageElement.Subtitle("+168% Magic Find"),
         )
         stage.progress = 0.5f
 
@@ -250,8 +252,8 @@ class CinematicStageTest {
             image.bounds.x < centreX && image.bounds.right > centreX,
             "it should straddle the centre, was ${image.bounds}",
         )
-        val titleY = renderer.commandsOfType<DrawCommand.Text>().single().position.y
-        assertTrue(image.bounds.bottom <= titleY, "the picture sits above the title, not over it")
+        val lowestText = renderer.commandsOfType<DrawCommand.Text>().maxOf { it.position.y }
+        assertTrue(image.bounds.top >= lowestText, "the picture sits below the words, not over them")
     }
 
     /** Sized from the height, so an ultrawide screen does not get an enormous one. */

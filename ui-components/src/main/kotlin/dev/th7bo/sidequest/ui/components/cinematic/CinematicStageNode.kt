@@ -442,11 +442,22 @@ public class CinematicStageNode(
          * first reveal. A real client screenshot caught it — nothing headless would have, because nothing
          * headless renders at the player's GUI scale.
          */
-        /** The image sits above the title, centred on this fraction of the height. */
-        const val IMAGE_Y = 0.19f
-
         const val TITLE_Y = 0.30f
         const val SUBTITLE_Y = 0.40f
+
+        /**
+         * Where the item sits, centred on this fraction of the height.
+         *
+         * Below the words rather than above them, which is the order the announcement actually reads in: the
+         * headline says how rare it was, the subtitle says why, and then the thing itself appears above its
+         * own name. Above the title it was competing with the headline for the top of the screen.
+         *
+         * It occupies the band [NUMBER_Y] and [BAR_Y] sit in, and would overlap either. Nothing composes them
+         * together — a drop cinematic has no counter and no progress bar — but a cinematic that wanted both a
+         * picture and a running total would need a layout, not a nudge to this number.
+         */
+        const val IMAGE_Y = 0.53f
+
         const val NUMBER_Y = 0.48f
         const val BAR_Y = 0.56f
         const val BAR_LABEL_Y = 0.595f

@@ -21,7 +21,16 @@ import org.junit.jupiter.api.Test
  */
 class NeuItemRepositoryTest {
 
-    private val transport = FakeTransport()
+    /**
+     * Answers 404 for anything not explicitly served.
+     *
+     * The fake's own default is an unreachable server, and that would be the wrong shape here: a lookup tries
+     * several spellings of a name, and on the real host every spelling that does not exist comes back 404 —
+     * which is remembered — rather than as a network failure, which deliberately is not.
+     */
+    private val transport = FakeTransport().apply {
+        fallback = { HttpExchange.Response(status = 404, body = "404: Not Found", headers = emptyMap()) }
+    }
 
     private fun repository() = NeuItemRepository(transport, NoopLogger, baseUrl = BASE)
 
@@ -66,14 +75,36 @@ class NeuItemRepositoryTest {
      */
     @Test
     fun `a possessive is offered both ways round`() {
-        assertEquals(listOf("GIANTS_SWORD", "GIANT_SWORD"), NeuItemRepository.candidatesFor("Giant's Sword"))
-        assertEquals(listOf("NECRONS_HANDLE", "NECRON_HANDLE"), NeuItemRepository.candidatesFor("Necron's Handle"))
+        assertEquals(
+            listOf("GIANTS_SWORD", "GIANT_SWORD"),
+            NeuItemRepository.candidatesFor("Giant's Sword").take(2),
+        )
+        assertEquals(
+            listOf("NECRONS_HANDLE", "NECRON_HANDLE"),
+            NeuItemRepository.candidatesFor("Necron's Handle").take(2),
+        )
     }
 
-    /** A name with nothing ambiguous in it is asked for once, not twice. */
+    /** The plain reading is always tried first, so a name that resolves costs one request and not seven. */
     @Test
-    fun `an unambiguous name has a single candidate`() {
-        assertEquals(listOf("HYPERION"), NeuItemRepository.candidatesFor("Hyperion"))
+    fun `the plain reading leads`() {
+        assertEquals("HYPERION", NeuItemRepository.candidatesFor("Hyperion").first())
+    }
+
+    /**
+     * Pets are filed by name and rarity, and the plain name does not exist at all.
+     *
+     * `BABY_YETI` is a 404; `BABY_YETI;3` is a Baby Yeti. Which tier is asked for does not matter, because a
+     * pet's skin is the same across its rarities — only the colour of its name changes.
+     */
+    @Test
+    fun `a pet is offered at every rarity`() {
+        val candidates = NeuItemRepository.candidatesFor("Baby Yeti")
+
+        assertEquals("BABY_YETI", candidates.first(), "the plain name still leads, in case it exists")
+        assertTrue("BABY_YETI;3" in candidates, "epic, which is what a Baby Yeti drops as: $candidates")
+        assertTrue("BABY_YETI;4" in candidates, "legendary: $candidates")
+        assertEquals(candidates.size, candidates.distinct().size, "no name is asked for twice")
     }
 
     // -- reading an entry ----------------------------------------------------
@@ -177,6 +208,34 @@ class NeuItemRepositoryTest {
         assertEquals(2, transport.requests.size, "neither spelling is asked for again")
     }
 
+    /**
+     * A pet drop, all the way through.
+     *
+     * `§6§lPET DROP! §r§5Baby Yeti` reaches the repository as `Baby Yeti`, and nothing about that name says
+     * it is a pet or which rarity it dropped at. The plain name 404s, the legendary tier 404s, and the epic
+     * one answers — which is the picture, because a pet's skin does not vary by tier.
+     */
+    @Test
+    fun `a pet resolves through its rarity suffix`() = runTest {
+        serve("BABY_YETI;3", BABY_YETI)
+        val repository = repository()
+
+        val item = repository.byDisplayName("Baby Yeti")
+
+        assertEquals("BABY_YETI;3", item?.internalName)
+        assertEquals("minecraft:player_head", item?.minecraftId)
+        assertEquals("ewogICJ0aW1lc3Rh", item?.skullTexture)
+
+        assertEquals(
+            listOf("$BASE/BABY_YETI.json", "$BASE/BABY_YETI;4.json", "$BASE/BABY_YETI;3.json"),
+            transport.requests.map { it.url },
+            "it stops at the first tier that exists, rather than walking the whole ladder",
+        )
+
+        repository.byDisplayName("Baby Yeti")
+        assertEquals(3, transport.requests.size, "the two misses are remembered along with the hit")
+    }
+
     @Test
     fun `a second lookup is answered from memory`() = runTest {
         serve("HYPERION", HYPERION)
@@ -198,13 +257,16 @@ class NeuItemRepositoryTest {
      */
     @Test
     fun `a missing item is asked for once`() = runTest {
-        transport.respond("$BASE/NOT_A_THING.json", body = "404: Not Found", status = 404)
         val repository = repository()
+
+        assertNull(repository.byDisplayName("Not A Thing"))
+        val asked = transport.requests.size
+        assertTrue(asked > 1, "it tried more than one spelling before giving up")
 
         repeat(5) { assertNull(repository.byDisplayName("Not A Thing")) }
 
-        assertEquals(1, transport.requests.size)
-        assertEquals(1, repository.stats().known404s)
+        assertEquals(asked, transport.requests.size, "every spelling it tried is remembered as missing")
+        assertEquals(asked, repository.stats().known404s)
     }
 
     /**
@@ -219,8 +281,9 @@ class NeuItemRepositoryTest {
         val repository = repository()
 
         assertNull(repository.byDisplayName("Hyperion"))
-        assertEquals(0, repository.stats().known404s, "a blip must not be remembered as absence")
 
+        // The proof that the failure was not recorded as absence: the same name resolves once the host is
+        // back. Had the two been conflated, this would stay null for the life of the session.
         serve("HYPERION", HYPERION)
         assertNotNull(repository.byDisplayName("Hyperion"))
     }
@@ -291,6 +354,22 @@ class NeuItemRepositoryTest {
               "displayname": "§9Sniper Bow",
               "nbttag": "{ExtraAttributes:{id:\"SNIPER_BOW\"},HideFlags:254,ItemModel:\"hypixel_skyblock:item/uncategorized/sniper_bow\"}",
               "internalname": "SNIPER_BOW"
+            }
+        """.trimIndent()
+
+        /**
+         * A pet, at one of its rarities.
+         *
+         * Note the display name carries a `{LVL}` placeholder and the level is not part of the key — the
+         * whole reason a pet has to be looked up by `NAME;TIER` rather than by anything in the drop line.
+         */
+        val BABY_YETI = """
+            {
+              "itemid": "minecraft:skull",
+              "damage": 3,
+              "displayname": "§7[Lvl {LVL}] §5Baby Yeti",
+              "nbttag": "{ExtraAttributes:{id:\"BABY_YETI;3\"},HideFlags:254,ItemModel:\"minecraft:player_head\",SkullOwner:{Id:\"7dc4f3ba-6b6f-330a-9a22-791218c81017\",Properties:{textures:[0:{Name:\"textures\",Signature:\"AqUDIyzA4nHkaO0b\",Value:\"ewogICJ0aW1lc3Rh\"}]}}}",
+              "internalname": "BABY_YETI;3"
             }
         """.trimIndent()
 
