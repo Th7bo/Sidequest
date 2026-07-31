@@ -329,6 +329,62 @@ public class DropdownSetting<T>(
 }
 
 /** A colour, with optional alpha editing. */
+/**
+ * Zero or more values chosen from a fixed set.
+ *
+ * A [ListSetting] can hold the same data and is the wrong control for it: its rows are not editable, so the
+ * only way to change an entry is to remove it and add another — and `createItem` can only ever produce one
+ * fixed value. Choosing three islands out of forty that way means adding the same island three times and
+ * being unable to alter any of them, which is exactly what shipped.
+ *
+ * So this is the picker: the same searchable list a [DropdownSetting] shows, staying open, with every chosen
+ * option marked. Selection is a *set* in meaning even though it is stored as a list — the serializer, the
+ * bindings and the diffing are all simpler over a list, and duplicates are refused on the way in.
+ */
+public class MultiSelectSetting<T>(
+    id: UiId,
+    metadata: SettingMetadata,
+    binding: Binding<List<T>>,
+    defaultValue: List<T>,
+    public val options: UiState<List<Option<T>>>,
+    elementSerializer: SettingSerializer<T>,
+    /** Whether the popup offers a filter box. Worth it past a handful of options. */
+    public val isSearchable: Boolean = true,
+    /** How the row summarises the choice when the popup is closed. */
+    public val summarise: (List<T>) -> String = { chosen ->
+        when (chosen.size) {
+            0 -> "None"
+            1 -> "1 selected"
+            else -> "${chosen.size} selected"
+        }
+    },
+    validator: Validator<List<T>>? = null,
+) : Setting<List<T>>(
+    id,
+    metadata,
+    binding,
+    defaultValue,
+    SettingSerializers.list(elementSerializer),
+    validator,
+) {
+
+    public fun isChosen(item: T): Boolean = item in value
+
+    /**
+     * Adds or removes [item].
+     *
+     * One method rather than add and remove, because the control has one gesture: clicking a row in the
+     * popup means "change whether this is chosen", and splitting it would leave the caller deciding which
+     * to call by reading the state it is about to change.
+     */
+    public fun toggle(item: T) {
+        val current = value
+        setUnchecked(if (item in current) current - item else current + item)
+    }
+
+    public fun clear(): Unit = setUnchecked(emptyList())
+}
+
 public class ColorSetting(
     id: UiId,
     metadata: SettingMetadata,

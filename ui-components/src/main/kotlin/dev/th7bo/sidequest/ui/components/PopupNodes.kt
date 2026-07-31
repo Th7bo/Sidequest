@@ -180,10 +180,33 @@ public abstract class PopupSurfaceNode(
  */
 public class DropdownPopupNode<T>(
     id: UiId,
-    private val setting: DropdownSetting<T>,
+    /**
+     * What the popup offers, whether it filters, and what counts as chosen.
+     *
+     * Taken as three values rather than as a `DropdownSetting`, because a multi-select needs the same list,
+     * the same filter and the same keyboard handling while having no single selected value. Passing the
+     * setting would have meant either a second near-identical popup or a fake setting to satisfy the type.
+     */
+    private val options: UiState<List<Option<T>>>,
+    private val isSearchable: Boolean,
+    private val isChosen: (Option<T>) -> Boolean,
     componentContext: ComponentContext,
     private val onChoose: (Option<T>) -> Unit,
 ) : PopupSurfaceNode(id, componentContext) {
+
+    public constructor(
+        id: UiId,
+        setting: DropdownSetting<T>,
+        componentContext: ComponentContext,
+        onChoose: (Option<T>) -> Unit,
+    ) : this(
+        id = id,
+        options = setting.options,
+        isSearchable = setting.isSearchable,
+        isChosen = { option -> setting.value == option.value },
+        componentContext = componentContext,
+        onChoose = onChoose,
+    )
 
     /** Item nodes in option order, so the keyboard can walk them. */
     private val items = ArrayList<PopupItemNode>()
@@ -194,10 +217,10 @@ public class DropdownPopupNode<T>(
     public val query: UiState<String> get() = queryState
 
     /** The options passing the current filter, in declaration order. */
-    public var visibleOptions: List<Option<T>> = setting.options.peek()
+    public var visibleOptions: List<Option<T>> = options.peek()
         private set
 
-    private val filterLabel = if (setting.isSearchable) {
+    private val filterLabel = if (isSearchable) {
         TextNode(
             id.child("filter"),
             derivedStateOf("${id.value}.filterLabel") {
@@ -212,7 +235,7 @@ public class DropdownPopupNode<T>(
     init {
         // A searchable popup takes the keyboard, so typing goes to the filter rather
         // than to whatever had focus before the popup opened.
-        focusable = setting.isSearchable
+        focusable = isSearchable
         filterLabel?.let { body.addChild(it) }
         rebuildItems()
     }
@@ -233,9 +256,9 @@ public class DropdownPopupNode<T>(
 
         val query = queryState.peek().trim()
         val matching = if (query.isEmpty()) {
-            setting.options.peek()
+            options.peek()
         } else {
-            setting.options.peek().filter { it.label.peek().contains(query, ignoreCase = true) }
+            options.peek().filter { it.label.peek().contains(query, ignoreCase = true) }
         }
         visibleOptions = matching
 
@@ -244,7 +267,7 @@ public class DropdownPopupNode<T>(
                 id = id.child("item_$index"),
                 componentContext = componentContext,
                 label = option.label,
-                isSelected = { setting.value == option.value },
+                isSelected = { isChosen(option) },
                 onChoose = { onChoose(option) },
             )
             items.add(item)
@@ -270,7 +293,7 @@ public class DropdownPopupNode<T>(
 
     /** Sets the filter. Exposed so a test drives the same path a keystroke does. */
     public fun setQuery(value: String) {
-        if (!setting.isSearchable || queryState.peek() == value) return
+        if (!isSearchable || queryState.peek() == value) return
         queryState.value = value
         rebuildItems()
     }
@@ -282,11 +305,11 @@ public class DropdownPopupNode<T>(
     public fun itemAt(index: Int): UiNode? = items.getOrNull(index)
 
     /** Index of the option currently selected within the visible list, or -1. */
-    public fun selectedIndex(): Int = visibleOptions.indexOfFirst { it.value == setting.value }
+    public fun selectedIndex(): Int = visibleOptions.indexOfFirst { isChosen(it) }
 
     override fun onInputEvent(event: InputEvent) {
         super.onInputEvent(event)
-        if (!setting.isSearchable) return
+        if (!isSearchable) return
 
         when (event) {
             is CharTypedEvent -> {

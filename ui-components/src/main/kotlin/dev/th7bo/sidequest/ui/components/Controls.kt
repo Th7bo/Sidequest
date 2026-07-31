@@ -1,7 +1,9 @@
 package dev.th7bo.sidequest.ui.components
 
+import dev.th7bo.sidequest.ui.state.derivedStateOf
 import dev.th7bo.sidequest.ui.config.ButtonSetting
 import dev.th7bo.sidequest.ui.config.DropdownSetting
+import dev.th7bo.sidequest.ui.config.MultiSelectSetting
 import dev.th7bo.sidequest.ui.config.FloatSliderSetting
 import dev.th7bo.sidequest.ui.config.IntSliderSetting
 import dev.th7bo.sidequest.ui.config.KeybindSetting
@@ -552,6 +554,150 @@ public class FloatSliderControlNode(
  * this node, because a popup has to escape the row's clip and paint above every
  * sibling. This node owns only the closed state and the open/close signal.
  */
+
+/**
+ * Zero or more choices, from the same searchable list a dropdown shows.
+ *
+ * Reuses [DropdownPopupNode] rather than growing a second one — the filtering, the keyboard handling and the
+ * empty state are identical, and the only differences are that a row toggles instead of selecting and that
+ * the popup **stays open**. That second one is the whole reason this control exists: choosing three islands
+ * out of forty through a list that closes on every click is four times the work.
+ */
+public class MultiSelectControlNode<T>(
+    private val multi: MultiSelectSetting<T>,
+    context: ComponentContext,
+) : ControlNode<List<T>>(multi, context, "multi_select") {
+
+    private val label = TextNode(
+        multi.id.child("summary"),
+        derivedStateOf("${multi.id.value}.summary") { multi.summarise(multi.state.value) },
+        TextRole.LABEL,
+    )
+
+    public var isOpen: Boolean = false
+        private set
+
+    public var onOpenChanged: ((Boolean) -> Unit)? = null
+
+    init {
+        addChild(label)
+        multi.onChange(scope) { invalidatePaint() }
+    }
+
+    override fun activate(): Unit = setOpen(!isOpen)
+
+    public fun setOpen(open: Boolean) {
+        if (isOpen == open) return
+        isOpen = open
+        invalidatePaint()
+        if (open) showPopup() else componentContext.overlays?.dismiss(overlayKey)
+        onOpenChanged?.invoke(open)
+    }
+
+    private val overlayKey: Any get() = multi.id
+
+    private fun showPopup() {
+        val host = componentContext.overlays
+        if (host == null) {
+            isOpen = false
+            return
+        }
+        host.show(
+            key = overlayKey,
+            anchor = this,
+            content = DropdownPopupNode(
+                id = multi.id.child("popup"),
+                options = multi.options,
+                isSearchable = multi.isSearchable,
+                isChosen = { option -> multi.isChosen(option.value) },
+                componentContext = componentContext,
+                // Deliberately does not close. A multi-select that dismissed on every choice would be a
+                // dropdown you have to reopen once per island.
+                onChoose = { option -> multi.toggle(option.value) },
+            ),
+            placement = dev.th7bo.sidequest.ui.core.overlay.OverlayPlacement.BELOW_END,
+            onDismiss = {
+                if (isOpen) {
+                    isOpen = false
+                    invalidatePaint()
+                    onOpenChanged?.invoke(false)
+                }
+            },
+        )
+    }
+
+    /** Toggles the option at [index] of the full list. For tests and for the keyboard. */
+    public fun toggle(index: Int): Boolean {
+        val options = multi.options.peek()
+        if (index !in options.indices) return false
+        multi.toggle(options[index].value)
+        return true
+    }
+
+    override fun onInputEvent(event: InputEvent) {
+        if (event.phase == EventPhase.TARGET && isEnabled && event is KeyDownEvent && event.key == Key.ESCAPE) {
+            if (isOpen) {
+                setOpen(false)
+                event.consume()
+                return
+            }
+        }
+        super.onInputEvent(event)
+    }
+
+    override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        val labelSize = label.measure(Constraints(maxWidth = MULTI_MAX_LABEL_WIDTH), context)
+        // Reserved against the widest summary rather than the current one, for the reason the sliders were
+        // fixed: a control that changes width reflows the description beside it. "12 selected" is the widest
+        // any of these gets.
+        val style = context.theme.textStyle(TextRole.LABEL)
+        val widest = context.textMeasurer.measure(multi.summarise(WIDEST_SAMPLE), style).size.width
+        return Size(
+            (maxOf(labelSize.width, widest) + tokens.spacing.large.value * 2 + MULTI_CARET_WIDTH)
+                .coerceAtLeast(MULTI_MIN_WIDTH),
+            tokens.metrics.controlHeight.value,
+        )
+    }
+
+    override fun arrangeChildren(context: LayoutContext) {
+        val labelSize = label.measuredSize
+        label.arrange(
+            Rect.of(
+                Vec2(tokens.spacing.medium.value, (measuredSize.height - labelSize.height) / 2f),
+                labelSize,
+            ),
+            context,
+        )
+    }
+
+    override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
+        val palette = context.theme.tokens.colors
+        renderer.roundedRect(
+            bounds,
+            tokens.radii.small,
+            if (isHovered && isEnabled) palette.hoverBackground else palette.panelBackground,
+        )
+        renderer.border(
+            bounds,
+            tokens.radii.small,
+            tokens.metrics.borderWidth,
+            if (isOpen) palette.accent else palette.border,
+        )
+        context.diagnostics.drawCalls += 2
+        label.colorOverride = contentColor(palette.textPrimary)
+        paintFocusRing(renderer, bounds, context)
+    }
+
+    private companion object {
+        const val MULTI_MAX_LABEL_WIDTH = 160f
+        const val MULTI_MIN_WIDTH = 96f
+        const val MULTI_CARET_WIDTH = 10f
+
+        /** A stand-in for the widest summary, so the reserved width covers every count. */
+        val WIDEST_SAMPLE: List<Nothing> = emptyList()
+    }
+}
+
 public class DropdownControlNode<T>(
     private val dropdown: DropdownSetting<T>,
     context: ComponentContext,

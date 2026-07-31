@@ -374,6 +374,49 @@ public class SectionBuilder internal constructor(
         ) as ListSetting<T>
     }
 
+    /**
+     * Zero or more values chosen from a fixed set, through a searchable list.
+     *
+     * The control for "which of these forty do you want". A [list] is the wrong shape for that: its rows are
+     * not editable and `createItem` can only produce one fixed value, so choosing three islands means adding
+     * the same island three times with no way to change any of them.
+     */
+    public fun <T> multiSelect(
+        id: UiId,
+        title: String,
+        value: Binding<List<T>>,
+        options: List<Option<T>>,
+        elementSerializer: SettingSerializer<T>,
+        description: String? = null,
+        default: List<T> = value.state.peek(),
+        searchable: Boolean = options.size > SEARCHABLE_THRESHOLD,
+        summarise: ((List<T>) -> String)? = null,
+        validator: Validator<List<T>>? = null,
+        block: MetadataBuilder.() -> Unit = {},
+    ): MultiSelectSetting<T> {
+        val setting = MultiSelectSetting(
+            id = id,
+            metadata = metadata(title, description, block),
+            binding = value,
+            defaultValue = default,
+            options = constantState(options),
+            elementSerializer = elementSerializer,
+            isSearchable = searchable,
+            summarise = summarise ?: { chosen ->
+                when (chosen.size) {
+                    0 -> "None"
+                    // Naming the single choice rather than counting it: "Garden" says more than "1 selected",
+                    // and one is the common case for a list somebody is curating by hand.
+                    1 -> options.firstOrNull { it.value == chosen.first() }?.label?.peek() ?: "1 selected"
+                    else -> "${chosen.size} selected"
+                }
+            },
+            validator = validator,
+        )
+        @Suppress("UNCHECKED_CAST")
+        return add(setting) as MultiSelectSetting<T>
+    }
+
     public fun colorPicker(
         id: UiId,
         title: String,

@@ -344,19 +344,19 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     visibleWhen = dropsOn
                 }
-                list(
+                multiSelect(
                     id = id("drops.ignored_islands"),
                     title = "Islands",
-                    description = "Nothing is announced while you are here",
+                    description = "Nothing is announced while you are on these",
                     value = bind(
                         get = { SidequestSettings.Drops.ignoredIslands },
                         set = { SidequestSettings.Drops.ignoredIslands = it },
                         debugName = "drops.ignored_islands",
                     ),
-                    elementSerializer = SettingSerializers.option { Island.entries.map { option(it.name, it.displayName, it) } },
-                    itemLabel = { it.displayName },
-                    createItem = { Island.GARDEN },
-                    isReorderable = false,
+                    // Every island, sorted by name rather than by declaration order — the enum is grouped by
+                    // how SkyBlock is built and somebody looking for the Garden is looking alphabetically.
+                    options = ISLAND_OPTIONS,
+                    elementSerializer = ISLAND_SERIALIZER,
                 ) {
                     visibleWhen = dropsOn
                 }
@@ -499,6 +499,17 @@ private fun percent(value: Float): String = if (value <= 0f) "off" else "${(valu
 /** `VERY_RARE` → `Very rare`. Hypixel's tiers, spelled for a human. */
 private fun DropRarity.readable(): String =
     name.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/**
+ * Every island, for the ignore picker.
+ *
+ * Built once: forty options rebuilt on every screen open is forty allocations for a list that never changes.
+ */
+private val ISLAND_OPTIONS = Island.entries
+    .sortedBy { it.displayName }
+    .map { option(it.name, it.displayName, it) }
+
+private val ISLAND_SERIALIZER = SettingSerializers.option { ISLAND_OPTIONS }
 
 private val ACCENT_PRESETS = listOf(
     Color.parse("#8B5CF6"),

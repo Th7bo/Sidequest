@@ -1387,6 +1387,22 @@ Two details that are decisions rather than defaults:
 - **Fold state lives on the provider, not the section.** A `Section` describes the screen and is shared by
   every window showing it; folding one place must not fold it elsewhere.
 
+### Picking several from many
+
+`MultiSelectSetting` is the control for "which of these forty do you want". The ignored-islands setting first
+shipped as a `ListSetting`, which was the wrong shape for it: list rows are not editable and `createItem` can
+only ever produce one fixed value, so pressing Add gave Garden, then Garden again, with no way to change
+either.
+
+It reuses `DropdownPopupNode` rather than growing a second popup — the filtering, keyboard handling and empty
+state are identical. Two differences, both deliberate: a row **toggles** instead of selecting, and the popup
+**stays open**, because choosing three islands through a list that closes on every click is four times the
+work. Generalising the popup to take options, searchability and a selection predicate was cheaper than the
+duplicate, and the dropdown keeps a constructor that passes its own setting.
+
+The row summarises the choice by naming a single selection rather than counting it — "Garden" says more than
+"1 selected", and one is the common case for a list somebody curates by hand.
+
 ### `list`, finally
 
 `ListSetting` and its renderer had existed since phase 2 with no DSL builder, so the control was unreachable.
