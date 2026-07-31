@@ -16,6 +16,8 @@ import dev.th7bo.sidequest.platform.chat.PartyMemberJoinedEvent
 import dev.th7bo.sidequest.platform.chat.PartyMemberLeftEvent
 import dev.th7bo.sidequest.platform.chat.PlayerChatEvent
 import dev.th7bo.sidequest.platform.chat.RareDropEvent
+import dev.th7bo.sidequest.platform.chat.TrophyCatchEvent
+import dev.th7bo.sidequest.platform.chat.TrophyTier
 import dev.th7bo.sidequest.platform.chat.SkillLevelUpEvent
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.event.on
@@ -25,6 +27,7 @@ import dev.th7bo.sidequest.platform.testkit.NoopLogger
 import dev.th7bo.sidequest.platform.testkit.TestScheduler
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -421,4 +424,54 @@ class ChatRulesTest {
     private companion object {
         const val LOCAL_PLAYER = "Th7bo"
     }
+    /**
+     * The lines `/sqtest` sends.
+     *
+     * Duplicated here from `DeveloperTools` on purpose. The command lives in the mod module, which has no
+     * test source set, so this is the only place the two can be held together — and a simulation that sends a
+     * line the parser cannot read is a simulation of nothing, which is exactly what `/sqtest drop` was before
+     * it went through the parser at all.
+     *
+     * If one of these fails, the command is lying rather than the pattern being wrong.
+     */
+    @Test
+    fun `every line the developer command sends is one the parser reads`() {
+        val lines = mapOf(
+            "§r§6§lRARE DROP! §r§5Tarantula Talisman §r§b(+100% ✯ Magic Find)" to "Tarantula Talisman",
+            "§9§lVERY RARE DROP!  §r§7(§r§f§r§5Revenant Catalyst§r§7) §r§b(+158% ✯ Magic Find)" to "Revenant Catalyst",
+            "§d§lCRAZY RARE DROP!  §r§7(§r§f§r§fPocket Espresso Machine§r§7) §r§b(+158% ✯ Magic Find)" to
+                "Pocket Espresso Machine",
+            "§5§lPRAY TO RNGESUS DROP!  §r§7(§r§f§r§5Warden Heart§r§7) §r§b(+158% ✯ Magic Find)" to "Warden Heart",
+            "§6§lPET DROP! §r§5Baby Yeti §r§b(+168% ✯ Magic Find)" to "Baby Yeti",
+        )
+
+        for ((line, item) in lines) {
+            val drop = feed(line).filterIsInstance<RareDropEvent>().singleOrNull()
+            assertNotNull(drop, "'$line' produced no drop")
+            assertEquals(item, drop!!.itemName, "wrong item from '$line'")
+        }
+    }
+
+    @Test
+    fun `the developer command's trophy line is read as a gold Lavahorse`() {
+        val catch = feed("§6\uE02A §r§6§lTROPHY FISH! §r§fYou caught a §r§9Lavahorse §r§6§lGOLD§r§f!")
+            .filterIsInstance<TrophyCatchEvent>()
+            .singleOrNull()
+
+        assertNotNull(catch)
+        assertEquals("Lavahorse", catch!!.fishName)
+        assertEquals(TrophyTier.GOLD, catch.tier)
+    }
+
+    @Test
+    fun `the developer command's run-end lines are read`() {
+        assertTrue(
+            feed("                                 Master Mode The Catacombs - Floor V").isNotEmpty(),
+            "the dungeon line needs its leading indentation, which is easy to lose in a copy",
+        )
+        // The Kuudra pattern has no recorded fixture of its own — see its own note — so this holds the
+        // command to the pattern rather than either of them to Hypixel.
+        assertTrue(feed("§c§lKUUDRA DOWN!").isNotEmpty())
+    }
+
 }

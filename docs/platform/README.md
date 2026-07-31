@@ -1762,9 +1762,21 @@ Not because the code cannot be read — because the interesting part of these fe
 feel, and half of them only occur in conditions nobody wants to reproduce: a rare drop is once a week, a
 Kuudra clear needs four other people, and dying repeatedly to check a death marker gets old fast.
 
-Each goes through the real path — the director, the marker service, the notification manager — rather than
-drawing anything itself. A simulation that bypassed the safety gate would be a simulation of something the
-mod never does.
+Each goes through the real path rather than drawing anything itself. A simulation that bypassed the safety
+gate would be a simulation of something the mod never does.
+
+**The drop ones go in at the chat parser**, not at the cinematic — which is the difference between a
+simulation and a demonstration. `/sqtest drop` sends the line Hypixel would send, so the pattern has to
+match, the event has to carry the right item, the threshold and ignore list have to let it through, and the
+director has to decide the moment is safe. The first version submitted a cinematic directly and proved that
+cinematics work, which was never in doubt.
+
+The lines are the patterns' own fixtures, and `ChatRulesTest` holds the command to them — the developer
+tools live in the mod module, which has no test source set, so that test is the only place the two can be
+kept in step. A simulation sending a line the parser cannot read is a simulation of nothing.
+
+`SidequestPlatform.simulateChatLine` is deliberately not on the `ChatParser` interface: a feature able to
+inject chat could make every other feature believe anything, with no way for them to tell.
 
 ## Rules
 

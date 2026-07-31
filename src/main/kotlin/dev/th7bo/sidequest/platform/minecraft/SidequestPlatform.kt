@@ -339,6 +339,27 @@ class SidequestPlatform(
     val cosmetics: CosmeticService get() = cosmeticService
 
     /**
+     * Feeds a line to the chat parser as though the server had sent it.
+     *
+     * For the developer commands, and deliberately *not* on the `ChatParser` interface: a feature able to
+     * inject chat could make every other feature believe anything, and none of them would have a way to tell.
+     * It lives here, on the concrete platform, where only the mod's own tools reach it.
+     *
+     * Everything downstream is real — the pattern, the derived event, whatever listens for it — so a
+     * simulation exercises the parsing as well as the feature, which is the half that actually breaks when
+     * Hypixel rewords something.
+     */
+    fun simulateChatLine(raw: String, kind: dev.th7bo.sidequest.platform.chat.ChatKind = dev.th7bo.sidequest.platform.chat.ChatKind.SYSTEM) {
+        chatParser.onMessage(
+            dev.th7bo.sidequest.platform.chat.ChatMessage(
+                raw = raw,
+                text = dev.th7bo.sidequest.platform.text.SqText.of(raw),
+                kind = kind,
+            ),
+        )
+    }
+
+    /**
      * Applies the user's preferences to every service that acts on them.
      *
      * One method, because the services expose `val settings` on their interfaces and only the

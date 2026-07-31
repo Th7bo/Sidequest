@@ -376,10 +376,11 @@ class DeveloperTools(
             "item" -> testItem()
             "rule", "rules" -> testRules()
             "drop" -> simulateRareDrop()
+            "trophy" -> simulateTrophy()
             "achievement" -> simulateAchievement()
             "death" -> simulateDeath()
-            "dungeon" -> simulateRunEnd("Catacombs Floor 7", "dungeon")
-            "kuudra" -> simulateRunEnd("Kuudra Tier 5", "kuudra")
+            "dungeon" -> simulateRunEnd("dungeon")
+            "kuudra" -> simulateRunEnd("kuudra")
             "ping" -> simulatePing()
             "waypoint" -> simulateWaypoint()
             "cosmetic" -> cosmetics(listOf("preview"))
@@ -996,9 +997,33 @@ class DeveloperTools(
      * that bypassed the safety gate would be a simulation of something the mod never does.
      */
 
+    /**
+     * A rare drop, from the line Hypixel would actually send.
+     *
+     * Goes in at the *chat parser* rather than at the cinematic, which is the difference between a simulation
+     * and a demonstration. Everything downstream is the real thing: the pattern has to match, the drop event
+     * has to carry the right item, the rarity threshold and the ignore list have to let it through, and the
+     * director has to decide the moment is safe. A version that submitted a cinematic directly — which is
+     * what this was — proved that cinematics work, which was never in doubt.
+     *
+     * Cycles through the tiers so repeated runs exercise more than one branch, and the line is one of the
+     * pattern's own fixtures so it cannot drift from what the parser is tested against.
+     */
     private fun simulateRareDrop() {
-        context.cinematics.submit(PreviewData.rareDrop)
-        tell("Played a rare-drop cinematic. /sqcine safety if nothing appeared.")
+        val line = DROP_LINES[dropIndex % DROP_LINES.size]
+        dropIndex++
+        dev.th7bo.sidequest.Sidequest.platform.simulateChatLine(line)
+        tell("Sent: ${line.replace("§", "&")}")
+        tell("If nothing appeared: /sqdrops for the threshold, /sqcine safety for the gate.")
+    }
+
+    /** Which fixture the next `/sqtest drop` uses. */
+    private var dropIndex = 0
+
+    /** A trophy catch, through the same door. */
+    private fun simulateTrophy() {
+        dev.th7bo.sidequest.Sidequest.platform.simulateChatLine(TROPHY_LINE)
+        tell("Sent a trophy catch.")
     }
 
     private fun simulateAchievement() {
@@ -1042,21 +1067,24 @@ class DeveloperTools(
         tell("Placed a death marker where you are standing.")
     }
 
-    /** The end of a run, which is a cinematic and a summary toast. */
-    private fun simulateRunEnd(what: String, kind: String) {
-        context.cinematics.submit(
-            PreviewData.bigPayout.copy(
-                id = SqId.sidequest("dev.$kind"),
-                components = listOf(
-                    CinematicComponent.Letterbox(),
-                    CinematicComponent.Title(what.uppercase(), colour = 0x55FFFF),
-                    CinematicComponent.Subtitle("cleared"),
-                    CinematicComponent.AnimatedNumber(842_000, suffix = " coins"),
-                    CinematicComponent.RewardReveal("+1 Necron's Handle", atFraction = 0.6f),
-                ),
-            ),
-        )
-        tell("Played a $what completion.")
+    /**
+     * The end of a run, from the line the server sends.
+     *
+     * Through the parser like the drop, so what is exercised is the pattern, the derived event and whatever
+     * listens for it — rather than a cinematic composed here that nothing in the mod would ever build.
+     */
+    private fun simulateRunEnd(kind: String) {
+        val line = when (kind) {
+            "dungeon" -> DUNGEON_LINE
+            else -> KUUDRA_LINE
+        }
+        dev.th7bo.sidequest.Sidequest.platform.simulateChatLine(line)
+        tell("Sent: ${line.trim().replace("§", "&")}")
+        if (kind == "kuudra") {
+            // Said out loud rather than left implicit: the pattern this exercises has no recorded line of
+            // its own, so a pass here is this command agreeing with itself.
+            tell("Note: the Kuudra pattern has no recorded fixture, so this only proves the two agree.")
+        }
     }
 
     private fun simulatePing() {
@@ -1417,7 +1445,7 @@ class DeveloperTools(
             // The simulations. Each stands in for something that is genuinely awkward to arrange: a rare
             // drop happens once a week, a Kuudra clear needs four other people, and dying on purpose to
             // check a death marker gets old quickly.
-            "drop", "achievement", "death", "dungeon", "kuudra", "ping", "waypoint", "cosmetic", "offline",
+            "drop", "trophy", "achievement", "death", "dungeon", "kuudra", "ping", "waypoint", "cosmetic", "offline",
         )
 
         val ERROR_VERBS = listOf("list", "show", "clear")
@@ -1434,6 +1462,34 @@ class DeveloperTools(
 
         /** Far enough ahead to look at rather than stand inside. */
         const val PING_DISTANCE = 10.0
+
+        /**
+         * Real Hypixel drop lines, taken from the chat rules' own fixtures.
+         *
+         * Shared with the patterns rather than written out again here: a simulation using a line the parser
+         * is not tested against would eventually simulate something the mod cannot read.
+         */
+        val DROP_LINES = listOf(
+            "§r§6§lRARE DROP! §r§5Tarantula Talisman §r§b(+100% ✯ Magic Find)",
+            "§9§lVERY RARE DROP!  §r§7(§r§f§r§5Revenant Catalyst§r§7) §r§b(+158% ✯ Magic Find)",
+            "§d§lCRAZY RARE DROP!  §r§7(§r§f§r§fPocket Espresso Machine§r§7) §r§b(+158% ✯ Magic Find)",
+            "§5§lPRAY TO RNGESUS DROP!  §r§7(§r§f§r§5Warden Heart§r§7) §r§b(+158% ✯ Magic Find)",
+            "§6§lPET DROP! §r§5Baby Yeti §r§b(+168% ✯ Magic Find)",
+        )
+
+        const val TROPHY_LINE = "§6\uE02A §r§6§lTROPHY FISH! §r§fYou caught a §r§9Lavahorse §r§6§lGOLD§r§f!"
+
+        /** The dungeon rule's own fixture, indentation included — the pattern requires it. */
+        const val DUNGEON_LINE = "                                 Master Mode The Catacombs - Floor V"
+
+        /**
+         * A Kuudra clear.
+         *
+         * Unlike every other line here this is **not** a recorded fixture: the Kuudra pattern was taken from
+         * SkyHanni without a `REGEX-TEST`, so there is nothing to copy. It matches the pattern, which is all
+         * anybody can say about it until somebody records a real one.
+         */
+        const val KUUDRA_LINE = "§c§lKUUDRA DOWN!"
 
         val RULE_VERBS = listOf("list", "show", "fire", "reset", "trace")
 
