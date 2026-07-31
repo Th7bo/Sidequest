@@ -133,6 +133,7 @@ class MinecraftCinematicSink(
         is CinematicComponent.AnimatedNumber -> StageElement.Number(value, prefix, suffix)
         is CinematicComponent.ProgressBar -> StageElement.Progress(fraction, label)
         is CinematicComponent.RewardReveal -> StageElement.Reveal(label, atFraction)
+        is CinematicComponent.ItemIcon -> ItemTextures.textureFor(itemName)?.let { StageElement.Image(it) }
         // Handled by the clock rather than drawn.
         is CinematicComponent.Sound -> null
         else -> null

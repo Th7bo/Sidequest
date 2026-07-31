@@ -198,6 +198,21 @@ public sealed interface CinematicComponent {
         override val kind: String get() = "item"
     }
 
+    /**
+     * An item named only by its display name, drawn if the game has a picture of it.
+     *
+     * Separate from [ItemModel] because a drop read from chat is exactly this and nothing more: Hypixel
+     * announces `RARE DROP! Enchanted Book` and the client never sees a stack, so there is no [SqItem] to
+     * build. A component demanding one would mean the thing this exists to illustrate can never use it.
+     *
+     * The adapter resolves the name against the game's own items and **skips the component when it cannot**.
+     * Most SkyBlock drops have no vanilla counterpart — "Revenant Catalyst" is not a Minecraft item — and
+     * drawing a guess would be worse than drawing nothing.
+     */
+    public data class ItemIcon(public val itemName: String) : CinematicComponent {
+        override val kind: String get() = "item_icon"
+    }
+
     public data class PlayerHead(public val player: PlayerId) : CinematicComponent {
         override val kind: String get() = "player_head"
     }

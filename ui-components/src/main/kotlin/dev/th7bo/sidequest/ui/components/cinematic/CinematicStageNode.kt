@@ -13,6 +13,7 @@ import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.rendering.Color
 import dev.th7bo.sidequest.ui.rendering.TextLayout
 import dev.th7bo.sidequest.ui.rendering.TextStyle
+import dev.th7bo.sidequest.ui.rendering.TextureRef
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
 
 /**
@@ -55,7 +56,24 @@ public sealed interface StageElement {
 
     /** A line that fades in partway through. */
     public data class Reveal(public val label: String, public val atFraction: Float) : StageElement
+
+    /**
+     * A picture, drawn large above the title.
+     *
+     * The whole reason a rare-drop cinematic is worth watching: a name tells you what dropped and the item
+     * tells you at a glance. Deliberately a [TextureRef] rather than anything item-shaped — this module has
+     * no Minecraft on its classpath, and resolving a drop's name to something drawable is the adapter's job.
+     * Here it is a picture with a size.
+     */
+    public data class Image(
+        public val texture: TextureRef,
+        /** Side length, as a fraction of the viewport's *height*, so it scales with the screen. */
+        public val sizeFraction: Float = DEFAULT_IMAGE_FRACTION,
+    ) : StageElement
 }
+
+/** How big a stage image is by default. A sixth of the height reads as "the thing" without covering the view. */
+public const val DEFAULT_IMAGE_FRACTION: Float = 0.16f
 
 /** Thousands separators. A seven-figure coin total is unreadable without them. */
 internal fun groupDigits(value: Long): String =
@@ -130,7 +148,9 @@ public class CinematicStageNode(
                         layout(context, element.textAt(step), NUMBER_SCALE)
                     }
                 }
-                is StageElement.Letterbox, is StageElement.Backdrop -> Unit
+                // Nothing to measure: an image is sized from the viewport at paint time, and the bars are
+                // fractions of it.
+                is StageElement.Image, is StageElement.Letterbox, is StageElement.Backdrop -> Unit
             }
         }
         // The whole viewport. A cinematic is not laid out against anything, so an unbounded constraint means
@@ -189,6 +209,9 @@ public class CinematicStageNode(
             is StageElement.Letterbox, is StageElement.Backdrop -> 0f
             is StageElement.Title -> TITLE_AT
             is StageElement.Subtitle -> SUBTITLE_AT
+            // First of everything: the picture is what the cinematic is about, so it arrives before
+            // the words describing it.
+            is StageElement.Image -> 0f
             is StageElement.Number -> NUMBER_AT
             is StageElement.Progress -> PROGRESS_AT
             is StageElement.Reveal -> element.atFraction
@@ -214,6 +237,22 @@ public class CinematicStageNode(
                 renderer.fillRect(
                     Rect.of(Vec2(bounds.x, bounds.bottom - shown), Size(bounds.width, shown)),
                     black,
+                )
+            }
+
+            is StageElement.Image -> {
+                // Square, centred, sitting above the title. Sized off the height rather than the width so an
+                // ultrawide screen does not get an enormous one.
+                val side = bounds.height * element.sizeFraction
+                renderer.image(
+                    element.texture,
+                    Rect(
+                        bounds.x + (bounds.width - side) / 2f,
+                        bounds.y + bounds.height * IMAGE_Y - side / 2f,
+                        side,
+                        side,
+                    ),
+                    Color.White,
                 )
             }
 
@@ -375,6 +414,9 @@ public class CinematicStageNode(
          * first reveal. A real client screenshot caught it — nothing headless would have, because nothing
          * headless renders at the player's GUI scale.
          */
+        /** The image sits above the title, centred on this fraction of the height. */
+        const val IMAGE_Y = 0.19f
+
         const val TITLE_Y = 0.30f
         const val SUBTITLE_Y = 0.40f
         const val NUMBER_Y = 0.48f

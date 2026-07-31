@@ -449,4 +449,49 @@ class ConfigDslTest {
         assertSame(screen[id("general.flag")], screen.typed<Boolean>(id("general.flag")))
         assertNull(screen[id("general.missing")])
     }
+    /**
+     * A screen shows values changed from outside it.
+     *
+     * A property binding caches — it only consults its getter when asked — and a config screen is built once
+     * and kept. So anything editing a setting from elsewhere left the screen showing what the value used to
+     * be, indefinitely: the Ignore button on a rare drop appended to the ignored-items list and the settings
+     * screen went on showing the list as it was at startup.
+     */
+    @Test
+    fun `refreshing bindings picks up a change made outside the screen`() {
+        val config = DemoConfig()
+        val screen = configScreen(id("config"), "Test") {
+            category(id("c"), "Category") {
+                section("Section") {
+                    toggle(id("c.notifications"), "Notifications", bind(config::notifications))
+                    slider(id("c.duration"), "Duration", bind(config::duration), range = 1..60)
+                }
+            }
+        }
+        assertEquals(true, screen.typed<Boolean>(id("c.notifications"))?.value)
+
+        // Changed behind the screen's back, exactly as a chat action does.
+        config.notifications = false
+        config.duration = 42
+
+        screen.refreshBindings()
+
+        assertEquals(false, screen.typed<Boolean>(id("c.notifications"))?.value)
+        assertEquals(42, screen.typed<Int>(id("c.duration"))?.value)
+    }
+
+    /** Refreshing a screen of constant bindings is a no-op rather than an error. */
+    @Test
+    fun `refreshing is safe when nothing can be refreshed`() {
+        val screen = configScreen(id("config"), "Test") {
+            category(id("c"), "Category") {
+                section("Section") {
+                    button(id("c.press"), "Press", "Go") { }
+                }
+            }
+        }
+
+        screen.refreshBindings()
+    }
+
 }

@@ -190,6 +190,9 @@ class RareDropAnimation(
     ): Cinematic {
         val components = buildList {
             add(CinematicComponent.Letterbox())
+            // The item itself, above the words. Skipped by the adapter when the game has no picture of it,
+            // which is most SkyBlock-specific drops — the cinematic then reads exactly as it did before.
+            add(CinematicComponent.ItemIcon(item))
             add(CinematicComponent.Title(headline, colour = colour))
             subtitle?.let { add(CinematicComponent.Subtitle(it)) }
             // The reward, revealed part way through rather than shown from the first frame. The pause is the

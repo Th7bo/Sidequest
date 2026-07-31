@@ -186,8 +186,13 @@ object Sidequest : ClientModInitializer {
     private val DEFAULT_ACCENT = Color.parse("#8B5CF6")
 
     /** Creates the configuration screen, ready to hand to `Minecraft.setScreen`. */
-    fun createConfigScreen(): SidequestConfigScreen =
-        SidequestConfigScreen(configScreen, activeTheme(), persistence)
+    fun createConfigScreen(): SidequestConfigScreen {
+        // The screen is built once and kept, and its property bindings cache. Anything that changed a
+        // setting from elsewhere — the Ignore button on a drop's notification, most obviously — would
+        // otherwise show here as it was when the game started.
+        configScreen.refreshBindings()
+        return SidequestConfigScreen(configScreen, activeTheme(), persistence)
+    }
 
     /**
      * The component gallery.

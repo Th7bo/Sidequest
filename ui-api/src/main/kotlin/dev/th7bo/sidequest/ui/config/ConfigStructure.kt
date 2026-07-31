@@ -1,5 +1,6 @@
 package dev.th7bo.sidequest.ui.config
 
+import dev.th7bo.sidequest.ui.binding.RefreshableBinding
 import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.rendering.Icon
 import dev.th7bo.sidequest.ui.state.UiState
@@ -77,6 +78,22 @@ public class ConfigScreen(
     public fun <T> typed(settingId: UiId): Setting<T>? = byId[settingId] as? Setting<T>
 
     public fun category(categoryId: UiId): Category? = categories.firstOrNull { it.id == categoryId }
+
+    /**
+     * Re-reads every binding that can be re-read.
+     *
+     * A screen is built once and kept, and a property binding caches — it only consults its getter when
+     * asked. So anything that changes a setting *from outside the screen* leaves the screen showing what the
+     * value used to be, indefinitely.
+     *
+     * That is not hypothetical: the Ignore button on a rare drop's notification appends to the ignored-items
+     * list, and the settings screen went on showing the list as it was when the game started.
+     *
+     * Called when a screen is opened. Cheap — one getter call per setting, none of which touch disk.
+     */
+    public fun refreshBindings() {
+        for (setting in settings) (setting.binding as? RefreshableBinding<*>)?.refresh()
+    }
 
     /**
      * Validates every setting's current value.

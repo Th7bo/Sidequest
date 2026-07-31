@@ -4,6 +4,7 @@ import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.runtime.UiRuntime
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.ids.UiId
+import dev.th7bo.sidequest.ui.rendering.TextureRef
 import dev.th7bo.sidequest.ui.state.resetReactiveGraphForTesting
 import dev.th7bo.sidequest.ui.testkit.DrawCommand
 import dev.th7bo.sidequest.ui.testkit.FakeTextMeasurer
@@ -222,6 +223,66 @@ class CinematicStageTest {
         frame()
 
         assertEquals(4, texts().size, "everything should be fully in by halfway: ${texts()}")
+    }
+
+    // -- the item ------------------------------------------------------------
+
+    /**
+     * A drop's picture, drawn above the words.
+     *
+     * The name says what dropped; the item says it at a glance, which is most of why a cinematic is worth
+     * watching rather than reading.
+     */
+    @Test
+    fun `an image is drawn centred above the title`() {
+        stage.elements = listOf(
+            StageElement.Image(TextureRef(UiId.of("minecraft", "item.diamond"))),
+            StageElement.Title("RARE DROP", colour = 0xFFAA00),
+        )
+        stage.progress = 0.5f
+
+        frame()
+
+        val image = renderer.commandsOfType<DrawCommand.Image>().single()
+        val centreX = screen.width / 2f
+        assertTrue(
+            image.bounds.x < centreX && image.bounds.right > centreX,
+            "it should straddle the centre, was ${image.bounds}",
+        )
+        val titleY = renderer.commandsOfType<DrawCommand.Text>().single().position.y
+        assertTrue(image.bounds.bottom <= titleY, "the picture sits above the title, not over it")
+    }
+
+    /** Sized from the height, so an ultrawide screen does not get an enormous one. */
+    @Test
+    fun `an image is square and scales with the viewport height`() {
+        stage.elements = listOf(StageElement.Image(TextureRef(UiId.of("minecraft", "item.diamond"))))
+        stage.progress = 0.5f
+
+        frame()
+
+        val image = renderer.commandsOfType<DrawCommand.Image>().single()
+        assertEquals(image.bounds.width, image.bounds.height, 0.01f, "square")
+        assertEquals(screen.height * DEFAULT_IMAGE_FRACTION, image.bounds.height, 0.01f)
+    }
+
+    /**
+     * The picture arrives first.
+     *
+     * It is what the cinematic is about, so it leads rather than fading in after the words describing it.
+     */
+    @Test
+    fun `the image is on screen before the title`() {
+        stage.elements = listOf(
+            StageElement.Image(TextureRef(UiId.of("minecraft", "item.diamond"))),
+            StageElement.Title("RARE DROP", colour = 0xFFAA00),
+        )
+
+        stage.progress = 0.02f
+        frame()
+
+        assertEquals(1, renderer.commandsOfType<DrawCommand.Image>().size, "the item leads")
+        assertTrue(texts().isEmpty(), "the title has not started: ${texts()}")
     }
 
     // -- the frame -----------------------------------------------------------
