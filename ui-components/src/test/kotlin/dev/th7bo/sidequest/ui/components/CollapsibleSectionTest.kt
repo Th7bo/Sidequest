@@ -173,6 +173,31 @@ class CollapsibleSectionTest {
         assertFalse(fixed.interactive, "and one that does nothing must not swallow clicks")
     }
 
+    /**
+     * A row's identity includes its card geometry.
+     *
+     * The virtual list reuses a materialized node whenever the key is unchanged, and the card's corners,
+     * edges and padding are baked into that node. A header that went from a whole card (folded) to the top of
+     * one (open) kept its old key, so the list kept the old node — and the rows appeared in a detached second
+     * card below it.
+     */
+    @Test
+    fun `a header's key changes when it stops being a whole card`() {
+        val screen = screenOf(Holder(), startsCollapsed = true)
+        val provider = providerFor(screen)
+
+        val folded = provider.currentRows.filterIsInstance<ConfigRow.Header>()
+            .single { it.section.id == id("c.folding") }.key
+
+        provider.onFoldChanged = { provider.rebuild(screen.categories.first()) }
+        provider.foldForTesting(id("c.folding"))
+
+        val open = provider.currentRows.filterIsInstance<ConfigRow.Header>()
+            .single { it.section.id == id("c.folding") }.key
+
+        assertTrue(folded != open, "same key means the list reuses a node that draws the wrong card")
+    }
+
     /** Folding is per screen, not per section: two screens showing one config fold independently. */
     @Test
     fun `two providers over one screen fold independently`() {

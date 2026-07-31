@@ -134,6 +134,9 @@ public open class SidequestConfigScreen(
         // player closes the screen must not be lost.
         persistence?.saveNow()
         registrationScope.dispose()
+        // Releases the controller's visibility subscriptions. Without it a closed screen keeps rebuilding
+        // its row list every time a setting it was watching changes, for the life of the game.
+        controller?.dispose()
         controller = null
         overlayRoot = null
     }

@@ -25,6 +25,7 @@ import dev.th7bo.sidequest.ui.core.virtualization.RowProvider
 import dev.th7bo.sidequest.ui.core.virtualization.ScrollAlignment
 import dev.th7bo.sidequest.ui.core.virtualization.VirtualListNode
 import dev.th7bo.sidequest.ui.ids.UiId
+import dev.th7bo.sidequest.ui.state.DisposableScope
 import dev.th7bo.sidequest.ui.state.MutableUiState
 import dev.th7bo.sidequest.ui.state.UiState
 import dev.th7bo.sidequest.ui.state.mutableStateOf
@@ -43,8 +44,15 @@ public sealed interface ConfigRow {
     /** Which part of the surrounding card this row paints. */
     public val segment: CardSegment
 
-    /** Identity as the virtualizer sees it. */
-    public val key: Any get() = id
+    /**
+     * Identity as the virtualizer sees it.
+     *
+     * **The segment is part of it.** The list reuses a materialized node whenever the key is unchanged, and
+     * the card's corners, edges and padding are baked into that node — so a header that went from being a
+     * whole card (folded) to the top of one (open) kept drawing itself folded, leaving the rows below it in a
+     * detached second card. Same for a row that becomes the last one when something above it is hidden.
+     */
+    public val key: Any get() = id to segment
 
     /** A section title, at the top of its card. */
     public class Header(
@@ -222,8 +230,38 @@ public class ConfigScreenController(
 
     public val searchIndex: SearchIndex = SearchIndex().apply { addAll(screen) }
 
-    private val provider = ConfigRowProvider(screen, registry, context)
+    /** The row list, for tests and for a host that wants to inspect what is on screen. */
+    public val provider: ConfigRowProvider = ConfigRowProvider(screen, registry, context)
         .also { it.onFoldChanged = { rebuild() } }
+
+    /** Owns the visibility subscriptions below. */
+    private val visibilityScope = DisposableScope()
+
+    init {
+        /*
+         * Rebuild whenever a `visibleWhen` changes.
+         *
+         * `refreshVisibility()` existed and nothing ever called it, which produced a bug with a memorable
+         * asymmetry: a setting hidden *while the screen was open* still had a materialized node and simply
+         * stopped drawing, so it looked like it worked — but a setting hidden when the screen was *built* was
+         * filtered out of the row list, and nothing put it back when its condition became true again.
+         *
+         * So the case that worked was the one where the feature was not doing anything.
+         */
+        for (setting in screen.settings) {
+            setting.isVisible.observe(visibilityScope) { rebuild() }
+        }
+        for (category in screen.categories) {
+            for (section in category.sections) {
+                section.visibleWhen.observe(visibilityScope) { rebuild() }
+            }
+        }
+    }
+
+    /** Releases the visibility subscriptions. */
+    public fun dispose() {
+        visibilityScope.dispose()
+    }
 
     /** The scrolling list of rows. Attach this to a runtime, or nest it in a layout. */
     public val list: VirtualListNode = VirtualListNode(screen.id.child("list"), provider)
@@ -372,7 +410,12 @@ public class ConfigScreenController(
         rowsVersionState.value = rowsVersionState.peek() + 1
     }
 
-    /** Re-reads visibility rules. Call when a `visibleWhen` dependency changes. */
+    /**
+     * Re-reads visibility rules.
+     *
+     * Subscribed automatically in `init`; this remains for a host whose visibility depends on something
+     * outside the reactive graph.
+     */
     public fun refreshVisibility() {
         rebuild()
     }
