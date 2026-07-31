@@ -331,9 +331,30 @@ public abstract class SliderControlNode<T>(
      * subclass here would read an uninitialised value.
      */
     readoutText: UiState<String>,
+    /**
+     * Every readout this slider could ever show, or enough of them to find the widest.
+     *
+     * The control reserves room for the widest rather than for the current one, and that is a fix rather
+     * than a refinement: the row hands whatever the control does not use to the description, so a readout
+     * that changed width **re-wrapped the paragraph next to it while the slider was being dragged**. A
+     * percentage going from `85%` to `100%` is two pixels of readout and one line of reflowed text.
+     *
+     * Sampled rather than enumerated: a slider may have thousands of steps, and the ends plus the middle
+     * catch every format anybody writes — digits grow at the extremes, and a format that is widest somewhere
+     * else is one nobody has needed yet.
+     */
+    private val readoutSamples: List<String>,
 ) : ControlNode<T>(setting, context, "slider") {
 
     private val readout = TextNode(setting.id.child("readout"), readoutText, TextRole.SECONDARY)
+
+    /**
+     * Width reserved for the readout.
+     *
+     * Computed once. The format function is pure, so the widest string it can produce does not change — and
+     * measuring three strings on every layout of every slider would be a cost for an answer that is constant.
+     */
+    private var reservedReadoutWidth: Float = -1f
 
     init {
         capturesPointer = true
@@ -359,8 +380,18 @@ public abstract class SliderControlNode<T>(
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
         val readoutSize = readout.measure(constraints.loosen(), context)
+
+        if (reservedReadoutWidth < 0f) {
+            val style = context.theme.textStyle(TextRole.SECONDARY)
+            reservedReadoutWidth = readoutSamples
+                .maxOfOrNull { context.textMeasurer.measure(it, style).size.width }
+                ?: readoutSize.width
+        }
+
+        // The larger of the two, so a readout wider than every sample still fits rather than being clipped.
+        val readoutWidth = maxOf(readoutSize.width, reservedReadoutWidth)
         return Size(
-            TRACK_WIDTH + tokens.spacing.medium.value + readoutSize.width,
+            TRACK_WIDTH + tokens.spacing.medium.value + readoutWidth,
             maxOf(readoutSize.height, KNOB_DIAMETER),
         )
     }
@@ -370,6 +401,8 @@ public abstract class SliderControlNode<T>(
         readout.arrange(
             Rect.of(
                 Vec2(
+                    // Left-aligned in the reserved box rather than centred in it: a readout that slid about
+                    // as its digits changed would trade a reflowing paragraph for a twitching number.
                     TRACK_WIDTH + tokens.spacing.medium.value,
                     (measuredSize.height - readoutSize.height) / 2f,
                 ),
@@ -452,11 +485,27 @@ public abstract class SliderControlNode<T>(
     }
 }
 
+/**
+ * The readouts to reserve width for.
+ *
+ * Both ends and the middle. Digits grow at the extremes for every format anybody writes — `1 s` to `30 s`,
+ * `off` to `100%` — and a format whose widest output is somewhere else entirely is one nobody has needed.
+ */
+private fun samplesOf(slider: IntSliderSetting): List<String> {
+    val middle = slider.range.first + (slider.range.last - slider.range.first) / 2
+    return listOf(slider.range.first, middle, slider.range.last).map(slider.format)
+}
+
+private fun samplesOf(slider: FloatSliderSetting): List<String> {
+    val middle = (slider.range.start + slider.range.endInclusive) / 2f
+    return listOf(slider.range.start, middle, slider.range.endInclusive).map(slider.format)
+}
+
 /** Whole-number slider. */
 public class IntSliderControlNode(
     private val slider: IntSliderSetting,
     context: ComponentContext,
-) : SliderControlNode<Int>(slider, context, slider.formatted(slider.format)) {
+) : SliderControlNode<Int>(slider, context, slider.formatted(slider.format), samplesOf(slider)) {
 
     override fun currentFraction(): Float = slider.fractionOf(slider.value)
 
@@ -475,7 +524,7 @@ public class IntSliderControlNode(
 public class FloatSliderControlNode(
     private val slider: FloatSliderSetting,
     context: ComponentContext,
-) : SliderControlNode<Float>(slider, context, slider.formatted(slider.format)) {
+) : SliderControlNode<Float>(slider, context, slider.formatted(slider.format), samplesOf(slider)) {
 
     override fun currentFraction(): Float = slider.fractionOf(slider.value)
 
