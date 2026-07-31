@@ -146,6 +146,33 @@ class CollapsibleSectionTest {
         assertEquals(CardSegment.TOP, fixed.segment, "it still has rows under it")
     }
 
+    /**
+     * The header has to be hit-testable, or the chevron is decoration.
+     *
+     * `UiNode.interactive` defaults to false and the hit test consults it, so the first version drew a fold
+     * indicator that nothing could press — the model folded correctly and no click ever reached it. Every
+     * other test here calls the fold directly and would have passed forever.
+     */
+    @Test
+    fun `a folding header takes clicks and a fixed one does not`() {
+        val screen = screenOf(Holder(), startsCollapsed = false)
+        val category = screen.categories.first()
+
+        val folding = SectionCardHeaderNode(
+            section = category.sections.first { it.id == id("c.folding") },
+            componentContext = context,
+            isCollapsed = { false },
+            onToggle = {},
+        )
+        val fixed = SectionCardHeaderNode(
+            section = category.sections.first { it.id == id("c.fixed") },
+            componentContext = context,
+        )
+
+        assertTrue(folding.interactive, "a folding header must be reachable by a pointer")
+        assertFalse(fixed.interactive, "and one that does nothing must not swallow clicks")
+    }
+
     /** Folding is per screen, not per section: two screens showing one config fold independently. */
     @Test
     fun `two providers over one screen fold independently`() {

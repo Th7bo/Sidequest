@@ -113,6 +113,9 @@ public class ConfigRowProvider(
             showDivider = row is ConfigRow.Entry && row.showDivider,
             componentContext = context,
             content = content,
+            // Only a *row* that ends a card. A collapsed section is a header alone, and a header already
+            // pads itself to the full amount.
+            squaresBottom = row is ConfigRow.Entry && row.segment.roundsBottom,
         )
     }
 

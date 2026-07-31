@@ -44,8 +44,8 @@ public enum class CardSegment {
     SINGLE,
     ;
 
-    internal val roundsTop: Boolean get() = this == TOP || this == SINGLE
-    internal val roundsBottom: Boolean get() = this == BOTTOM || this == SINGLE
+    public val roundsTop: Boolean get() = this == TOP || this == SINGLE
+    public val roundsBottom: Boolean get() = this == BOTTOM || this == SINGLE
 }
 
 /**
@@ -61,6 +61,17 @@ public class CardSliceNode(
     private val showDivider: Boolean,
     componentContext: ComponentContext,
     content: UiNode,
+    /**
+     * Whether this slice adds the inset that squares the card's bottom against its top.
+     *
+     * A section header pads itself by `spacing.large`; a setting row pads itself by `spacing.medium`. So a
+     * card of a header and some rows breathes more at the top than at the bottom, which shows most clearly
+     * when a section is down to a single row and the control sits almost on the card's edge.
+     *
+     * The difference is added here rather than by widening every row's padding, because it is a property of
+     * being *last in a card* rather than of being a row — and card geometry is what this class owns.
+     */
+    private val squaresBottom: Boolean = false,
 ) : UiNode(id) {
 
     private val tokens = componentContext.theme.tokens
@@ -71,6 +82,14 @@ public class CardSliceNode(
 
     private val horizontalMargin: Float get() = tokens.spacing.large.value
     private val radius get() = tokens.radii.large
+
+    /** What a row is short by, against the padding a header gives itself. Zero for anything else. */
+    private val bottomInset: Float
+        get() = if (squaresBottom) {
+            (tokens.spacing.large.value - tokens.spacing.medium.value).coerceAtLeast(0f)
+        } else {
+            0f
+        }
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
         val available = if (constraints.hasBoundedWidth) constraints.maxWidth else FALLBACK_WIDTH
@@ -84,7 +103,7 @@ public class CardSliceNode(
 
         // The extra height is the gap between cards, added below the last slice only.
         val trailing = if (segment.roundsBottom) tokens.spacing.large.value else 0f
-        return Size(available, childSize.height + trailing)
+        return Size(available, childSize.height + bottomInset + trailing)
     }
 
     override fun arrangeChildren(context: LayoutContext) {
@@ -175,6 +194,9 @@ public class SectionCardHeaderNode(
         textColumn.addChild(title)
         subtitle?.let(textColumn::addChild)
         addChild(textColumn)
+        // Only a folding header takes clicks. `interactive` defaults to false and the hit test consults it,
+        // so without this the header drew a chevron nothing could press — which is exactly what shipped.
+        interactive = isCollapsed != null
     }
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
@@ -275,20 +297,22 @@ public class SectionCardHeaderNode(
         val size = CHEVRON_SIZE
         val centreX = bounds.right - horizontalPadding - size / 2f
         val centreY = bounds.y + bounds.height / 2f
-        val thickness = CHEVRON_THICKNESS
+        val step = size / CHEVRON_STEPS
 
-        if (pointsDown) {
-            // Two short bars forming a V.
-            renderer.fillRect(Rect(centreX - size / 2f, centreY - thickness / 2f, size / 2f, thickness), colour)
-            renderer.fillRect(Rect(centreX, centreY - thickness / 2f, size / 2f, thickness), colour)
-            renderer.fillRect(
-                Rect(centreX - thickness / 2f, centreY, thickness, size / 3f),
-                colour,
-            )
-        } else {
-            // A vertical bar reads as "there is more, folded away".
-            renderer.fillRect(Rect(centreX - thickness / 2f, centreY - size / 2f, thickness, size), colour)
-            renderer.fillRect(Rect(centreX - size / 3f, centreY - thickness / 2f, size / 3f, thickness), colour)
+        // A triangle stacked out of shrinking bars. The renderer has no polygon primitive, and a staircase is
+        // both cheaper than adding one and closer to how the game draws everything else — the first attempt
+        // used two crossed bars and rendered as a "T", which is what the screenshot caught.
+        for (index in 0 until CHEVRON_STEPS) {
+            val inset = index * step
+            if (pointsDown) {
+                val width = size - inset * 2f
+                if (width <= 0f) break
+                renderer.fillRect(Rect(centreX - width / 2f, centreY - size / 2f + inset, width, step), colour)
+            } else {
+                val height = size - inset * 2f
+                if (height <= 0f) break
+                renderer.fillRect(Rect(centreX - size / 2f + inset, centreY - height / 2f, step, height), colour)
+            }
         }
     }
 
@@ -303,6 +327,8 @@ public class SectionCardHeaderNode(
         const val ICON_BORDER_TINT = 0.45f
         const val ICON_GLYPH_INSET = 0.2f
         const val CHEVRON_SIZE = 8f
-        const val CHEVRON_THICKNESS = 1.5f
+
+        /** How many bars the triangle is stacked from. Four reads as a chevron at every GUI scale. */
+        const val CHEVRON_STEPS = 4
     }
 }
