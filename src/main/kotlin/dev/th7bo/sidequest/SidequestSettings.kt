@@ -117,6 +117,21 @@ public object SidequestSettings {
         public var ignoredIslands: List<Island> = emptyList()
     }
 
+    // -- playtime ------------------------------------------------------------
+
+    public object Playtime {
+        public var isEnabled: Boolean = true
+
+        /**
+         * How many days of history to keep.
+         *
+         * A preference rather than a constant because the two reasonable answers are far apart: somebody who
+         * wants a monthly view needs months of it, and somebody who does not want a record of their hours
+         * sitting on disk should be able to keep almost none.
+         */
+        public var retentionDays: Int = 90
+    }
+
     // -- cosmetics -----------------------------------------------------------
 
     public object Cosmetics {

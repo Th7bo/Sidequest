@@ -1,8 +1,10 @@
 package dev.th7bo.sidequest
 
 import dev.th7bo.sidequest.features.DeveloperTools
+import dev.th7bo.sidequest.features.PlaytimeTracker
 import dev.th7bo.sidequest.features.RareDropAnimation
 import dev.th7bo.sidequest.features.SessionDiagnostics
+import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
 import dev.th7bo.sidequest.platform.minecraft.ItemTextures
@@ -503,12 +505,17 @@ object Sidequest : ClientModInitializer {
         installBackendHook()
 
         rareDrops = RareDropAnimation(totemAnimation = ::showTotemAnimation)
+        playtime = PlaytimeTracker(
+            localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
+        )
 
-        val refusals = platform.start(sessionDiagnostics, developerTools, rareDrops)
+        val refusals = platform.start(sessionDiagnostics, developerTools, rareDrops, playtime)
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
 
     private lateinit var rareDrops: RareDropAnimation
+
+    private lateinit var playtime: PlaytimeTracker
 
     /**
      * Minecraft's own totem animation, for the drop animation's familiar option.

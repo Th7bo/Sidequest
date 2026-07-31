@@ -36,6 +36,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     val cinematicsOn = mutableStateOf(SidequestSettings.Cinematics.isEnabled, "cinematics.enabled")
     val dropsOn = mutableStateOf(SidequestSettings.Drops.isEnabled, "drops.enabled")
     val cosmeticsOn = mutableStateOf(SidequestSettings.Cosmetics.isEnabled, "cosmetics.enabled")
+    val playtimeOn = mutableStateOf(SidequestSettings.Playtime.isEnabled, "playtime.enabled")
 
     /** Every change pushes into the services. See [SidequestSettings.applyToPlatform]. */
     fun applied() = SidequestSettings.applyToPlatform()
@@ -359,6 +360,34 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     elementSerializer = ISLAND_SERIALIZER,
                 ) {
                     visibleWhen = dropsOn
+                }
+            }
+
+            section("Playtime", description = "How long you spend in SkyBlock", icon = MinecraftIcons.playtime, collapsible = true, startsCollapsed = true) {
+                toggle(
+                    id = id("playtime.enabled"),
+                    title = "Track playtime",
+                    description = "Counted per profile, and kept on this machine only",
+                    value = bind(
+                        get = { SidequestSettings.Playtime.isEnabled },
+                        set = { SidequestSettings.Playtime.isEnabled = it; playtimeOn.value = it },
+                        debugName = "playtime.enabled",
+                    ),
+                )
+                slider(
+                    id = id("playtime.retention"),
+                    title = "Days of history",
+                    description = "Older days are dropped. Lower it if you would rather not keep a record.",
+                    value = bind(
+                        get = { SidequestSettings.Playtime.retentionDays },
+                        set = { SidequestSettings.Playtime.retentionDays = it },
+                        debugName = "playtime.retention",
+                    ),
+                    range = 7..365,
+                    format = { "$it d" },
+                    validator = Validators.intRange(7..365),
+                ) {
+                    visibleWhen = playtimeOn
                 }
             }
 

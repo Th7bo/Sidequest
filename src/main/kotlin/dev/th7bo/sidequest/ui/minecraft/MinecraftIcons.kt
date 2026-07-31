@@ -67,10 +67,19 @@ public object MinecraftIcons {
 
     public val cosmetics: Icon = item("totem_of_undying")
 
+    /**
+     * Playtime.
+     *
+     * `clock_00` rather than `clock`, because **there is no `item/clock.png`** — the clock is animated and
+     * ships as sixteen numbered frames. Referencing the obvious name draws the missing-texture chequerboard,
+     * which is only obvious after checking the jar. Frame zero is the face at noon.
+     */
+    public val playtime: Icon = item("clock_00")
+
     /** Every icon here, for the registration below and for a gallery. */
     public val all: List<Icon> = listOf(
         settings, features, network, tools,
-        appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics,
+        appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics, playtime,
     )
 }
 
