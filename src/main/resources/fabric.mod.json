@@ -3,11 +3,12 @@
   "id": "sidequest",
   "version": "${version}",
   "name": "Sidequest",
-  "description": "A Minecraft mod by th7bo.",
+  "description": "A client-side companion for a small SkyBlock group. Rare-drop cinematics, shared waypoints and pings, ready checks, playtime tracking, cosmetics and a configurable HUD, with an optional self-hosted backend for syncing between friends.",
   "authors": [
     "th7bo"
   ],
-  "license": "MIT",
+  "license": "ARR",
+  "icon": "assets/sidequest/icon.png",
   "environment": "client",
   "contact": {},
   "entrypoints": {
