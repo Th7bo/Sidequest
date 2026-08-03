@@ -23,7 +23,13 @@ COPY backend/build.gradle.kts ./backend/
 # Gradle insists that every `include`d project's directory exists, even for one it will never configure.
 # The UI framework has nothing to do with the backend, so it is present as empty directories rather than
 # copied — which keeps a change to a UI component from invalidating this image's build cache.
-RUN mkdir -p ui-api ui-core ui-components ui-testkit
+#
+# **Read out of the settings file rather than listed here.** This was a hand-written list of four modules,
+# and adding a fifth to the build broke this image without touching anything in it — the failure surfaced
+# at deploy time, in somebody's PaaS, as a Gradle error about a directory. Deriving it means a new module
+# cannot desynchronise the two. `mkdir -p` over a directory that already exists is a no-op, so the modules
+# copied in above are harmless to repeat.
+RUN mkdir -p $(sed -n 's/^include("\(.*\)")/\1/p' settings.gradle.kts)
 
 # `--configure-on-demand` is the load-bearing flag here.
 #
