@@ -135,6 +135,16 @@ public object SidequestSettings {
     public object Levels {
         public var isEnabled: Boolean = true
 
+        public var inNametags: Boolean = true
+
+        /**
+         * The tab list.
+         *
+         * Separate from the nametag because they are separately annoying: a tab list is a dense grid where
+         * extra colour is noise, a nametag is one name where it is information.
+         */
+        public var inTabList: Boolean = true
+
         /**
          * How a level is coloured.
          *

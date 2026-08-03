@@ -127,6 +127,25 @@ class SkyBlockLevelColoursTest {
     }
 
     /**
+     * A bracketed number that is not somebody's level is left alone.
+     *
+     * The tab list on Hypixel is mostly not players: stat readouts, headers and counters share it, and one of
+     * them containing a number in brackets is not unlikely. A level always leads the line, so anchoring is
+     * what keeps this from repainting the middle of a stat.
+     */
+    @Test
+    fun `a bracketed number mid-line is not a level`() {
+        assertNull(SkyBlockLevelColours.levelIn("§7Bank: §6[1,000,000]"))
+        assertNull(SkyBlockLevelColours.levelIn("§aGarden §7Visitors [12]"))
+    }
+
+    /** A tab-list entry may be indented, and it is still a level. */
+    @Test
+    fun `leading space does not hide a level`() {
+        assertEquals(287, SkyBlockLevelColours.levelIn(" §8[§b287§8] §aPlayer"))
+    }
+
+    /**
      * The range covers the digits and nothing else.
      *
      * A caller recolours what this points at. Including the brackets would repaint the grey Hypixel chose for

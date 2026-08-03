@@ -117,13 +117,19 @@ public object SkyBlockLevelColours {
         BRACKETED_LEVEL.find(text)?.groups?.get("level")?.range
 
     /**
-     * A bracketed level, however it is formatted inside.
+     * A bracketed level at the very start of the line.
      *
      * Verified against real nametags: `§8[§b480§8] §6Player` and `§8[§6419§8] §bPlayer`. The formatting codes
      * sit between the bracket and the digits, which is why they have to be allowed for rather than stripped —
      * stripping first would lose the offsets a caller needs to put the colour back in the right place.
+     *
+     * **Anchored, and that is a safety measure rather than tidiness.** The same reading is used on the tab
+     * list, which on Hypixel is full of lines that are not players at all — stat readouts, headers, counters
+     * — and an unanchored search would find a bracketed number in the middle of one and repaint it as though
+     * it were somebody's level. A level always leads the line; nothing else that does is a number in
+     * brackets.
      */
-    private val BRACKETED_LEVEL = Regex("""\[(?:§.)*(?<level>[\d,]+)(?:§.)*]""")
+    private val BRACKETED_LEVEL = Regex("""^\s*(?:§.)*\[(?:§.)*(?<level>[\d,]+)(?:§.)*]""")
 
     private const val RGB_MASK = 0xFFFFFF
 

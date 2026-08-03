@@ -392,6 +392,29 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                         debugName = "levels.enabled",
                     ),
                 )
+                toggle(
+                    id = id("levels.nametags"),
+                    title = "On nametags",
+                    value = bind(
+                        get = { SidequestSettings.Levels.inNametags },
+                        set = { SidequestSettings.Levels.inNametags = it },
+                        debugName = "levels.nametags",
+                    ),
+                ) {
+                    visibleWhen = levelsOn
+                }
+                toggle(
+                    id = id("levels.tab_list"),
+                    title = "In the tab list",
+                    description = "Only the level that leads a line, so Hypixel's stat rows are left alone",
+                    value = bind(
+                        get = { SidequestSettings.Levels.inTabList },
+                        set = { SidequestSettings.Levels.inTabList = it },
+                        debugName = "levels.tab_list",
+                    ),
+                ) {
+                    visibleWhen = levelsOn
+                }
                 dropdown(
                     id = id("levels.palette"),
                     title = "Palette",

@@ -8,6 +8,7 @@
   },
   "client": [
     "EntityRendererMixin",
+    "PlayerTabOverlayMixin",
     "ScreenPanoramaMixin"
   ],
   "mixins": []

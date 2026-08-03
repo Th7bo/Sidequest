@@ -48,7 +48,7 @@ public object NametagDecorator {
         // The level's colour first, and independently: it is a property of the name Hypixel already drew,
         // not something the mod is adding around it, so it applies to everybody rather than only to the
         // people wearing something. Every path below returns this rather than `original` for that reason.
-        val base = LevelNametagColour.recolour(original)
+        val base = LevelColour.forNametag(original)
 
         val platform = Sidequest.platformOrNull ?: return base
         val resolution = runCatching { platform.cosmetics.resolve(PlayerId.of(player.uuid)) }
