@@ -73,10 +73,13 @@ object Sidequest : ClientModInitializer {
     /**
      * Hands work back to the client thread.
      *
-     * `Minecraft.execute` runs the block at the start of the next client tick, which is
-     * the contract [UiScheduler] promises: never re-entrant inside layout or paint.
+     * `schedule`, not `execute`. This said `execute` and claimed it ran the block on the next tick, which is
+     * not what that method does: it queues only when called from another thread, and runs the block on the
+     * spot when the caller is already the client — so the one guarantee [UiScheduler] makes, never re-entrant
+     * inside layout or paint, was exactly the guarantee it did not have. `schedule` always queues, and the
+     * queue is drained between ticks.
      */
-    private val clientScheduler = UiScheduler { block -> Minecraft.getInstance().execute(block) }
+    private val clientScheduler = UiScheduler { block -> Minecraft.getInstance().schedule(block) }
 
     /** Built once; the definition is immutable, the values behind it are not. */
     val configScreen: ConfigScreen by lazy { buildSidequestConfigScreen() }
@@ -560,20 +563,34 @@ object Sidequest : ClientModInitializer {
      *
      * No persistence controller is passed. This screen's bindings write into the book, which saves itself —
      * handing it the configuration's controller would have it write waypoint rows into the settings file.
+     *
+     * **Opened on the next tick, never inline.** A command runs inside the chat screen's key handling, and
+     * chat closes itself *after* the command returns — so a screen opened during it appears for one frame and
+     * is then replaced by null. That was the bug. Deferring puts the open after that close instead of before
+     * it, and doing it here rather than at each call site means no future caller has to know the ordering.
+     *
+     * `schedule` rather than `execute`, and the difference is the entire fix: `execute` only queues when it
+     * is called from *another* thread and otherwise runs the block on the spot, so deferring with it defers
+     * nothing at all when the caller is already the client. `schedule` always queues.
      */
     fun openWaypointManager() {
         if (!::waypoints.isInitialized) return
-        val actions = WaypointActions(
-            edit = waypoints::editWaypoint,
-            delete = waypoints::deleteWaypoint,
-            editCollection = waypoints::editCollection,
-            deleteCollection = waypoints::deleteCollection,
-            addCollection = { waypoints.addCollection() },
-            reopen = { Minecraft.getInstance().execute(::openWaypointManager) },
-        )
-        Minecraft.getInstance().setScreenAndShow(
-            SidequestConfigScreen(buildWaypointScreen(waypoints.book(), actions), activeTheme()),
-        )
+        val client = Minecraft.getInstance()
+        client.schedule {
+            val actions = WaypointActions(
+                edit = waypoints::editWaypoint,
+                delete = waypoints::deleteWaypoint,
+                editCollection = waypoints::editCollection,
+                deleteCollection = waypoints::deleteCollection,
+                addCollection = { waypoints.addCollection() },
+                // Also deferred, and for a different reason: a button cannot rebuild the tree it is being
+                // clicked inside. The outer `execute` already handles it, so this simply calls through.
+                reopen = ::openWaypointManager,
+            )
+            client.setScreenAndShow(
+                SidequestConfigScreen(buildWaypointScreen(waypoints.book(), actions), activeTheme()),
+            )
+        }
     }
 
     private lateinit var pings: PingSystem
