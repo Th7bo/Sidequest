@@ -58,6 +58,20 @@ public object SidequestKeybinds {
     )
 
     /**
+     * Pings whatever the crosshair is on.
+     *
+     * The only one of these with a default binding, and it needs one: a ping typed as a command is not a
+     * ping. Middle mouse is where every game that has this puts it, and it is free in vanilla — the pick-block
+     * it normally does is creative-only, and this is a client for a server where creative does not exist.
+     */
+    public val ping: KeyMapping = KeyMapping(
+        "key.sidequest.ping",
+        InputConstants.Type.MOUSE,
+        GLFW.GLFW_MOUSE_BUTTON_MIDDLE,
+        category,
+    )
+
+    /**
      * Drains every queued press and reports whether there was one.
      *
      * Holding a key must open the screen once rather than every tick, and leaving presses
@@ -74,6 +88,7 @@ public object SidequestKeybinds {
         KeyMappingHelper.registerKeyMapping(openHudEditor)
         KeyMappingHelper.registerKeyMapping(openGallery)
         KeyMappingHelper.registerKeyMapping(openStressScreen)
+        KeyMappingHelper.registerKeyMapping(ping)
 
         ClientTickEvents.END_CLIENT_TICK.register { client ->
             // Minecraft only queues keybind presses while no screen is open, so no "is a
@@ -94,6 +109,13 @@ public object SidequestKeybinds {
 
             if (consumeAll(openStressScreen)) {
                 client.setScreenAndShow(Sidequest.createStressScreen())
+            }
+
+            // Drained like the rest, so holding the button pings once. The feature has its own cooldown as
+            // well — that one is about not flooding the group, this one is about not sending twenty for one
+            // press.
+            if (consumeAll(ping)) {
+                Sidequest.pingWhereLooking()
             }
         }
     }

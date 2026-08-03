@@ -3,6 +3,7 @@ package dev.th7bo.sidequest
 import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.PlaytimeTracker
+import dev.th7bo.sidequest.features.PingSystem
 import dev.th7bo.sidequest.features.RareDropAnimation
 import dev.th7bo.sidequest.features.SharedWaypoints
 import dev.th7bo.sidequest.features.SessionDiagnostics
@@ -520,6 +521,12 @@ object Sidequest : ClientModInitializer {
             standingAt = { platform.localPosition },
         )
 
+        pings = PingSystem(
+            aimedAt = { platform.aimedAt },
+            standingAt = { platform.localPosition },
+            publish = ::publishPing,
+        )
+
         val refusals = platform.start(
             sessionDiagnostics,
             developerTools,
@@ -527,6 +534,7 @@ object Sidequest : ClientModInitializer {
             playtime,
             gardenBobbing,
             waypoints,
+            pings,
         )
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
@@ -538,6 +546,61 @@ object Sidequest : ClientModInitializer {
     private lateinit var gardenBobbing: GardenViewBobbing
 
     private lateinit var waypoints: SharedWaypoints
+
+    private lateinit var pings: PingSystem
+
+    /**
+     * Pings what the crosshair is on. Called from the keybind.
+     *
+     * Guarded rather than assumed: the key exists from the moment the mod loads and the feature does not,
+     * so pressing it on the title screen must do nothing rather than throw.
+     */
+    fun pingWhereLooking() {
+        if (!::pings.isInitialized) return
+        pings.ping(dev.th7bo.sidequest.platform.ping.PingStyle.GO_HERE)
+    }
+
+    /**
+     * Sends a ping to the group.
+     *
+     * Returns whether anything was handed to the connection — false when there is no realtime client, which
+     * is the normal state for somebody who has not paired a backend. The feature already drew the ping
+     * locally by the time this is called, so a false here means "only you saw that" and not "it failed".
+     *
+     * The send itself is fire-and-forget on a background job. A ping is worthless a second later, so waiting
+     * on the round trip would stall the client thread for something that has no useful answer.
+     */
+    private fun publishPing(
+        location: dev.th7bo.sidequest.platform.skyblock.SqLocation,
+        style: dev.th7bo.sidequest.platform.ping.PingStyle,
+        label: String,
+    ): Boolean {
+        val platform = platformOrNull ?: return false
+        val realtime = platform.realtime ?: return false
+        val payload = dev.th7bo.sidequest.protocol.RealtimePayload.Ping(
+            location = location,
+            label = label,
+            style = style.wireName,
+        )
+
+        ioScope.launch {
+            runCatching {
+                realtime.send(
+                    dev.th7bo.sidequest.protocol.RealtimeMessage(
+                        messageId = java.util.UUID.randomUUID().toString(),
+                        // The server's clock, like every other timestamp that crosses the wire — two machines
+                        // disagree about the time constantly, and a ping is judged stale by its age.
+                        timestampMillis = platform.backend?.serverTime
+                            ?.toServer(System.currentTimeMillis())
+                            ?: System.currentTimeMillis(),
+                        scope = payload.scope,
+                        payload = payload,
+                    ),
+                )
+            }.onFailure { logger.debug("Could not send a ping", it) }
+        }
+        return true
+    }
 
     /**
      * Minecraft's own totem animation, for the drop animation's familiar option.

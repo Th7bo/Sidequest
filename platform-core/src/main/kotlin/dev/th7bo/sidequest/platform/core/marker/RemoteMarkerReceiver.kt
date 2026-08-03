@@ -11,6 +11,7 @@ import dev.th7bo.sidequest.platform.marker.Marker
 import dev.th7bo.sidequest.platform.marker.MarkerKind
 import dev.th7bo.sidequest.platform.marker.MarkerRender
 import dev.th7bo.sidequest.platform.marker.MarkerService
+import dev.th7bo.sidequest.platform.ping.PingStyle
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.protocol.AccountId
@@ -25,9 +26,10 @@ import dev.th7bo.sidequest.protocol.RealtimePayload
  * lasts.
  *
  * What arrives is not trusted with anything it should not be. The label is truncated, the sender is taken from
- * the message envelope rather than from the payload, and the marker's lifetime comes from the local kind rather
- * than from whatever the sender claimed. A friend cannot place a waypoint that never expires by sending an
- * unusual number.
+ * the message envelope rather than from the payload, and the lifetime comes from this client's own
+ * [PingStyle] table — the sender names a style, never a duration. A friend cannot place a ping that never
+ * expires by sending an unusual number, and a style this build has never heard of draws as a generic ping
+ * rather than as nothing.
  */
 public class RemoteMarkerReceiver(
     private val markers: MarkerService,
@@ -64,6 +66,11 @@ public class RemoteMarkerReceiver(
 
     private fun onPing(payload: RealtimePayload.Ping, senderAccount: AccountId?) {
         val sender = senderAccount?.let { accountToPlayer[it] }
+        // Resolved rather than trusted. The style is free-form on the wire and may name something a newer
+        // client knows and this one does not; `ofWire` answers with a generic ping instead of nothing,
+        // because somebody was pointing at something either way.
+        val style = PingStyle.ofWire(payload.style)
+
         markers.place(
             Marker(
                 // Per sender rather than random, so a second ping from the same person replaces the first
@@ -71,15 +78,19 @@ public class RemoteMarkerReceiver(
                 id = "ping." + (senderAccount?.value ?: "unknown"),
                 kind = MarkerKind.PING,
                 location = payload.location,
-                label = payload.label.take(MAX_LABEL).ifEmpty { senderName(sender) },
+                // The sender's words if they wrote any, then what the style means, then who sent it. Never
+                // blank: a beam in the distance with no label is a question rather than a message.
+                label = payload.label.take(MAX_LABEL).ifEmpty { style.displayName },
                 creator = sender,
-                // The style is free-form on the wire and is deliberately not trusted to name a render mode: an
-                // unknown style falls back rather than producing something undrawable.
-                render = MarkerRender.Minimal,
-                iconId = STYLE_ICONS[payload.style],
+                colour = style.colour,
+                lifetime = style.lifetime,
+                // Edge indicator on, because the whole point of a ping is that it is somewhere you are not
+                // yet looking. Minimal otherwise: it is a gesture, not a destination.
+                render = MarkerRender.Minimal.copy(edgeIndicator = true),
+                iconId = STYLE_ICONS[style.wireName],
             ),
         )
-        log.debug { "Ping from ${senderName(sender)} at ${payload.location.island}" }
+        log.debug { "${style.displayName} from ${senderName(sender)} at ${payload.location.island}" }
     }
 
     private fun onWaypoint(payload: RealtimePayload.Waypoint, senderAccount: AccountId?) {
@@ -124,11 +135,16 @@ public class RemoteMarkerReceiver(
         const val MAX_LABEL = 48
         const val MAX_NOTE = 200
 
-        /** The ping styles this client knows. Anything else takes the kind's default icon. */
+        /**
+         * Art for the styles that have any.
+         *
+         * Keyed on the wire name, so it lines up with [PingStyle] without needing an entry per style — one
+         * with no icon takes the kind's default, which is a beam and a label and perfectly legible.
+         */
         val STYLE_ICONS: Map<String, SqId> = mapOf(
-            "danger" to SqId.sidequest("marker.danger"),
-            "loot" to SqId.sidequest("marker.loot"),
-            "here" to SqId.sidequest("marker.here"),
+            PingStyle.DANGER.wireName to SqId.sidequest("marker.danger"),
+            PingStyle.ITEM_HERE.wireName to SqId.sidequest("marker.loot"),
+            PingStyle.GO_HERE.wireName to SqId.sidequest("marker.here"),
         )
     }
 }
