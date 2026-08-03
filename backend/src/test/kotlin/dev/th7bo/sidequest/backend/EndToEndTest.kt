@@ -7,6 +7,7 @@ import dev.th7bo.sidequest.platform.backend.HttpMethod
 import dev.th7bo.sidequest.platform.backend.HttpRequest
 import dev.th7bo.sidequest.platform.backend.HttpTransport
 import dev.th7bo.sidequest.platform.backend.PairingStatus
+import dev.th7bo.sidequest.platform.permission.GroupRole
 import dev.th7bo.sidequest.platform.core.backend.DefaultBackendClient
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
 import dev.th7bo.sidequest.platform.core.storage.JsonFileStorage
@@ -97,11 +98,14 @@ class EndToEndTest {
     }
 
     /** Approves a code as the operator would, from the dashboard. */
-    private suspend fun io.ktor.server.testing.ApplicationTestBuilder.approve(code: String) {
+    private suspend fun io.ktor.server.testing.ApplicationTestBuilder.approve(
+        code: String,
+        account: AccountId = OWNER,
+    ) {
         client.post(Endpoints.PAIR_APPROVE) {
             contentType(ContentType.Application.Json)
             header(HttpHeaders.Authorization, "Bearer $OPERATOR")
-            setBody(json.encodeToString(PairApproveRequest.serializer(), PairApproveRequest(code, OWNER)))
+            setBody(json.encodeToString(PairApproveRequest.serializer(), PairApproveRequest(code, account)))
         }
     }
 
@@ -271,6 +275,101 @@ class EndToEndTest {
         }
     }
 
+    /**
+     * A waypoint shared with named people reaches them and nobody else, over the real wire.
+     *
+     * The unit tests either side of this prove the routing rule and the envelope's encoding separately. What
+     * they cannot prove is that the two agree — that `recipients` survives the client's serialiser, the
+     * server's deserialiser, storage, and the read back, all of which are configured independently. A field
+     * silently dropped at any one of those points looks exactly like a working addressed message right up
+     * until it turns out to have been delivered to everybody.
+     *
+     * Two paired clients, and the assertion is on what the *second* one can read: sending is not the claim,
+     * not-receiving is.
+     */
+    @Test
+    fun `a waypoint addressed to somebody else does not reach another client`() = testApplication {
+        val backend = SidequestBackend(
+            BackendConfig(statePath = root.resolve("state.json"), operatorToken = OPERATOR, ownerAccountId = OWNER),
+            now = { clock },
+        )
+        application { backend.install(this) }
+
+        val owner = pairClient("owner-device", OWNER, "Th7bo")
+        val other = pairClient("other-device", OTHER, "Friend")
+
+        // Both are members, so nothing but the addressing decides who sees what.
+        backend.store.mutate { state ->
+            state.copy(
+                permissions = state.permissions.copy(
+                    roles = state.permissions.roles +
+                        (OWNER.value to GroupRole.OWNER) + (OTHER.value to GroupRole.MEMBER),
+                ),
+            ) to Unit
+        }
+
+        val secret = waypoint("secret", "Secret spot", to = setOf(AccountId("somebody-else")))
+        val shared = waypoint("shared", "Shared spot", to = setOf(OTHER))
+        assertTrue(owner.submit(secret))
+        assertTrue(owner.submit(shared))
+
+        val ownerSees = owner.fetchEventsSince(0).valueOrNull()?.messages.orEmpty()
+        val otherSees = other.fetchEventsSince(0).valueOrNull()?.messages.orEmpty()
+
+        assertEquals(
+            listOf("secret", "shared"),
+            ownerSees.map { it.messageId },
+            "the sender should be able to read back everything they sent",
+        )
+        assertEquals(
+            listOf("shared"),
+            otherSees.map { it.messageId },
+            "the other client should only have the one addressed to them",
+        )
+        // The field itself made the round trip rather than being dropped and defaulting to "everybody",
+        // which would have let this pass for the wrong reason.
+        assertEquals(setOf(OTHER), otherSees.single().recipients)
+    }
+
+    /** Pairs one client end to end and hands it back, online. */
+    private suspend fun io.ktor.server.testing.ApplicationTestBuilder.pairClient(
+        outboxName: String,
+        account: AccountId,
+        name: String,
+    ): DefaultBackendClient {
+        val mod = DefaultBackendClient(
+            config = dev.th7bo.sidequest.platform.backend.BackendConfig(BASE_URL, "$name's laptop"),
+            transport = TestClientTransport(client),
+            tokens = FakeTokenStore(),
+            events = DefaultEventBus(TestScheduler(), NoopLogger),
+            log = NoopLogger,
+            outbox = outbox(outboxName),
+            now = { clock },
+        )
+        mod.start()
+        coroutineScope {
+            var code: String? = null
+            val approver = launch {
+                while (code == null) kotlinx.coroutines.delay(POLL_TICK_MILLIS)
+                approve(code!!, account)
+            }
+            mod.pair(UUID.randomUUID().toString(), name) { if (it.code.isNotEmpty()) code = it.code }
+            approver.join()
+        }
+        return mod
+    }
+
+    private fun waypoint(id: String, label: String, to: Set<AccountId>): RealtimeMessage {
+        val payload = RealtimePayload.Waypoint(id = id, location = location(), label = label)
+        return RealtimeMessage(
+            messageId = id,
+            timestampMillis = clock,
+            scope = payload.scope,
+            recipients = to,
+            payload = payload,
+        )
+    }
+
     private companion object {
         const val OPERATOR = "operator-token-for-tests-only"
         const val BASE_URL = "http://localhost"
@@ -278,5 +377,8 @@ class EndToEndTest {
         /** How often the approver checks whether a code has appeared. */
         const val POLL_TICK_MILLIS = 5L
         val OWNER = AccountId("owner")
+
+        /** A second paired account, so "who receives it" is a question with two possible answers. */
+        val OTHER = AccountId("other")
     }
 }
