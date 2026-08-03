@@ -88,11 +88,24 @@ public object MinecraftIcons {
     /** Waypoints. A filled map, because an empty one is a blank sheet. */
     public val waypoints: Icon = item("filled_map")
 
+    /**
+     * Friends.
+     *
+     * An armour stand, because it is the only flat item texture shaped like a person. **There is no
+     * `item/player_head.png`** — a head is a block entity and renders as a model, so the obvious id draws
+     * the missing-texture chequerboard. Same class of mistake as `item/clock`, and found the same way:
+     * by looking in the jar rather than trusting that it must be there.
+     */
+    public val friends: Icon = item("armor_stand")
+
+    /** A friend who is online. Lime, because green reads as "on" without needing a label. */
+    public val online: Icon = item("lime_dye")
+
     /** Every icon here, for the registration below and for a gallery. */
     public val all: List<Icon> = listOf(
         settings, features, network, tools,
         appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics,
-        playtime, titleScreen, levels, garden, waypoints,
+        playtime, titleScreen, levels, garden, waypoints, friends, online,
     )
 }
 

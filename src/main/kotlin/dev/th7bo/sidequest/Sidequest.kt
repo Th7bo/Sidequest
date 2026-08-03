@@ -1,5 +1,6 @@
 package dev.th7bo.sidequest
 
+import dev.th7bo.sidequest.features.CustomFriends
 import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.PlaytimeTracker
@@ -8,6 +9,9 @@ import dev.th7bo.sidequest.features.RareDropAnimation
 import dev.th7bo.sidequest.features.ReadyChecks
 import dev.th7bo.sidequest.features.SharedWaypoints
 import dev.th7bo.sidequest.features.SessionDiagnostics
+import dev.th7bo.sidequest.feature.ui.FriendActions
+import dev.th7bo.sidequest.feature.ui.FriendScreenIcons
+import dev.th7bo.sidequest.feature.ui.buildFriendHubScreen
 import dev.th7bo.sidequest.feature.ui.WaypointActions
 import dev.th7bo.sidequest.feature.ui.WaypointScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildWaypointScreen
@@ -528,6 +532,11 @@ object Sidequest : ClientModInitializer {
             writeBobbing = { net.minecraft.client.Minecraft.getInstance().options.bobView().set(it) },
         )
 
+        friends = CustomFriends(
+            localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
+        )
+        friends.openHub = ::openFriendHub
+
         waypoints = SharedWaypoints(
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
             standingAt = { platform.localPosition },
@@ -568,6 +577,8 @@ object Sidequest : ClientModInitializer {
             rareDrops,
             playtime,
             gardenBobbing,
+            // Before the waypoints, which ask it who the friends are the moment they draw.
+            friends,
             waypoints,
             pings,
             readyChecks,
@@ -582,6 +593,8 @@ object Sidequest : ClientModInitializer {
     private lateinit var gardenBobbing: GardenViewBobbing
 
     private lateinit var waypoints: SharedWaypoints
+
+    private lateinit var friends: CustomFriends
 
     /**
      * Opens the waypoint manager.
@@ -621,6 +634,35 @@ object Sidequest : ClientModInitializer {
             client.setScreenAndShow(
                 SidequestConfigScreen(
                     buildWaypointScreen(waypoints.book(), actions, WAYPOINT_ICONS),
+                    activeTheme(),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Opens the friend hub.
+     *
+     * Deferred for the same reason the waypoint manager is, and with the same `schedule` rather than
+     * `execute`: a command runs inside chat's key handling and chat closes itself afterwards, so a screen
+     * opened inline shows for one frame and is then replaced by null.
+     */
+    fun openFriendHub() {
+        if (!::friends.isInitialized) return
+        val client = Minecraft.getInstance()
+        client.schedule {
+            val actions = FriendActions(
+                current = friends::roster,
+                // Straight from the directory, which is the only thing that knows who is online. The roster
+                // deliberately does not store it — see `FriendRoster`.
+                identity = { id -> platformOrNull?.players?.byId(id) },
+                edit = friends::editFriend,
+                remove = friends::removeFriend,
+                reopen = ::openFriendHub,
+            )
+            client.setScreenAndShow(
+                SidequestConfigScreen(
+                    buildFriendHubScreen(friends.roster(), actions, FRIEND_ICONS),
                     activeTheme(),
                 ),
             )
@@ -888,6 +930,12 @@ object Sidequest : ClientModInitializer {
      */
     private val WAYPOINT_ICONS = WaypointScreenIcons(
         waypoint = MinecraftIcons.waypoints,
+        add = MinecraftIcons.features,
+    )
+
+    private val FRIEND_ICONS = FriendScreenIcons(
+        friend = MinecraftIcons.friends,
+        online = MinecraftIcons.online,
         add = MinecraftIcons.features,
     )
 
