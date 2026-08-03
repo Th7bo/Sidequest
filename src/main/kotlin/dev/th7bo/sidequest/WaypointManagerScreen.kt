@@ -58,6 +58,12 @@ public class WaypointActions(
 public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): ConfigScreen {
     val loose = book.waypoints.filter { it.collectionId.isEmpty() }
 
+    // Position in the book, so every id on this screen is unique whatever the ids themselves look like.
+    // Slugging alone is not enough: it maps many strings onto one, and a collision here is not a wrong
+    // label, it is an exception that throws the whole screen away before a row is drawn.
+    val ordinals = book.waypoints.withIndex().associate { (index, waypoint) -> waypoint.id to index }
+    val collectionOrdinals = book.collections.withIndex().associate { (index, it) -> it.id to index }
+
     return configScreen(
         id("waypoints"),
         "Waypoints",
@@ -86,20 +92,20 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
                     }
                 }
             }
-            for (waypoint in loose) waypointSection(waypoint, book, actions)
+            for (waypoint in loose) waypointSection(waypoint, key(waypoint.id, ordinals), book, actions)
         }
 
         for (collection in book.collections.sortedBy { it.name.lowercase() }) {
             val contents = book.inCollection(collection.id)
             category(
-                id("waypoints.c." + slug(collection.id)),
+                id("waypoints.c." + key(collection.id, collectionOrdinals)),
                 collection.name,
                 description = folderLabel(collection, contents.size),
                 icon = MinecraftIcons.waypoints,
             ) {
                 section("Collection", description = "Applies to everything in it", collapsible = true) {
                     textField(
-                        id = id("waypoints.c.${slug(collection.id)}.name"),
+                        id = id("waypoints.c.${key(collection.id, collectionOrdinals)}.name"),
                         title = "Name",
                         value = bind(
                             get = { liveCollection(actions, collection).name },
@@ -108,7 +114,7 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
                         ),
                     )
                     textField(
-                        id = id("waypoints.c.${slug(collection.id)}.folder"),
+                        id = id("waypoints.c.${key(collection.id, collectionOrdinals)}.folder"),
                         title = "Folder",
                         description = "Slash-separated. Leave empty for the top level.",
                         value = bind(
@@ -119,7 +125,7 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
                         placeholder = "dungeons/f7",
                     )
                     toggle(
-                        id = id("waypoints.c.${slug(collection.id)}.visible"),
+                        id = id("waypoints.c.${key(collection.id, collectionOrdinals)}.visible"),
                         title = "Show these",
                         description = "Off hides them without deleting anything",
                         value = bind(
@@ -129,7 +135,7 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
                         ),
                     )
                     button(
-                        id = id("waypoints.c.${slug(collection.id)}.delete"),
+                        id = id("waypoints.c.${key(collection.id, collectionOrdinals)}.delete"),
                         title = "Delete this collection",
                         label = "Delete",
                         // Said plainly on the button rather than behind a confirmation, because it is not a
@@ -142,7 +148,7 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
                     }
                 }
 
-                for (waypoint in contents) waypointSection(waypoint, book, actions)
+                for (waypoint in contents) waypointSection(waypoint, key(waypoint.id, ordinals), book, actions)
             }
         }
 
@@ -166,12 +172,17 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
  */
 private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
     waypoint: SharedWaypoint,
+    key: String,
     book: WaypointBook,
     actions: WaypointActions,
 ) {
-    val prefix = "waypoints.w." + slug(waypoint.id)
+    val prefix = "waypoints.w.$key"
     section(
         waypoint.label.ifBlank { "Unnamed" },
+        // Keyed on the waypoint, not on its title. A section's id is derived from its title by default, and
+        // titles here are whatever somebody named a place — two called "test" is not a mistake, it is a
+        // Tuesday, and it threw the screen away before drawing anything.
+        id = id(prefix),
         description = describe(waypoint),
         icon = MinecraftIcons.waypoints,
         collapsible = true,
@@ -257,6 +268,16 @@ private fun live(actions: WaypointActions, waypoint: SharedWaypoint): SharedWayp
 /** The same for a collection, falling back to the snapshot so a getter never has nothing to answer with. */
 private fun liveCollection(actions: WaypointActions, collection: WaypointCollection): WaypointCollection =
     actions.current().collection(collection.id) ?: collection
+
+/**
+ * A unique, legal id fragment for one entry.
+ *
+ * The slug for readability in a log, and the ordinal for uniqueness — because the slug alone cannot promise
+ * it. Two entries mapping to one id is not a cosmetic problem here: the builder rejects a duplicate by
+ * throwing, which takes the entire screen with it.
+ */
+private fun key(id: String, ordinals: Map<String, Int>): String =
+    slug(id) + "_" + (ordinals[id] ?: 0)
 
 /**
  * Any string, as a legal [UiId] path segment.
