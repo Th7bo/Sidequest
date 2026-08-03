@@ -366,6 +366,21 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 }
             }
 
+            section("Garden", description = "While you are farming", icon = MinecraftIcons.garden, collapsible = true, startsCollapsed = true) {
+                toggle(
+                    id = id("garden.view_bobbing"),
+                    title = "Turn off view bobbing",
+                    description = "Yours comes back when you leave. Change it yourself there and the mod stops touching it.",
+                    value = bind(
+                        get = { SidequestSettings.Garden.suppressViewBobbing },
+                        set = { SidequestSettings.Garden.suppressViewBobbing = it },
+                        debugName = "garden.view_bobbing",
+                    ),
+                ) {
+                    keywords("farming", "camera", "sway", "bob")
+                }
+            }
+
             section("SkyBlock levels", description = "How the level above a player's head is coloured", icon = MinecraftIcons.levels, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("levels.enabled"),

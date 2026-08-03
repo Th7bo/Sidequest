@@ -82,11 +82,14 @@ public object MinecraftIcons {
     /** SkyBlock levels, which are drawn on a nametag. */
     public val levels: Icon = item("name_tag")
 
+    /** The Garden. */
+    public val garden: Icon = item("wheat")
+
     /** Every icon here, for the registration below and for a gallery. */
     public val all: List<Icon> = listOf(
         settings, features, network, tools,
         appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics,
-        playtime, titleScreen, levels,
+        playtime, titleScreen, levels, garden,
     )
 }
 

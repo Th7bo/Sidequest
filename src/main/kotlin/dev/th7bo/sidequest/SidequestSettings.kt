@@ -118,6 +118,18 @@ public object SidequestSettings {
         public var ignoredIslands: List<Island> = emptyList()
     }
 
+    // -- garden --------------------------------------------------------------
+
+    public object Garden {
+        /**
+         * Whether view bobbing is turned off on the Garden.
+         *
+         * Borrowed rather than taken: whatever you had comes back when you leave, and changing it yourself
+         * while there stops the mod touching it for the rest of the visit.
+         */
+        public var suppressViewBobbing: Boolean = true
+    }
+
     // -- SkyBlock levels -----------------------------------------------------
 
     public object Levels {

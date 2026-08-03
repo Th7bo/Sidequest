@@ -1,6 +1,7 @@
 package dev.th7bo.sidequest
 
 import dev.th7bo.sidequest.features.DeveloperTools
+import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.PlaytimeTracker
 import dev.th7bo.sidequest.features.RareDropAnimation
 import dev.th7bo.sidequest.features.SessionDiagnostics
@@ -508,14 +509,26 @@ object Sidequest : ClientModInitializer {
         playtime = PlaytimeTracker(
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
         )
+        gardenBobbing = GardenViewBobbing(
+            readBobbing = { net.minecraft.client.Minecraft.getInstance().options.bobView().get() },
+            writeBobbing = { net.minecraft.client.Minecraft.getInstance().options.bobView().set(it) },
+        )
 
-        val refusals = platform.start(sessionDiagnostics, developerTools, rareDrops, playtime)
+        val refusals = platform.start(
+            sessionDiagnostics,
+            developerTools,
+            rareDrops,
+            playtime,
+            gardenBobbing,
+        )
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
 
     private lateinit var rareDrops: RareDropAnimation
 
     private lateinit var playtime: PlaytimeTracker
+
+    private lateinit var gardenBobbing: GardenViewBobbing
 
     /**
      * Minecraft's own totem animation, for the drop animation's familiar option.

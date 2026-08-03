@@ -972,44 +972,25 @@ Track:
 - scoreboard colours where supported
 - preview data integration
 
-## Raffle task tracker
+## Staying in SkyHanni
 
-Track anniversary raffle tasks and progress.
+Decided 2026-08-03. These are not being moved, and are not open work:
 
-## Sea Lumies highlighting
+- raffle task tracker
+- Sea Lumies highlighting
+- Forge display
+- enchantment parsing and colours
+- Visual Words improvements
+- waypoint format compatibility
 
-- configurable highlight
-- colour
-- distance
-- outline/beam options
-
-## Forge display
-
-- Forge slot status
-- completion timers
-- notification on completion
+They are the ones most tied to reading SkyBlock's inventories and item
+text, which is the part of SkyHanni that is worth keeping there. Running
+both mods is the expected setup, so duplicating them would mean two mods
+drawing the same thing.
 
 ## Garden view-bobbing control
 
 Contextual control of view bobbing while on the Garden.
-
-## Enchantment parsing and colours
-
-- improved parsing
-- custom colouring
-- better formatting
-- compatibility with multiple enchant text formats
-
-## Visual Words improvements
-
-- more robust text replacement
-- formatted component support
-- better editing support
-- safer matching
-
-## Waypoint format compatibility
-
-Import Skyblocker-compatible waypoints and potentially other common formats.
 
 ## Easter eggs and media
 
