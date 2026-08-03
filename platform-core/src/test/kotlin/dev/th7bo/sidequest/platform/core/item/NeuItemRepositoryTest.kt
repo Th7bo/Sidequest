@@ -34,8 +34,13 @@ class NeuItemRepositoryTest {
         fallback = { HttpExchange.Response(status = 404, body = "404: Not Found", headers = emptyMap()) }
     }
 
-    private fun repository(archives: AssetTransport? = null) =
-        NeuItemRepository(transport, NoopLogger, baseUrl = BASE, archives = archives)
+    private fun repository(archives: AssetTransport? = null, cache: NeuNameCache? = null) =
+        NeuItemRepository(transport, NoopLogger, baseUrl = BASE, archives = archives, cache = cache)
+
+    /** Answers the "which commit is it on" probe, which precedes any download. */
+    private fun serveHeadRef(sha: String = "abc123") {
+        transport.respond("git/refs/heads/master", """{"object":{"sha":"$sha"}}""")
+    }
 
     private fun serve(name: String, body: String) {
         transport.respond("$BASE/$name.json", body)
@@ -241,6 +246,7 @@ class NeuItemRepositoryTest {
      */
     @Test
     fun `an item is found through the name index`() = runTest {
+        serveHeadRef()
         val archives = FakeArchives(tarGz("Rarefinder Chip" to "RAREFINDER_GARDEN_CHIP"))
         serve("RAREFINDER_GARDEN_CHIP", chipEntry())
 
@@ -267,6 +273,7 @@ class NeuItemRepositoryTest {
     /** Fetched once. Nine megabytes per rare drop would be the worst bug in the mod. */
     @Test
     fun `the archive is fetched once per session`() = runTest {
+        serveHeadRef()
         val archives = FakeArchives(tarGz("Hyperion" to "HYPERION"))
         serve("HYPERION", HYPERION)
         val repository = repository(archives)

@@ -22,6 +22,7 @@ import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.asset.DefaultAssetManager
 import dev.th7bo.sidequest.platform.core.item.NeuItemRepository
+import dev.th7bo.sidequest.platform.core.item.NeuNameCache
 import dev.th7bo.sidequest.platform.skyblock.SqPosition
 import dev.th7bo.sidequest.platform.item.SkyBlockItemRepository
 import dev.th7bo.sidequest.platform.core.cosmetic.CosmeticStore
@@ -354,6 +355,10 @@ class SidequestPlatform(
         // The database's archive is bytes, and the ordinary transport answers with text — a gzip stream
         // read as a String is a corrupted gzip stream. This is the same transport the asset manager uses.
         archives = JdkAssetTransport(),
+        // Under the throwaway directory, which is exactly what this is: deleting it costs one download.
+        cache = NeuNameCache(
+            storageRoot.resolve(StorageScope.Cache.path).resolve("skyblock-item-names.tsv"),
+        ),
     )
 
     val items: SkyBlockItemRepository get() = itemRepository

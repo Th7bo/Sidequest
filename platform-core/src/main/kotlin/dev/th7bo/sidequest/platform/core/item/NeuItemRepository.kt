@@ -44,6 +44,10 @@ public class NeuItemRepository(
      * the hand-written candidates still resolve everything they resolved before.
      */
     private val archives: AssetTransport? = null,
+    /**
+     * Where the derived names are kept between runs. Null means downloading them every session.
+     */
+    private val cache: NeuNameCache? = null,
 ) : SkyBlockItemRepository {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -120,42 +124,88 @@ public class NeuItemRepository(
     }
 
     /**
-     * Fetches the item database once, and builds the name index from it.
+     * Builds the name index: from disk if possible, from the network only when it must be.
      *
-     * **The whole archive, because the answer is only inside the files.** The keys are not derivable from
-     * the names — `Rod of Champions` is `CHAMP_ROD` — so a listing of filenames, which is what this used to
-     * fetch, could resolve 60% of items and no more. Nine megabytes, once, is the price of the other 40%.
+     * Three outcomes, cheapest first. A fresh cache answers with no request at all. A cache older than a
+     * day costs one four-hundred-byte question — has the database moved on? — and usually ends there. Only
+     * a commit that has actually changed costs the nine megabyte download.
      *
-     * A failure is remembered as an attempt rather than retried. The lookup degrades to the hand-written
-     * candidates and still works; asking again on every drop would turn one unreachable host into a
-     * request per rare drop for the rest of the session.
+     * That shape exists because the two obvious ones are both wrong: trusting a copy for a week leaves new
+     * items without a picture for a week, and re-downloading daily is nine megabytes to usually learn that
+     * nothing happened.
+     *
+     * A stale copy is used when the network cannot be reached. Slightly out of date beats no names at all,
+     * and the alternative is a mod that loses every item icon whenever GitHub is having an afternoon.
      */
     private suspend fun loadIndex() {
         if (indexAttempted || index != null) return
         indexAttempted = true
 
-        val archive = archives ?: return
-        when (val fetched = archive.fetch(ARCHIVE_URL, MAX_ARCHIVE_BYTES)) {
-            is AssetFetch.Body -> {
-                val entries = runCatching { NeuArchive.read(fetched.bytes) }.getOrElse { thrown ->
+        val cached = cache?.read()
+        if (cached != null && !cached.shouldRecheck) {
+            adopt(cached.entries, "cache")
+            return
+        }
+
+        val currentSha = latestSha()
+        if (cached != null && currentSha != null && currentSha == cached.sha) {
+            // Unchanged. Only the header's timestamp moves, so the next check is another day away.
+            cache.touch()
+            adopt(cached.entries, "cache, still current")
+            return
+        }
+
+        val downloaded = downloadEntries()
+        if (downloaded != null) {
+            cache?.write(downloaded, currentSha.orEmpty())
+            adopt(downloaded, "download")
+            return
+        }
+
+        // Nothing new could be fetched. Whatever is on disk is better than nothing.
+        if (cached != null) adopt(cached.entries, "stale cache; the database could not be reached")
+    }
+
+    private fun adopt(entries: List<NeuArchive.Entry>, source: String) {
+        index = NeuNameIndex(entries)
+        log.info { "Learned the names of ${entries.size} SkyBlock items ($source)" }
+    }
+
+    /** The commit the database is on, or null when it cannot be asked. Four hundred bytes. */
+    private suspend fun latestSha(): String? =
+        when (val response = transport.send(HttpRequest(HttpMethod.GET, HEAD_REF_URL))) {
+            is HttpExchange.Failure -> {
+                log.debug { "Could not ask which version the item database is on: ${response.reason}" }
+                null
+            }
+            is HttpExchange.Response -> runCatching {
+                json.parseToJsonElement(response.body).jsonObject["object"]
+                    ?.jsonObject?.get("sha")?.jsonPrimitive?.content
+            }.getOrNull()
+        }
+
+    private suspend fun downloadEntries(): List<NeuArchive.Entry>? {
+        val archive = archives ?: return null
+        return when (val fetched = archive.fetch(ARCHIVE_URL, MAX_ARCHIVE_BYTES)) {
+            is AssetFetch.Body -> runCatching { NeuArchive.read(fetched.bytes) }
+                .getOrElse { thrown ->
                     log.warn(thrown) { "Could not read the item database" }
-                    return
+                    null
                 }
-                if (entries.isEmpty()) {
-                    log.debug { "The item database had no named entries" }
-                    return
-                }
-                index = NeuNameIndex(entries)
-                log.info { "Learned the names of ${entries.size} SkyBlock items" }
+                ?.takeIf { it.isNotEmpty() }
+
+            is AssetFetch.TooLarge -> {
+                log.warn { "The item database is larger than ${fetched.limitBytes} bytes; names unavailable" }
+                null
             }
 
-            is AssetFetch.TooLarge ->
-                log.warn { "The item database is larger than ${fetched.limitBytes} bytes; names unavailable" }
-
-            is AssetFetch.Failure ->
+            is AssetFetch.Failure -> {
                 log.debug { "Could not fetch the item database: ${fetched.reason}" }
+                null
+            }
         }
     }
+
     override suspend fun prefetch(displayName: String) {
         runCatching { byDisplayName(displayName) }
     }
@@ -311,6 +361,16 @@ public class NeuItemRepository(
          * refusal rather than an unbounded read into memory if the URL ever answers with something else.
          */
         private const val MAX_ARCHIVE_BYTES = 32L * 1024 * 1024
+
+        /**
+         * Which commit the database is on.
+         *
+         * Four hundred bytes, against nine megabytes for the archive itself — which is what makes checking
+         * daily reasonable. This one does use the API and its sixty-an-hour limit, and one request per
+         * launch per player is nowhere near it.
+         */
+        private const val HEAD_REF_URL =
+            "https://api.github.com/repos/NotEnoughUpdates/NotEnoughUpdates-REPO/git/refs/heads/master"
 
         /** Where the skin sits in the 1.8 NBT string: `Properties:{textures:[0:{Name:"textures",…Value:"…"`. */
         private const val TEXTURE_MARKER = "Value:"
