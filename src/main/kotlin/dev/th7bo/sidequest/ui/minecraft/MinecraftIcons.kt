@@ -85,11 +85,14 @@ public object MinecraftIcons {
     /** The Garden. */
     public val garden: Icon = item("wheat")
 
+    /** Waypoints. A filled map, because an empty one is a blank sheet. */
+    public val waypoints: Icon = item("filled_map")
+
     /** Every icon here, for the registration below and for a gallery. */
     public val all: List<Icon> = listOf(
         settings, features, network, tools,
         appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics,
-        playtime, titleScreen, levels, garden,
+        playtime, titleScreen, levels, garden, waypoints,
     )
 }
 

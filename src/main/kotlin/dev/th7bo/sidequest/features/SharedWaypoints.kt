@@ -98,14 +98,15 @@ class SharedWaypoints(
     private fun registerCommands() {
         context.command(
             name = "sqwp",
-            description = "Save, list and share waypoints",
-            usage = "<add|list|remove|share|folder> [...]",
+            description = "Save and manage waypoints",
+            usage = "[add <name>|list|remove <name>|share <name> <who>]",
             completions = { arguments ->
                 when (arguments.size) {
                     0, 1 -> VERBS
                     2 -> when (arguments.first().lowercase()) {
-                        "remove" -> book.waypoints.map { it.id }
-                        "share" -> book.waypoints.map { it.id }
+                        // Names rather than ids. An id is a timestamp in base 36 and nobody is typing one —
+                        // completing them was the command's worst part.
+                        "remove", "share" -> book.waypoints.map { it.label.quotedIfSpaced() }
                         else -> emptyList()
                     }
                     3 -> if (arguments.first().lowercase() == "share") AUDIENCES.keys.toList() else emptyList()
@@ -117,13 +118,38 @@ class SharedWaypoints(
 
     private fun handle(arguments: List<String>) {
         when (arguments.firstOrNull()?.lowercase()) {
-            "add" -> add(arguments.drop(1).joinToString(" "))
+            // No verb opens the manager. Saving one waypoint is worth a command; everything after that —
+            // renaming, recolouring, filing, sharing — is worth a screen, and typing it was never nicer.
+            null, "" -> openManager()
+            "add", "here" -> add(arguments.drop(1).joinToString(" "))
             "list" -> list()
-            "remove" -> remove(arguments.getOrNull(1))
+            "remove", "delete" -> remove(arguments.drop(1).joinToString(" "))
             "share" -> share(arguments.getOrNull(1), arguments.getOrNull(2))
-            else -> say("Waypoints", "add <name> · list · remove <id> · share <id> <who>")
+            // An unrecognised first word is a name, not a mistake: `/sqwp bazaar door` saves one. The verbs
+            // are short and specific enough that nothing anybody would call a waypoint collides with them.
+            else -> add(arguments.joinToString(" "))
         }
     }
+
+    /**
+     * Finds a waypoint by what somebody typed.
+     *
+     * By name, case-insensitively, and by id as a fallback so anything that prints one stays usable. An
+     * ambiguous name is refused rather than guessed at — deleting the wrong waypoint because two were both
+     * called "boss" is not recoverable.
+     */
+    private fun find(query: String): SharedWaypoint? {
+        val trimmed = query.trim().trim('"')
+        if (trimmed.isEmpty()) return null
+        val byName = book.waypoints.filter { it.label.equals(trimmed, ignoreCase = true) }
+        return when {
+            byName.size == 1 -> byName.single()
+            byName.size > 1 -> null
+            else -> book.waypoint(trimmed)
+        }
+    }
+
+    private fun String.quotedIfSpaced(): String = if (' ' in this) "\"$this\"" else this
 
     private fun add(label: String) {
         val position = standingAt()
@@ -164,10 +190,10 @@ class SharedWaypoints(
         )
     }
 
-    private fun remove(id: String?) {
-        val waypoint = id?.let { book.waypoint(it) }
+    private fun remove(query: String) {
+        val waypoint = find(query)
         if (waypoint == null) {
-            say("No such waypoint", "Try /sqwp list.")
+            say("No such waypoint", ambiguityHint(query))
             return
         }
         book = book.withoutWaypoint(waypoint.id)
@@ -176,10 +202,10 @@ class SharedWaypoints(
         say("Removed ${waypoint.label}")
     }
 
-    private fun share(id: String?, who: String?) {
-        val waypoint = id?.let { book.waypoint(it) }
+    private fun share(query: String?, who: String?) {
+        val waypoint = query?.let { find(it) }
         if (waypoint == null) {
-            say("No such waypoint", "Try /sqwp list.")
+            say("No such waypoint", ambiguityHint(query.orEmpty()))
             return
         }
         val audience = AUDIENCES[who?.lowercase()]
@@ -252,6 +278,19 @@ class SharedWaypoints(
         }
     }
 
+    /** Says *why* a lookup failed, since "no such waypoint" is wrong when the problem is two of them. */
+    private fun ambiguityHint(query: String): String {
+        val clashes = book.waypoints.count { it.label.equals(query.trim().trim('"'), ignoreCase = true) }
+        return if (clashes > 1) {
+            "There are $clashes called that. Rename one in /sqwp."
+        } else {
+            "Run /sqwp to see them all."
+        }
+    }
+
+    /** Opens the manager. Set by the mod, which owns screens. */
+    var openManager: () -> Unit = {}
+
     private fun say(title: String, subtitle: String = "") {
         context.notifications.notify(
             notification(category = NotificationCategory.SOCIAL, title = title, subtitle = subtitle),
@@ -266,14 +305,53 @@ class SharedWaypoints(
         is WaypointAudience.Selected -> "shared with ${audience.players.size} people"
     }
 
-    /** The book, for a screen that wants to draw it. */
+    /** The book, for the screen that draws it. */
     fun book(): WaypointBook = book
 
-    /** Adds a collection. For the GUI, which does not exist yet — the model is ready for it. */
-    fun addCollection(collection: WaypointCollection) {
+    // -- what the manager screen does ----------------------------------------
+
+    /**
+     * Applies a change to one waypoint.
+     *
+     * Takes a function rather than the new value so the screen never holds a whole waypoint: it edits one
+     * field of whatever is current, which is the difference between "set the label" and "replace this
+     * waypoint with the one I was drawing five minutes ago".
+     */
+    fun editWaypoint(id: String, change: (SharedWaypoint) -> SharedWaypoint) {
+        val existing = book.waypoint(id) ?: return
+        book = book.withWaypoint(change(existing))
+        persist()
+        refresh()
+    }
+
+    fun deleteWaypoint(id: String) {
+        if (book.waypoint(id) == null) return
+        book = book.withoutWaypoint(id)
+        persist()
+        refresh()
+    }
+
+    fun editCollection(id: String, change: (WaypointCollection) -> WaypointCollection) {
+        val existing = book.collection(id) ?: return
+        book = book.withCollection(change(existing))
+        persist()
+        refresh()
+    }
+
+    /** Removes a collection. Its waypoints survive — see [WaypointBook.withoutCollection]. */
+    fun deleteCollection(id: String) {
+        book = book.withoutCollection(id)
+        persist()
+        refresh()
+    }
+
+    /** Adds an empty collection with a placeholder name, for the screen's "add" button to then rename. */
+    fun addCollection(name: String = "New collection"): WaypointCollection {
+        val collection = WaypointCollection(id = "col." + now().toString(RADIX), name = name)
         book = book.withCollection(collection)
         persist()
         refresh()
+        return collection
     }
 
     private companion object {

@@ -523,6 +523,7 @@ object Sidequest : ClientModInitializer {
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
             standingAt = { platform.localPosition },
         )
+        waypoints.openManager = ::openWaypointManager
 
         pings = PingSystem(
             aimedAt = { platform.aimedAt },
@@ -549,6 +550,31 @@ object Sidequest : ClientModInitializer {
     private lateinit var gardenBobbing: GardenViewBobbing
 
     private lateinit var waypoints: SharedWaypoints
+
+    /**
+     * Opens the waypoint manager.
+     *
+     * Rebuilt from the book each time, because the screen's *shape* is a snapshot — a category per
+     * collection, a section per waypoint. Edits to a row's contents write straight through; edits that add or
+     * remove a row reopen, which is why `reopen` exists rather than the screen trying to mutate its own tree.
+     *
+     * No persistence controller is passed. This screen's bindings write into the book, which saves itself —
+     * handing it the configuration's controller would have it write waypoint rows into the settings file.
+     */
+    fun openWaypointManager() {
+        if (!::waypoints.isInitialized) return
+        val actions = WaypointActions(
+            edit = waypoints::editWaypoint,
+            delete = waypoints::deleteWaypoint,
+            editCollection = waypoints::editCollection,
+            deleteCollection = waypoints::deleteCollection,
+            addCollection = { waypoints.addCollection() },
+            reopen = { Minecraft.getInstance().execute(::openWaypointManager) },
+        )
+        Minecraft.getInstance().setScreenAndShow(
+            SidequestConfigScreen(buildWaypointScreen(waypoints.book(), actions), activeTheme()),
+        )
+    }
 
     private lateinit var pings: PingSystem
 
