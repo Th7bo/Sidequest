@@ -3,41 +3,44 @@ package dev.th7bo.sidequest.platform.core.item
 import dev.th7bo.sidequest.platform.parser.HypixelText
 
 /**
- * Finds a SkyBlock item's key from the words in its name.
+ * Finds a SkyBlock item's key from its name.
  *
- * **The general answer to a problem that was being solved one family at a time.** A display name does not
- * derive its key: `Rarefinder Chip` is `RAREFINDER_GARDEN_CHIP`, `Pray For Me Vinyl` is
- * `VINYL_PRAY_FOR_ME`, `Necron's Handle` is `NECRON_HANDLE`. Every one of those needed its own rule, and
- * there are dozens more families — runes, gemstones, shards, kits — each of which would have needed
- * another, discovered by somebody noticing an item with no picture.
+ * **Built from the database's own display names, and it has to be.** The first version of this searched the
+ * *filenames* instead, on the theory that a key is a mangled display name whose words survive. Measured
+ * against all 8,457 real entries that resolved 60% of them, and left 38% with no answer at all: `Rod of
+ * Champions` is `CHAMP_ROD`, `Pendant of Divan` is `DIVAN_PENDANT`, `Canopy Shirt` is `CANOPY_CHESTPLATE`,
+ * `Tasty Cat Food` is `DEAD_CAT_FOOD`. Names are abbreviated, reordered, and sometimes use a different word
+ * entirely. Nothing derived from a key can be right in general, which is why every mod that does this
+ * downloads the repository — the answer is only inside the files.
  *
- * So this stops trying to *transform* a name and searches instead. Given every key the database has, an
- * item is the key whose words are the name's words. That is one rule for all of them, and the families
- * above fall out of it without being mentioned.
+ * With the real names, a lookup is a map read: the cleaned display name is unique for 7,260 of the 7,381
+ * distinct ones.
  *
- * **Keys only, not display names.** The mod that usually reads this data downloads the entire repository —
- * thousands of files — to build an index of display names. This needs the *filenames*, which is one listing
- * and a fraction of the bytes, and works because a key is a mangled display name: the words survive even
- * when the order and the extra category words do not.
- *
- * The trade is honest: this cannot resolve a name that shares no word with its key. Nothing observed does.
+ * The word search is kept as a second pass, for a name that arrives slightly different from the stored one —
+ * a suffix Hypixel adds in chat, a stray article. It is a fallback now rather than the mechanism.
  */
-public class NeuNameIndex(keys: Collection<String>) {
+public class NeuNameIndex(entries: Collection<NeuArchive.Entry>) {
 
-    /** Word to the keys containing it. Built once; the whole point is that lookups touch no network. */
+    /** Cleaned display name to the keys under it. A list because a few names are shared. */
+    private val byName: Map<String, List<String>>
+
+    /** Word to the keys whose *display name* contains it, for the near-miss pass. */
     private val byWord: Map<String, List<String>>
 
-    /** Every key, so a caller can ask how much is known. */
-    public val size: Int = keys.size
+    /** How many items are known, for the inspector. */
+    public val size: Int = entries.size
 
     init {
-        val index = HashMap<String, MutableList<String>>()
-        for (key in keys) {
-            for (word in wordsOf(key).toSet()) {
-                index.getOrPut(word) { ArrayList() }.add(key)
+        val names = HashMap<String, MutableList<String>>()
+        val words = HashMap<String, MutableList<String>>()
+        for (entry in entries) {
+            names.getOrPut(normalise(entry.displayName)) { ArrayList() }.add(entry.internalName)
+            for (word in wordsOf(entry.displayName).toSet()) {
+                words.getOrPut(word) { ArrayList() }.add(entry.internalName)
             }
         }
-        byWord = index
+        byName = names
+        byWord = words
     }
 
     /**
@@ -52,27 +55,24 @@ public class NeuNameIndex(keys: Collection<String>) {
      * `ENCHANTED_BOOK_BUNDLE_POWER` — and that ordering is the whole of the disambiguation.
      */
     public fun resolve(displayName: String, limit: Int = DEFAULT_LIMIT): List<String> {
-        // Both readings of a possessive, for the same reason the direct lookup tries both: `Giant's Sword`
-        // keeps its S and `Necron's Handle` loses it, and no rule produces both.
-        // Cleaned first. A name arrives from chat carrying formatting, and `§6` splits into the word "6",
-        // which is in no key — so an uncleaned name matched nothing at all rather than matching loosely.
-        val cleaned = HypixelText.clean(displayName)
-        val readings = listOf(
-            wordsOf(cleaned.replace("'", "").replace("’", "")),
-            wordsOf(cleaned.replace(POSSESSIVE, "")),
-        ).filter { it.isNotEmpty() }.distinct()
-
+        val cleaned = NeuArchive.cleanDisplayName(HypixelText.clean(displayName))
         val found = LinkedHashSet<String>()
-        for (words in readings) {
-            for (key in matching(words)) {
-                found.add(key)
-                if (found.size >= limit) return found.toList()
-            }
+
+        // The name as the database spells it. This is the answer for almost everything, and it is a map
+        // read rather than a search — no ranking, no guessing, no way to be subtly wrong.
+        byName[normalise(cleaned)]?.let(found::addAll)
+        if (found.size >= limit) return found.take(limit)
+
+        // Only then the words, for a name that arrived a little different from the stored one.
+        for (key in matching(wordsOf(cleaned))) {
+            found.add(key)
+            if (found.size >= limit) break
         }
         return found.toList()
     }
 
     private fun matching(words: List<String>): List<String> {
+        if (words.isEmpty()) return emptyList()
         // Start from the rarest word, so the intersection begins as small as possible. On a name like
         // "Enchanted Book" the difference is a list of two against a list of nine hundred.
         val postings = words.map { byWord[it] ?: return emptyList() }
@@ -95,8 +95,14 @@ public class NeuNameIndex(keys: Collection<String>) {
 
         private val SEPARATORS = Regex("[^A-Za-z0-9]+")
 
-        /** A trailing `'s`, which one family keeps and another drops. */
-        private val POSSESSIVE = Regex("['’]s\\b", RegexOption.IGNORE_CASE)
+        /**
+         * A name reduced to what two spellings of it have in common.
+         *
+         * Case, punctuation and spacing go, so `Necron's Handle` and `Necrons Handle` are one key. The
+         * database's own spelling is authoritative; this only stops a stray apostrophe from missing it.
+         */
+        internal fun normalise(value: String): String =
+            value.uppercase().replace(SEPARATORS, "")
 
         /**
          * The words of a key or a name.

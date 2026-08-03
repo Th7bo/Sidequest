@@ -351,6 +351,9 @@ class SidequestPlatform(
     private val itemRepository = NeuItemRepository(
         transport = JdkHttpTransport(),
         log = loggers.create(LogCategory.PLATFORM, SqId.sidequest("items")),
+        // The database's archive is bytes, and the ordinary transport answers with text — a gzip stream
+        // read as a String is a corrupted gzip stream. This is the same transport the asset manager uses.
+        archives = JdkAssetTransport(),
     )
 
     val items: SkyBlockItemRepository get() = itemRepository

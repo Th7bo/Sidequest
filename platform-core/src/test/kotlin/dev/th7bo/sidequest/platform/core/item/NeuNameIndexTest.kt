@@ -5,27 +5,44 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * Finding an item's key from the words in its name.
+ * Finding an item's key from its name.
  *
- * Every key below is real, taken from the live repository. That matters more here than usual: the whole
- * claim of this class is that one rule replaces a growing list of per-family ones, and a test built from
- * invented keys would prove that against a world I made up rather than the one the mod runs in.
+ * Every pair below is real, read out of the database. That matters more here than usual: the claim being
+ * tested is that the stored display names are the only reliable answer, and a test built from invented
+ * pairs would prove it against a world where names are tidy — which is exactly the world that does not
+ * exist, and exactly why searching the filenames resolved three items in five.
  */
 class NeuNameIndexTest {
 
+    private fun entry(name: String, key: String) = NeuArchive.Entry(name, key)
+
+    /**
+     * Real pairs, taken from the database.
+     *
+     * Every one of these is a display name that does *not* derive its key — which is the point. A test
+     * built from invented pairs would prove the lookup against a world where names are tidy.
+     */
     private val index = NeuNameIndex(
         listOf(
-            // Ordinary items, where the key is the name.
-            "HYPERION", "REVENANT_CATALYST", "JUDGEMENT_CORE", "WARDEN_HEART", "TARANTULA_TALISMAN",
-            "POCKET_ESPRESSO_MACHINE", "FOUL_FLESH", "ENCHANTED_BOOK",
-            // The families that each needed a rule of their own.
-            "RAREFINDER_GARDEN_CHIP", "CROPSHOT_GARDEN_CHIP", "VINYL_PRAY_FOR_ME", "VINYL_WINGS_OF_HARMONY",
-            "NECRON_HANDLE", "GIANTS_SWORD",
-            // Pets, which exist once per rarity.
-            "BABY_YETI;0", "BABY_YETI;3", "BABY_YETI;4", "SLUG;3", "SLUG;4",
-            // Variants that must not win over the plain item.
-            "CROPIE", "CROPIE_BOOTS", "CROPIE_HELMET", "SLUG_BOOTS",
-            "ENCHANTED_BOOK_BUNDLE_POWER", "RAREFINDER_BOOTS",
+            entry("Hyperion", "HYPERION"),
+            entry("Revenant Catalyst", "REVENANT_CATALYST"),
+            entry("Judgement Core", "JUDGEMENT_CORE"),
+            entry("Rarefinder Chip", "RAREFINDER_GARDEN_CHIP"),
+            entry("Pray For Me Vinyl", "VINYL_PRAY_FOR_ME"),
+            entry("Wings of Harmony Vinyl", "VINYL_WINGS_OF_HARMONY"),
+            entry("Necron's Handle", "NECRON_HANDLE"),
+            entry("Giant's Sword", "GIANTS_SWORD"),
+            // The ones the old filename search could never have found.
+            entry("Rod of Champions", "CHAMP_ROD"),
+            entry("Pendant of Divan", "DIVAN_PENDANT"),
+            entry("Canopy Shirt", "CANOPY_CHESTPLATE"),
+            entry("Tasty Cat Food", "DEAD_CAT_FOOD"),
+            entry("Blindness III Potion", "POTION_BLINDNESS;3"),
+            entry("Baby Yeti", "BABY_YETI;3"),
+            entry("Slug", "SLUG;4"),
+            entry("Cropie", "CROPIE"),
+            entry("Cropie Boots", "CROPIE_BOOTS"),
+            entry("Enchanted Book", "ENCHANTED_BOOK"),
         ),
     )
 
@@ -34,11 +51,20 @@ class NeuNameIndexTest {
     // -- the families that each needed their own rule ------------------------
 
     /**
-     * The three shapes that prompted this, resolved by one rule.
+     * The names whose keys nothing could derive.
      *
-     * A chip's key carries a category word the name does not; a vinyl's carries the same word moved to the
-     * front. Searching for the name's words inside the key handles both without either being mentioned.
+     * `Rod of Champions` is `CHAMP_ROD` and `Canopy Shirt` is `CANOPY_CHESTPLATE` — an abbreviation and a
+     * different word. Searching the filenames answered neither, which is what sent this to the archive.
      */
+    @Test
+    fun `a key that shares no word with its name still resolves`() {
+        assertEquals("CHAMP_ROD", best("Rod of Champions"))
+        assertEquals("DIVAN_PENDANT", best("Pendant of Divan"))
+        assertEquals("CANOPY_CHESTPLATE", best("Canopy Shirt"))
+        assertEquals("DEAD_CAT_FOOD", best("Tasty Cat Food"))
+        assertEquals("POTION_BLINDNESS;3", best("Blindness III Potion"))
+    }
+
     @Test
     fun `the families that needed rules resolve without them`() {
         assertEquals("RAREFINDER_GARDEN_CHIP", best("Rarefinder Chip"))
@@ -57,7 +83,7 @@ class NeuNameIndexTest {
     fun `an ordinary item is itself`() {
         assertEquals("HYPERION", best("Hyperion"))
         assertEquals("REVENANT_CATALYST", best("Revenant Catalyst"))
-        assertEquals("POCKET_ESPRESSO_MACHINE", best("Pocket Espresso Machine"))
+        assertEquals("JUDGEMENT_CORE", best("Judgement Core"))
     }
 
     /** A pet's rarity suffix is not a word, or no name would ever match one. */
@@ -81,12 +107,11 @@ class NeuNameIndexTest {
         assertEquals("ENCHANTED_BOOK", best("Enchanted Book"))
     }
 
-    /** Boots that share a word are not the chip, because they are missing one the name has. */
+    /** The stored spelling wins outright, so a near-miss pass can never override an exact name. */
     @Test
-    fun `a key missing one of the words does not qualify`() {
-        val candidates = index.resolve("Rarefinder Chip")
-
-        assertTrue("RAREFINDER_BOOTS" !in candidates, candidates.toString())
+    fun `an exact name is not second-guessed`() {
+        assertEquals("CROPIE", index.resolve("Cropie").first())
+        assertEquals("CROPIE_BOOTS", index.resolve("Cropie Boots").first())
     }
 
     @Test
@@ -95,13 +120,10 @@ class NeuNameIndexTest {
         assertTrue(index.resolve("").isEmpty())
     }
 
-    /** More than one plausible answer is offered, best first, so a caller can try them in turn. */
     @Test
-    fun `several candidates come back in order`() {
-        val candidates = index.resolve("Cropie")
-
-        assertEquals("CROPIE", candidates.first())
-        assertTrue(candidates.size > 1, "the variants are still offered: $candidates")
+    fun `a name the database does not have falls back to its words`() {
+        // Not a stored name, but every word of it is in one — the near-miss pass is what catches this.
+        assertEquals("CROPIE_BOOTS", best("Boots Cropie"))
     }
 
     @Test

@@ -3,6 +3,8 @@ package dev.th7bo.sidequest.platform.core.item
 import dev.th7bo.sidequest.platform.backend.HttpExchange
 import dev.th7bo.sidequest.platform.backend.HttpMethod
 import dev.th7bo.sidequest.platform.backend.HttpRequest
+import dev.th7bo.sidequest.platform.asset.AssetFetch
+import dev.th7bo.sidequest.platform.asset.AssetTransport
 import dev.th7bo.sidequest.platform.backend.HttpTransport
 import dev.th7bo.sidequest.platform.item.RepositoryStats
 import dev.th7bo.sidequest.platform.item.SkyBlockItem
@@ -11,7 +13,6 @@ import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.parser.HypixelText
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -35,6 +36,14 @@ public class NeuItemRepository(
     private val log: Logger,
     /** Where the item files live. Overridden in tests; pinned to a tag would be the way to freeze it. */
     private val baseUrl: String = DEFAULT_BASE_URL,
+    /**
+     * Fetches the database archive, which is bytes rather than text.
+     *
+     * A separate transport because the ordinary one answers with a `String`, and a gzip stream read as
+     * text is a corrupted gzip stream. Null disables the name index entirely, which is a supported state:
+     * the hand-written candidates still resolve everything they resolved before.
+     */
+    private val archives: AssetTransport? = null,
 ) : SkyBlockItemRepository {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
@@ -111,65 +120,42 @@ public class NeuItemRepository(
     }
 
     /**
-     * Fetches the list of every key, once.
+     * Fetches the item database once, and builds the name index from it.
      *
-     * Two requests: the repository's root tree, then the one for `items`. GitHub's listing API caps at a
-     * thousand entries and there are eight and a half thousand items, which is why this reads the git tree
-     * rather than the contents endpoint.
+     * **The whole archive, because the answer is only inside the files.** The keys are not derivable from
+     * the names — `Rod of Champions` is `CHAMP_ROD` — so a listing of filenames, which is what this used to
+     * fetch, could resolve 60% of items and no more. Nine megabytes, once, is the price of the other 40%.
      *
-     * A failure is remembered as an attempt rather than retried. The lookup degrades to the candidates it
-     * used before and still works; asking again on every drop would turn one unreachable host into a
+     * A failure is remembered as an attempt rather than retried. The lookup degrades to the hand-written
+     * candidates and still works; asking again on every drop would turn one unreachable host into a
      * request per rare drop for the rest of the session.
      */
     private suspend fun loadIndex() {
         if (indexAttempted || index != null) return
         indexAttempted = true
 
-        val root = getJson(TREES + "master") ?: return
-        val itemsSha = runCatching {
-            root["tree"]!!.jsonArray
-                .first { it.jsonObject["path"]?.jsonPrimitive?.content == "items" }
-                .jsonObject["sha"]!!.jsonPrimitive.content
-        }.getOrElse {
-            log.debug(it) { "The item repository's listing did not name an items directory" }
-            return
-        }
-
-        // `trees/<sha>`, not `trees/master/<sha>`. The second reads like a path under the branch and is a
-        // 404 — which the fake in the tests happily served, because it was built to match the code rather
-        // than the API. Checked against the real endpoint.
-        val items = getJson(TREES + itemsSha) ?: return
-        val keys = runCatching {
-            items["tree"]!!.jsonArray.mapNotNull { entry ->
-                entry.jsonObject["path"]?.jsonPrimitive?.content
-                    ?.takeIf { it.endsWith(".json") }
-                    ?.removeSuffix(".json")
-            }
-        }.getOrElse {
-            log.debug(it) { "Could not read the item listing" }
-            return
-        }
-
-        if (keys.isEmpty()) return
-        index = NeuNameIndex(keys)
-        log.info { "Learned the names of ${keys.size} SkyBlock items" }
-    }
-
-    private suspend fun getJson(url: String): kotlinx.serialization.json.JsonObject? =
-        when (val response = transport.send(HttpRequest(HttpMethod.GET, url))) {
-            is HttpExchange.Failure -> {
-                log.debug { "Could not reach the item listing: ${response.reason}" }
-                null
-            }
-            is HttpExchange.Response ->
-                if (!response.isSuccess) {
-                    log.debug { "The item listing answered ${response.status}" }
-                    null
-                } else {
-                    runCatching { json.parseToJsonElement(response.body).jsonObject }.getOrNull()
+        val archive = archives ?: return
+        when (val fetched = archive.fetch(ARCHIVE_URL, MAX_ARCHIVE_BYTES)) {
+            is AssetFetch.Body -> {
+                val entries = runCatching { NeuArchive.read(fetched.bytes) }.getOrElse { thrown ->
+                    log.warn(thrown) { "Could not read the item database" }
+                    return
                 }
-        }
+                if (entries.isEmpty()) {
+                    log.debug { "The item database had no named entries" }
+                    return
+                }
+                index = NeuNameIndex(entries)
+                log.info { "Learned the names of ${entries.size} SkyBlock items" }
+            }
 
+            is AssetFetch.TooLarge ->
+                log.warn { "The item database is larger than ${fetched.limitBytes} bytes; names unavailable" }
+
+            is AssetFetch.Failure ->
+                log.debug { "Could not fetch the item database: ${fetched.reason}" }
+        }
+    }
     override suspend fun prefetch(displayName: String) {
         runCatching { byDisplayName(displayName) }
     }
@@ -309,13 +295,22 @@ public class NeuItemRepository(
         private const val NOT_FOUND = 404
 
         /**
-         * The repository's git tree.
+         * The database as one archive.
          *
-         * The git API rather than the contents one, which caps at a thousand entries — there are eight and
-         * a half thousand items, so the obvious endpoint silently returns a fraction of them.
+         * `codeload` rather than the API, and that is deliberate: the API allows sixty unauthenticated
+         * requests an hour per address, which a household behind one connection can reach on a bad
+         * afternoon. This endpoint has no such limit and is the one every other consumer of this data uses.
          */
-        private const val TREES =
-            "https://api.github.com/repos/NotEnoughUpdates/NotEnoughUpdates-REPO/git/trees/"
+        private const val ARCHIVE_URL =
+            "https://codeload.github.com/NotEnoughUpdates/NotEnoughUpdates-REPO/tar.gz/refs/heads/master"
+
+        /**
+         * A ceiling on the download.
+         *
+         * The archive is about nine megabytes. Thirty-two is room for it to grow for years and still a
+         * refusal rather than an unbounded read into memory if the URL ever answers with something else.
+         */
+        private const val MAX_ARCHIVE_BYTES = 32L * 1024 * 1024
 
         /** Where the skin sits in the 1.8 NBT string: `Properties:{textures:[0:{Name:"textures",…Value:"…"`. */
         private const val TEXTURE_MARKER = "Value:"

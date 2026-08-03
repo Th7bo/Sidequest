@@ -1,5 +1,7 @@
 package dev.th7bo.sidequest.platform.core.item
 
+import dev.th7bo.sidequest.platform.asset.AssetFetch
+import dev.th7bo.sidequest.platform.asset.AssetTransport
 import dev.th7bo.sidequest.platform.backend.HttpExchange
 import dev.th7bo.sidequest.platform.testkit.FakeTransport
 import dev.th7bo.sidequest.platform.testkit.NoopLogger
@@ -32,7 +34,8 @@ class NeuItemRepositoryTest {
         fallback = { HttpExchange.Response(status = 404, body = "404: Not Found", headers = emptyMap()) }
     }
 
-    private fun repository() = NeuItemRepository(transport, NoopLogger, baseUrl = BASE)
+    private fun repository(archives: AssetTransport? = null) =
+        NeuItemRepository(transport, NoopLogger, baseUrl = BASE, archives = archives)
 
     private fun serve(name: String, body: String) {
         transport.respond("$BASE/$name.json", body)
@@ -227,76 +230,111 @@ class NeuItemRepositoryTest {
         assertEquals("minecraft:paper", item?.minecraftId)
     }
 
-    // -- the name listing ----------------------------------------------------
+    // -- the name index ------------------------------------------------------
 
     /**
-     * A name whose key nothing could have derived, resolved through the listing.
+     * A name whose key nothing could have derived, resolved through the database's own display names.
      *
-     * `Rarefinder Chip` is `RAREFINDER_GARDEN_CHIP` — a category word that appears in the key and nowhere
-     * on the item. This is the whole reason the listing is fetched: without it, that family needed a rule,
-     * and so does every other one nobody has hit yet.
+     * `Rarefinder Chip` is `RAREFINDER_GARDEN_CHIP`. What makes this worth a test is not that it resolves —
+     * a hand-written rule managed that — but that it resolves in *one* request, because the index named a
+     * key that exists rather than guessing at several.
      */
     @Test
-    fun `an item is found through the name listing`() = runTest {
-        serveListing("RAREFINDER_GARDEN_CHIP", "HYPERION")
+    fun `an item is found through the name index`() = runTest {
+        val archives = FakeArchives(tarGz("Rarefinder Chip" to "RAREFINDER_GARDEN_CHIP"))
         serve("RAREFINDER_GARDEN_CHIP", chipEntry())
 
-        val item = repository().byDisplayName("Rarefinder Chip")
+        val item = repository(archives).byDisplayName("Rarefinder Chip")
 
         assertEquals("RAREFINDER_GARDEN_CHIP", item?.internalName)
-        // One request, because the listing named a key that exists rather than guessing at one.
         assertEquals(1, itemRequests().size, itemRequests().map { it.url }.toString())
     }
 
     /**
-     * An unreachable listing is not a broken lookup.
+     * An unreachable database is not a broken lookup.
      *
-     * The hand-written candidates were the whole answer before the listing existed and remain the fallback,
-     * so a client that cannot reach GitHub still resolves everything it could resolve before.
+     * The hand-written candidates were the whole answer before the index existed and remain the fallback,
+     * so a client that cannot fetch nine megabytes still resolves everything it resolved before.
      */
     @Test
-    fun `a lookup still works when the listing cannot be fetched`() = runTest {
-        transport.on("api.github.com") { HttpExchange.Failure("no route to host") }
+    fun `a lookup still works when the archive cannot be fetched`() = runTest {
+        val archives = FakeArchives(bytes = null)
         serve("HYPERION", HYPERION)
 
-        assertNotNull(repository().byDisplayName("Hyperion"))
+        assertNotNull(repository(archives).byDisplayName("Hyperion"))
     }
 
-    /** Asked for once. A listing that could not be fetched must not be retried on every drop. */
+    /** Fetched once. Nine megabytes per rare drop would be the worst bug in the mod. */
     @Test
-    fun `the listing is attempted once per session`() = runTest {
-        transport.on("api.github.com") { HttpExchange.Failure("no route to host") }
-        val repository = repository()
+    fun `the archive is fetched once per session`() = runTest {
+        val archives = FakeArchives(tarGz("Hyperion" to "HYPERION"))
+        serve("HYPERION", HYPERION)
+        val repository = repository(archives)
+
+        repeat(4) { repository.byDisplayName("Hyperion") }
+
+        assertEquals(1, archives.fetches, "it should hold the index rather than refetch it")
+    }
+
+    /** An archive that fails to download is not retried on every drop either. */
+    @Test
+    fun `a failed archive fetch is not retried`() = runTest {
+        val archives = FakeArchives(bytes = null)
+        val repository = repository(archives)
 
         repeat(4) { repository.byDisplayName("Whatever It Is") }
 
-        val listingRequests = transport.requests.count { "api.github.com" in it.url }
-        assertEquals(1, listingRequests, "it should give up rather than ask again")
+        assertEquals(1, archives.fetches, "it should give up rather than ask again")
     }
 
-    /** Serves a git tree listing naming [keys], the way GitHub answers it. */
-    private fun serveListing(vararg keys: String) {
-        transport.respond(
-            "git/trees/master",
-            """{"tree":[{"path":"items","type":"tree","sha":"itemsha"}]}""",
-        )
-        transport.respond(
-            // `trees/<sha>`, which is what the real endpoint answers. This fixture said
-            // `trees/master/<sha>` — the shape the code used — and so agreed with the bug instead of
-            // catching it. Checked against the live API.
-            "git/trees/itemsha",
-            keys.joinToString(",", """{"tree":[""", "]}") { """{"path":"$it.json","type":"blob"}""" },
-        )
-    }
+    /** Answers with an archive, or refuses. Counts how often it was asked. */
+    private class FakeArchives(private val bytes: ByteArray?) : AssetTransport {
+        var fetches = 0
+            private set
 
-    private fun chipEntry() = """
-        {
-          "itemid": "minecraft:paper",
-          "displayname": "§9Rarefinder Chip",
-          "nbttag": "{ExtraAttributes:{id:\"RAREFINDER_GARDEN_CHIP\"},ItemModel:\"hypixel_skyblock:item/island_relevant/garden/chips/rarefinder_chip\"}",
-          "internalname": "RAREFINDER_GARDEN_CHIP"
+        override suspend fun fetch(url: String, maxBytes: Long): AssetFetch {
+            fetches++
+            return bytes?.let { AssetFetch.Body(it) } ?: AssetFetch.Failure("no route to host")
         }
-    """.trimIndent()
+    }
+
+    /**
+     * A `.tar.gz` holding one item file per pair.
+     *
+     * Synthetic, and only proves the repository *uses* what it reads. That the reader copes with what
+     * GitHub actually serves is `NeuArchiveRealTest`, against a real archive — a tar written by the same
+     * test that reads it would only prove the two agree.
+     */
+    private fun tarGz(vararg pairs: Pair<String, String>): ByteArray {
+        val tar = java.io.ByteArrayOutputStream()
+        for ((display, key) in pairs) {
+            val body = ("{\"internalname\":\"" + key + "\",\"displayname\":\"" + display +
+                "\",\"itemid\":\"minecraft:paper\"}").toByteArray()
+            val header = ByteArray(BLOCK)
+            val name = ("repo/items/" + key + ".json").toByteArray()
+            name.copyInto(header, 0, 0, minOf(name.size, 100))
+            // Size as octal text, and the type byte, at the offsets a tar header defines.
+            "%011o ".format(body.size).toByteArray().copyInto(header, 124)
+            header[156] = '0'.code.toByte()
+            // The checksum field counts as spaces while the sum is taken.
+            for (i in 148 until 156) header[i] = ' '.code.toByte()
+            val sum = header.sumOf { it.toInt() and 0xFF }
+            "%06o  ".format(sum).toByteArray().copyInto(header, 148)
+
+            tar.write(header)
+            tar.write(body)
+            val padding = (BLOCK - body.size % BLOCK) % BLOCK
+            tar.write(ByteArray(padding))
+        }
+        tar.write(ByteArray(BLOCK * 2))
+
+        val gzipped = java.io.ByteArrayOutputStream()
+        java.util.zip.GZIPOutputStream(gzipped).use { it.write(tar.toByteArray()) }
+        return gzipped.toByteArray()
+    }
+
+    /** A real entry, trimmed. The chip whose key nothing could have derived. */
+    private fun chipEntry(): String = CHIP_ENTRY
 
     // -- fetching ------------------------------------------------------------
 
@@ -426,6 +464,18 @@ class NeuItemRepositoryTest {
     }
 
     private companion object {
+        /** A tar block. See tarGz. */
+        const val BLOCK = 512
+
+        val CHIP_ENTRY = """
+            {
+              "itemid": "minecraft:paper",
+              "displayname": "\u00A79Rarefinder Chip",
+              "internalname": "RAREFINDER_GARDEN_CHIP"
+            }
+        """.trimIndent()
+
+
         const val BASE = "https://example.invalid/items"
 
         /** Trimmed from the live entry: the fields this mod reads, in the shape the repository writes them. */
