@@ -159,7 +159,10 @@ class SharedWaypoints(
         }
         val name = label.ifBlank { "Waypoint" }
         val waypoint = SharedWaypoint(
-            id = SqId.sidequest("wp").toString() + "/" + now().toString(RADIX),
+            // Plain letters and digits. This was `SqId.sidequest("wp")` stringified, which carries a colon
+            // and a slash — and the manager screen builds a `UiId` per row from it, whose grammar allows
+            // neither. Every waypoint saved made that screen throw on the way up.
+            id = "wp" + nextId(),
             label = name,
             location = SqLocation(context.gameContext.island, position, context.gameContext.context.profile),
             creator = localPlayer(),
@@ -291,6 +294,18 @@ class SharedWaypoints(
     /** Opens the manager. Set by the mod, which owns screens. */
     var openManager: () -> Unit = {}
 
+    /** Counts within a millisecond, so two things made in the same tick cannot share an id. */
+    private var idCounter = 0
+
+    /**
+     * A short, unique, alphanumeric id.
+     *
+     * Alphanumeric because ids end up as `UiId` path segments on the manager screen, and that grammar allows
+     * letters, digits and underscores only. Base 36 keeps it short enough to type after `/sqwp remove`, on
+     * the rare occasion somebody addresses one by id rather than by name.
+     */
+    private fun nextId(): String = now().toString(RADIX) + (idCounter++).toString(RADIX)
+
     private fun say(title: String, subtitle: String = "") {
         context.notifications.notify(
             notification(category = NotificationCategory.SOCIAL, title = title, subtitle = subtitle),
@@ -347,7 +362,7 @@ class SharedWaypoints(
 
     /** Adds an empty collection with a placeholder name, for the screen's "add" button to then rename. */
     fun addCollection(name: String = "New collection"): WaypointCollection {
-        val collection = WaypointCollection(id = "col." + now().toString(RADIX), name = name)
+        val collection = WaypointCollection(id = "col" + nextId(), name = name)
         book = book.withCollection(collection)
         persist()
         refresh()

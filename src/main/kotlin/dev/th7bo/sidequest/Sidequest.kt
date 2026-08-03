@@ -578,6 +578,7 @@ object Sidequest : ClientModInitializer {
         val client = Minecraft.getInstance()
         client.schedule {
             val actions = WaypointActions(
+                current = waypoints::book,
                 edit = waypoints::editWaypoint,
                 delete = waypoints::deleteWaypoint,
                 editCollection = waypoints::editCollection,

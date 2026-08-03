@@ -21,6 +21,15 @@ import dev.th7bo.sidequest.ui.rendering.Color
  * drew.
  */
 public class WaypointActions(
+    /**
+     * The book as it is *now*.
+     *
+     * Every value on the screen reads through this rather than from the snapshot the rows were described
+     * from. Binding a getter to a captured object was the bug that made every field look frozen: typing wrote
+     * through fine, and then the control re-read the stale copy it had closed over and drew the old value
+     * back. Structure comes from the snapshot; contents come from here.
+     */
+    public val current: () -> WaypointBook,
     public val edit: (id: String, change: (SharedWaypoint) -> SharedWaypoint) -> Unit,
     public val delete: (id: String) -> Unit,
     public val editCollection: (id: String, change: (WaypointCollection) -> WaypointCollection) -> Unit,
@@ -69,44 +78,44 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
         for (collection in book.collections.sortedBy { it.name.lowercase() }) {
             val contents = book.inCollection(collection.id)
             category(
-                id("waypoints.c." + collection.id),
+                id("waypoints.c." + slug(collection.id)),
                 collection.name,
                 description = folderLabel(collection, contents.size),
                 icon = MinecraftIcons.waypoints,
             ) {
                 section("Collection", description = "Applies to everything in it", collapsible = true) {
                     textField(
-                        id = id("waypoints.c.${collection.id}.name"),
+                        id = id("waypoints.c.${slug(collection.id)}.name"),
                         title = "Name",
                         value = bind(
-                            get = { collection.name },
+                            get = { liveCollection(actions, collection).name },
                             set = { value -> actions.editCollection(collection.id) { it.copy(name = value) } },
                             debugName = "collection.name",
                         ),
                     )
                     textField(
-                        id = id("waypoints.c.${collection.id}.folder"),
+                        id = id("waypoints.c.${slug(collection.id)}.folder"),
                         title = "Folder",
                         description = "Slash-separated. Leave empty for the top level.",
                         value = bind(
-                            get = { collection.folder },
+                            get = { liveCollection(actions, collection).folder },
                             set = { value -> actions.editCollection(collection.id) { it.copy(folder = value.trim('/')) } },
                             debugName = "collection.folder",
                         ),
                         placeholder = "dungeons/f7",
                     )
                     toggle(
-                        id = id("waypoints.c.${collection.id}.visible"),
+                        id = id("waypoints.c.${slug(collection.id)}.visible"),
                         title = "Show these",
                         description = "Off hides them without deleting anything",
                         value = bind(
-                            get = { collection.isVisible },
+                            get = { liveCollection(actions, collection).isVisible },
                             set = { value -> actions.editCollection(collection.id) { it.copy(isVisible = value) } },
                             debugName = "collection.visible",
                         ),
                     )
                     button(
-                        id = id("waypoints.c.${collection.id}.delete"),
+                        id = id("waypoints.c.${slug(collection.id)}.delete"),
                         title = "Delete this collection",
                         label = "Delete",
                         // Said plainly on the button rather than behind a confirmation, because it is not a
@@ -146,7 +155,7 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
     book: WaypointBook,
     actions: WaypointActions,
 ) {
-    val prefix = "waypoints.w." + waypoint.id
+    val prefix = "waypoints.w." + slug(waypoint.id)
     section(
         waypoint.label.ifBlank { "Unnamed" },
         description = describe(waypoint),
@@ -158,7 +167,7 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
             id = id("$prefix.label"),
             title = "Name",
             value = bind(
-                get = { waypoint.label },
+                get = { live(actions, waypoint)?.label ?: waypoint.label },
                 set = { value -> actions.edit(waypoint.id) { it.copy(label = value) } },
                 debugName = "waypoint.label",
             ),
@@ -168,7 +177,7 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
             title = "Shared with",
             description = "Friends and party are worked out when somebody looks, not when you choose",
             value = bind(
-                get = { waypoint.audience.key },
+                get = { (live(actions, waypoint) ?: waypoint).audience.key },
                 set = { key -> actions.edit(waypoint.id) { it.copy(audience = audienceOf(key)) } },
                 debugName = "waypoint.audience",
             ),
@@ -178,7 +187,7 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
             id = id("$prefix.collection"),
             title = "Collection",
             value = bind(
-                get = { waypoint.collectionId },
+                get = { live(actions, waypoint)?.collectionId ?: waypoint.collectionId },
                 set = { value -> actions.edit(waypoint.id) { it.copy(collectionId = value) } },
                 debugName = "waypoint.collection",
             ),
@@ -189,7 +198,7 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
             id = id("$prefix.colour"),
             title = "Colour",
             value = bind(
-                get = { Color(waypoint.colour ?: DEFAULT_WAYPOINT_COLOUR) },
+                get = { Color(live(actions, waypoint)?.colour ?: DEFAULT_WAYPOINT_COLOUR) },
                 set = { value -> actions.edit(waypoint.id) { it.copy(colour = value.argb) } },
                 debugName = "waypoint.colour",
             ),
@@ -199,7 +208,7 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
             title = "Note",
             description = "Only for you. A note never leaves this client, even when the waypoint is shared.",
             value = bind(
-                get = { waypoint.note.orEmpty() },
+                get = { live(actions, waypoint)?.note.orEmpty() },
                 set = { value -> actions.edit(waypoint.id) { it.copy(note = value.ifBlank { null }) } },
                 debugName = "waypoint.note",
             ),
@@ -215,6 +224,27 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
             actions.reopen()
         }
     }
+}
+
+/** This waypoint as it stands now, or null if it has since been deleted. */
+private fun live(actions: WaypointActions, waypoint: SharedWaypoint): SharedWaypoint? =
+    actions.current().waypoint(waypoint.id)
+
+/** The same for a collection, falling back to the snapshot so a getter never has nothing to answer with. */
+private fun liveCollection(actions: WaypointActions, collection: WaypointCollection): WaypointCollection =
+    actions.current().collection(collection.id) ?: collection
+
+/**
+ * Any string, as a legal [UiId] path segment.
+ *
+ * The grammar allows letters, digits and underscores and nothing else, and a violation *throws* — which is
+ * what a waypoint id carrying a colon and a slash did, taking the whole screen with it before a single row
+ * was drawn. Ids are generated clean now; this is the guard that keeps an old book, or a future format, from
+ * doing the same thing again.
+ */
+private fun slug(raw: String): String {
+    val cleaned = raw.lowercase().map { if (it.isLetterOrDigit()) it else '_' }.joinToString("").trim('_')
+    return cleaned.ifEmpty { "unnamed" }
 }
 
 /** The line under a waypoint's name: where it is, and who can see it. */
