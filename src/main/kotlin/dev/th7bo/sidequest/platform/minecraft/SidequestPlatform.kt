@@ -22,6 +22,7 @@ import dev.th7bo.sidequest.platform.core.party.DefaultPartyService
 import dev.th7bo.sidequest.platform.core.permission.DefaultPermissionService
 import dev.th7bo.sidequest.platform.core.asset.DefaultAssetManager
 import dev.th7bo.sidequest.platform.core.item.NeuItemRepository
+import dev.th7bo.sidequest.platform.skyblock.SqPosition
 import dev.th7bo.sidequest.platform.item.SkyBlockItemRepository
 import dev.th7bo.sidequest.platform.core.cosmetic.CosmeticStore
 import dev.th7bo.sidequest.platform.core.cosmetic.DefaultCosmeticService
@@ -142,6 +143,15 @@ class SidequestPlatform(
     private val minecraftClient = MinecraftGameClient(version)
 
     val client: GameClient get() = minecraftClient
+
+    /**
+     * Where the local player is standing, or null outside a world.
+     *
+     * Kept off [GameClient] on purpose — a live position on the interface invites features to read one and
+     * forget which island they are on. Exposed here for the ones that genuinely need it, which so far means
+     * saving a waypoint where somebody is standing.
+     */
+    internal val localPosition: SqPosition? get() = minecraftClient.localPosition
 
     private val minecraftLifecycle = MinecraftGameLifecycle(minecraftClient)
 
