@@ -71,11 +71,13 @@ dependencies {
     implementation(project(":ui-components"))
     implementation(project(":platform-api"))
     implementation(project(":platform-core"))
+    implementation(project(":feature-ui"))
     "include"(project(":ui-api"))
     "include"(project(":ui-core"))
     "include"(project(":ui-components"))
     "include"(project(":platform-api"))
     "include"(project(":platform-core"))
+    "include"(project(":feature-ui"))
 
     // Compile-only: the classes come from the hypixel-mod-api mod at runtime. Everything
     // touching them is behind an `isModLoaded` guard, so a missing mod costs the extra

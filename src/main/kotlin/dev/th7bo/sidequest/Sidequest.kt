@@ -7,6 +7,10 @@ import dev.th7bo.sidequest.features.PingSystem
 import dev.th7bo.sidequest.features.RareDropAnimation
 import dev.th7bo.sidequest.features.SharedWaypoints
 import dev.th7bo.sidequest.features.SessionDiagnostics
+import dev.th7bo.sidequest.feature.ui.WaypointActions
+import dev.th7bo.sidequest.feature.ui.WaypointScreenIcons
+import dev.th7bo.sidequest.feature.ui.buildWaypointScreen
+import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
@@ -590,7 +594,10 @@ object Sidequest : ClientModInitializer {
                 reopen = ::openWaypointManager,
             )
             client.setScreenAndShow(
-                SidequestConfigScreen(buildWaypointScreen(waypoints.book(), actions), activeTheme()),
+                SidequestConfigScreen(
+                    buildWaypointScreen(waypoints.book(), actions, WAYPOINT_ICONS),
+                    activeTheme(),
+                ),
             )
         }
     }
@@ -716,6 +723,18 @@ object Sidequest : ClientModInitializer {
         runCatching { persistence.scheduleSave() }
             .onFailure { logger.warn("Could not save the configuration", it) }
     }
+
+    /**
+     * The waypoint screen's art.
+     *
+     * The one thing that screen takes from the mod. Everything else about it lives in `:feature-ui`, which
+     * has no Minecraft on its classpath and therefore has tests — which is the whole reason the icons are
+     * handed over rather than reached for.
+     */
+    private val WAYPOINT_ICONS = WaypointScreenIcons(
+        waypoint = MinecraftIcons.waypoints,
+        add = MinecraftIcons.features,
+    )
 
     /** Schema version of the on-disk configuration. Bump alongside a new migration. */
     const val CONFIG_SCHEMA_VERSION: Int = 1

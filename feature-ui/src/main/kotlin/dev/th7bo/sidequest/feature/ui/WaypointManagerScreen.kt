@@ -1,4 +1,4 @@
-package dev.th7bo.sidequest
+package dev.th7bo.sidequest.feature.ui
 
 import dev.th7bo.sidequest.platform.core.waypoint.WaypointBook
 import dev.th7bo.sidequest.platform.waypoint.SharedWaypoint
@@ -9,8 +9,14 @@ import dev.th7bo.sidequest.ui.config.ConfigScreen
 import dev.th7bo.sidequest.ui.config.configScreen
 import dev.th7bo.sidequest.ui.config.option
 import dev.th7bo.sidequest.ui.ids.UiId
-import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
+import dev.th7bo.sidequest.ui.rendering.Icon
 import dev.th7bo.sidequest.ui.rendering.Color
+
+/** The icons the waypoint screen draws. Defaulted to the framework's own; the host may supply better. */
+public data class WaypointScreenIcons(
+    public val waypoint: Icon = Icon(UiId.of("sidequest", "icon.waypoint")),
+    public val add: Icon = Icon(UiId.of("sidequest", "icon.plus")),
+)
 
 /**
  * What the waypoint screen can do to the book behind it.
@@ -55,7 +61,18 @@ public class WaypointActions(
  * change the screen's *shape* — deleting a waypoint, adding a collection — call [WaypointActions.reopen],
  * because a section cannot remove itself from a tree that was described before it existed.
  */
-public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): ConfigScreen {
+public fun buildWaypointScreen(
+    book: WaypointBook,
+    actions: WaypointActions,
+    /**
+     * The art, supplied rather than chosen.
+     *
+     * The one thing this screen needed from the mod, and passing it in is what let the rest move somewhere
+     * it can be tested. The defaults are the framework's own ids; the mod hands over Minecraft's item
+     * textures instead, which is why the screen looks like part of the game without knowing what a game is.
+     */
+    icons: WaypointScreenIcons = WaypointScreenIcons(),
+): ConfigScreen {
     val loose = book.waypoints.filter { it.collectionId.isEmpty() }
 
     // Position in the book, so every id on this screen is unique whatever the ids themselves look like.
@@ -73,7 +90,7 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
             id("waypoints.all"),
             "All",
             description = "${book.waypoints.size} saved",
-            icon = MinecraftIcons.waypoints,
+            icon = icons.waypoint,
         ) {
             if (book.waypoints.isEmpty()) {
                 section("Nothing saved yet", description = "Stand somewhere and run /sqwp add <name>.") {
@@ -92,7 +109,7 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
                     }
                 }
             }
-            for (waypoint in loose) waypointSection(waypoint, key(waypoint.id, ordinals), book, actions)
+            for (waypoint in loose) waypointSection(waypoint, key(waypoint.id, ordinals), book, actions, icons)
         }
 
         for (collection in book.collections.sortedBy { it.name.lowercase() }) {
@@ -101,7 +118,7 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
                 id("waypoints.c." + key(collection.id, collectionOrdinals)),
                 collection.name,
                 description = folderLabel(collection, contents.size),
-                icon = MinecraftIcons.waypoints,
+                icon = icons.waypoint,
             ) {
                 section("Collection", description = "Applies to everything in it", collapsible = true) {
                     textField(
@@ -148,11 +165,11 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
                     }
                 }
 
-                for (waypoint in contents) waypointSection(waypoint, key(waypoint.id, ordinals), book, actions)
+                for (waypoint in contents) waypointSection(waypoint, key(waypoint.id, ordinals), book, actions, icons)
             }
         }
 
-        category(id("waypoints.new"), "New", icon = MinecraftIcons.features) {
+        category(id("waypoints.new"), "New", icon = icons.add) {
             section("Collections", description = "Group waypoints so you can hide or share them together") {
                 button(id("waypoints.new.collection"), "Add a collection", label = "Add") {
                     actions.addCollection()
@@ -175,6 +192,7 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
     key: String,
     book: WaypointBook,
     actions: WaypointActions,
+    icons: WaypointScreenIcons,
 ) {
     val prefix = "waypoints.w.$key"
     section(
@@ -184,7 +202,7 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
         // Tuesday, and it threw the screen away before drawing anything.
         id = id(prefix),
         description = describe(waypoint),
-        icon = MinecraftIcons.waypoints,
+        icon = icons.waypoint,
         collapsible = true,
         startsCollapsed = true,
     ) {
@@ -352,4 +370,7 @@ private val AUDIENCE_OPTIONS = listOf(
 /** White. A waypoint with no colour of its own is not a waypoint with an opinion about colour. */
 private const val DEFAULT_WAYPOINT_COLOUR = 0xFFFFFFFF.toInt()
 
-private fun id(path: String): UiId = UiId.of(Sidequest.MOD_ID, path)
+/** The mod's own namespace. Spelled out rather than imported, so this module needs nothing from the mod. */
+private const val NAMESPACE = "sidequest"
+
+private fun id(path: String): UiId = UiId.of(NAMESPACE, path)

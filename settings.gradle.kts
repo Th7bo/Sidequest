@@ -39,6 +39,11 @@ include("platform-api")
 include("platform-core")
 include("platform-testkit")
 
+// Screens described from platform data. The only module that depends on both the UI framework and the
+// platform — see its build file. Still no Minecraft, so the boundary that matters is unchanged, and a
+// screen built here can be tested, which one living in the mod module cannot.
+include("feature-ui")
+
 // The wire format, shared by the mod and the backend so the two cannot disagree about it.
 // Depends on platform-api for the domain vocabulary — an island, an item, a permission —
 // because duplicating those server-side is a guaranteed drift.
