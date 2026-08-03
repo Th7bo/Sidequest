@@ -21,6 +21,7 @@ import dev.th7bo.sidequest.platform.party.PartyChangedEvent
 import dev.th7bo.sidequest.platform.party.PartyConfidence
 import dev.th7bo.sidequest.platform.party.PartyRole
 import dev.th7bo.sidequest.platform.party.ReadyCheckChangedEvent
+import dev.th7bo.sidequest.platform.party.ReadyCheckOutcome
 import dev.th7bo.sidequest.platform.party.ReadyResponse
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.testkit.NoopLogger
@@ -219,6 +220,63 @@ class PartyServiceTest {
         assertEquals(setOf("Throwpo", "CalMWolfs"), check?.responses?.keys)
         assertTrue(check!!.responses.values.all { it == ReadyResponse.WAITING })
         assertFalse(check.isComplete)
+    }
+
+    /**
+     * A resend after a hiccup must not change a decision.
+     *
+     * These arrive over a shared connection where the same message turns up twice constantly. Letting the
+     * second through would have the leader watching somebody flip between ready and not for reasons that are
+     * entirely about the network.
+     */
+    @Test
+    fun `the first answer stands`() {
+        line("§eYou have joined §b[MVP§d+§b] Throwpo's §eparty!")
+        // A second member, so the check stays pending and the outcome can show whether the flip took.
+        line("§b[MVP§d+§b] CalMWolfs §ejoined the party.")
+        party.startReadyCheck(LOCAL_PLAYER, 30.seconds)
+
+        party.recordResponse("Throwpo", ReadyResponse.READY)
+        val updated = party.recordResponse("Throwpo", ReadyResponse.DECLINED)
+
+        assertEquals(ReadyResponse.READY, updated?.responseOf("Throwpo"))
+        assertEquals(ReadyCheckOutcome.PENDING, updated?.outcome(), "no decline was really made")
+    }
+
+    /**
+     * A decline outranks a timeout.
+     *
+     * Somebody actively saying no is the most useful thing a leader can be told, and reporting "timed out"
+     * because the clock also ran out would bury the one answer that was actually given.
+     */
+    @Test
+    fun `the outcome prefers a decline over silence`() {
+        line("§eYou have joined §b[MVP§d+§b] Throwpo's §eparty!")
+        line("§b[MVP§d+§b] CalMWolfs §ejoined the party.")
+        party.startReadyCheck(LOCAL_PLAYER, 30.seconds)
+
+        party.recordResponse("Throwpo", ReadyResponse.DECLINED)
+        clock += 60.seconds.inWholeMilliseconds
+        party.expireReadyCheckIfDue()
+
+        val check = party.readyCheck!!
+        assertEquals(ReadyCheckOutcome.SOMEBODY_DECLINED, check.outcome())
+        assertEquals(listOf("Throwpo"), check.declinedBy())
+        assertEquals(listOf("CalMWolfs"), check.silent())
+    }
+
+    @Test
+    fun `the outcome names who is holding it up`() {
+        line("§eYou have joined §b[MVP§d+§b] Throwpo's §eparty!")
+        line("§b[MVP§d+§b] CalMWolfs §ejoined the party.")
+        party.startReadyCheck(LOCAL_PLAYER, 30.seconds)
+
+        party.recordResponse("Throwpo", ReadyResponse.READY)
+
+        val check = party.readyCheck!!
+        assertEquals(ReadyCheckOutcome.PENDING, check.outcome())
+        assertEquals(1, check.readyCount)
+        assertEquals(listOf("CalMWolfs"), check.waitingOn())
     }
 
     @Test

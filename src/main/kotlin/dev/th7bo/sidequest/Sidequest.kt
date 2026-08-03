@@ -5,6 +5,7 @@ import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.PlaytimeTracker
 import dev.th7bo.sidequest.features.PingSystem
 import dev.th7bo.sidequest.features.RareDropAnimation
+import dev.th7bo.sidequest.features.ReadyChecks
 import dev.th7bo.sidequest.features.SharedWaypoints
 import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.feature.ui.WaypointActions
@@ -538,6 +539,27 @@ object Sidequest : ClientModInitializer {
             publish = ::publishPing,
         )
 
+        readyChecks = ReadyChecks(
+            localName = { platform.client.localPlayerName },
+            start = { timeout, note ->
+                platform.partyService.startReadyCheck(
+                    startedBy = platform.client.localPlayerName.orEmpty(),
+                    timeout = timeout,
+                    note = note,
+                ) != null
+            },
+            // Accepted only when the service actually took it. It refuses a second answer on purpose, and
+            // the feature says so rather than looking broken.
+            answer = { name, response ->
+                val before = platform.partyService.readyCheck?.responseOf(name)
+                platform.partyService.recordResponse(name, response)
+                before != platform.partyService.readyCheck?.responseOf(name)
+            },
+            publishStart = ::publishReadyCheck,
+            publishAnswer = ::publishReadyAnswer,
+        )
+        readyChecks.clear = { platform.partyService.endReadyCheck() }
+
         val refusals = platform.start(
             sessionDiagnostics,
             developerTools,
@@ -546,6 +568,7 @@ object Sidequest : ClientModInitializer {
             gardenBobbing,
             waypoints,
             pings,
+            readyChecks,
         )
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
@@ -600,6 +623,61 @@ object Sidequest : ClientModInitializer {
                 ),
             )
         }
+    }
+
+    private lateinit var readyChecks: ReadyChecks
+
+    /**
+     * Tells the group a ready check started.
+     *
+     * The payload carries the deadline and a note and nothing about who was asked — deliberately. Each
+     * client builds its own check from its own view of the party, because two clients each shipping a member
+     * list is how they end up disagreeing about who was in it.
+     */
+    private fun publishReadyCheck(check: dev.th7bo.sidequest.platform.party.ReadyCheck): Boolean =
+        sendRealtime(
+            dev.th7bo.sidequest.protocol.RealtimePayload.ReadyCheckStarted(
+                checkId = check.startedAtMillis.toString(),
+                deadlineMillis = check.deadlineMillis,
+                note = check.note,
+            ),
+        )
+
+    private fun publishReadyAnswer(isReady: Boolean): Boolean {
+        val check = platformOrNull?.party?.readyCheck ?: return false
+        return sendRealtime(
+            dev.th7bo.sidequest.protocol.RealtimePayload.ReadyCheckResponse(
+                checkId = check.startedAtMillis.toString(),
+                ready = isReady,
+            ),
+        )
+    }
+
+    /**
+     * Hands a payload to the connection, or reports that there is none.
+     *
+     * Shared by the ping and the ready check because they want exactly the same thing: fire and forget, on a
+     * background job, with a false meaning "nobody else heard that" rather than "it failed". Waiting on the
+     * round trip would stall the client thread for an answer nothing reads.
+     */
+    private fun sendRealtime(payload: dev.th7bo.sidequest.protocol.RealtimePayload): Boolean {
+        val platform = platformOrNull ?: return false
+        val realtime = platform.realtime ?: return false
+        ioScope.launch {
+            runCatching {
+                realtime.send(
+                    dev.th7bo.sidequest.protocol.RealtimeMessage(
+                        messageId = java.util.UUID.randomUUID().toString(),
+                        timestampMillis = platform.backend?.serverTime
+                            ?.toServer(System.currentTimeMillis())
+                            ?: System.currentTimeMillis(),
+                        scope = payload.scope,
+                        payload = payload,
+                    ),
+                )
+            }.onFailure { logger.debug("Could not send {}", payload::class.simpleName, it) }
+        }
+        return true
     }
 
     private lateinit var pings: PingSystem

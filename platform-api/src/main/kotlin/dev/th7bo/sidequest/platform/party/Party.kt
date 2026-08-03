@@ -153,6 +153,48 @@ public data class ReadyCheck(
             if (response == ReadyResponse.WAITING) ReadyResponse.TIMED_OUT else response
         },
     )
+
+    public val readyCount: Int get() = responses.values.count { it == ReadyResponse.READY }
+
+    public val waitingCount: Int get() = responses.values.count { it == ReadyResponse.WAITING }
+
+    /** Who has not answered yet. What a leader wants named rather than counted. */
+    public fun waitingOn(): List<String> =
+        responses.filterValues { it == ReadyResponse.WAITING }.keys.sorted()
+
+    public fun declinedBy(): List<String> =
+        responses.filterValues { it == ReadyResponse.DECLINED }.keys.sorted()
+
+    public fun silent(): List<String> =
+        responses.filterValues { it == ReadyResponse.TIMED_OUT }.keys.sorted()
+
+    /**
+     * What the check has come to, as one value.
+     *
+     * Exists so the thing telling the leader has a single question to ask. [isComplete] and
+     * [isEverybodyReady] answer two of the four cases between them, and a caller combining them was going to
+     * get the precedence wrong.
+     *
+     * **A decline outranks a timeout.** Somebody actively saying no is the most useful thing a leader can be
+     * told, and reporting "timed out" because the clock also ran out would bury the one answer that was
+     * actually given.
+     */
+    public fun outcome(): ReadyCheckOutcome = when {
+        responses.isEmpty() -> ReadyCheckOutcome.PENDING
+        responses.values.any { it == ReadyResponse.DECLINED } -> ReadyCheckOutcome.SOMEBODY_DECLINED
+        responses.values.any { it == ReadyResponse.TIMED_OUT } -> ReadyCheckOutcome.TIMED_OUT
+        responses.values.all { it == ReadyResponse.READY } -> ReadyCheckOutcome.ALL_READY
+        else -> ReadyCheckOutcome.PENDING
+    }
+}
+
+/** What a ready check came to. See [ReadyCheck.outcome]. */
+public enum class ReadyCheckOutcome {
+    /** Still waiting on somebody. */
+    PENDING,
+    ALL_READY,
+    SOMEBODY_DECLINED,
+    TIMED_OUT,
 }
 
 @Serializable

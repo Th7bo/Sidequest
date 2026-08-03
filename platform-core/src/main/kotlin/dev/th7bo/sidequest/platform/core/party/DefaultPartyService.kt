@@ -142,10 +142,16 @@ public class DefaultPartyService(
      * A response from somebody who was not asked is ignored rather than added: a check is over a
      * fixed set of people, and letting a latecomer answer would make "everybody is ready" mean
      * something different than it did a moment ago.
+     *
+     * **The first answer stands.** These arrive over a shared connection where the same message turns up
+     * twice after any hiccup, and letting a resend through would have the leader watching somebody flip
+     * between ready and not for reasons entirely about the network. Somebody who genuinely changed their
+     * mind says so out loud, which is what a party is.
      */
     public fun recordResponse(name: String, response: ReadyResponse): ReadyCheck? {
         val check = readyCheck ?: return null
         val key = check.responses.keys.firstOrNull { it.equals(name, ignoreCase = true) } ?: return check
+        if (check.responses[key] != ReadyResponse.WAITING) return check
         val updated = check.copy(responses = check.responses + (key to response))
         readyCheck = updated
         events.post(ReadyCheckChangedEvent(updated, party), EventSource.DERIVED)

@@ -235,13 +235,22 @@ class SidequestPlatform(
      * Built from the chat rules and corroborated against the tab widget — no chat parsing of its
      * own, which is the demonstration that the layering holds.
      */
-    private val partyService = DefaultPartyService(
+    private val partyServiceImpl = DefaultPartyService(
         events = events,
         players = playerDirectory,
         log = loggers.create(LogCategory.PARSER, SqId.sidequest("party")),
     )
 
-    val party: PartyService get() = partyService
+    val party: PartyService get() = partyServiceImpl
+
+    /**
+     * The party service as its concrete type.
+     *
+     * [party] is the read-only view every feature gets. Starting a ready check, recording a response and
+     * ending one are writes, and they live on the implementation so that a feature has to be handed them
+     * deliberately rather than finding them on the interface it already has.
+     */
+    internal val partyService: DefaultPartyService get() = partyServiceImpl
 
     /**
      * Durable storage for feature data.
@@ -359,7 +368,7 @@ class SidequestPlatform(
         log = loggers.create(LogCategory.FEATURE, SqId.sidequest("cosmetics")),
         localPlayer = { minecraftClient.localPlayerId?.let { PlayerId.of(it) } },
         isFriend = { playerDirectory.byId(it)?.isCustomFriend == true },
-        isInParty = { partyService.party.isInParty },
+        isInParty = { partyServiceImpl.party.isInParty },
     )
 
     init {
@@ -444,7 +453,7 @@ class SidequestPlatform(
     private val ruleEngine = DefaultRuleEngine(
         events = events,
         context = contextService,
-        party = partyService,
+        party = partyServiceImpl,
         players = playerDirectory,
         log = loggers.create(LogCategory.FEATURE, SqId.sidequest("rules")),
         localPlayer = { minecraftClient.localPlayerId?.let { PlayerId.of(it) } },
@@ -502,7 +511,7 @@ class SidequestPlatform(
         gameContext = contextService,
         players = playerDirectory,
         targeting = playerTargeting,
-        party = partyService,
+        party = partyServiceImpl,
         notifications = notificationManager,
         sounds = soundManager,
         cinematics = cinematicDirector,
