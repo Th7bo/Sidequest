@@ -1,4 +1,5 @@
 import net.fabricmc.loom.task.ValidateAccessWidenerTask
+import java.util.zip.ZipFile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
@@ -61,6 +62,24 @@ repositories {
     }
 }
 
+/**
+ * The modules nested into the mod jar.
+ *
+ * One list, used both to declare the `include`s and to verify them after the jar is built. It has to be
+ * complete: `include` nests exactly what it is handed and does not follow a module's own project
+ * dependencies, so a module reached only transitively compiles fine, runs fine in dev — where the whole
+ * classpath is on disk — and then throws `NoClassDefFoundError` on somebody else's client.
+ */
+val NESTED_MODULES = listOf(
+    ":ui-api",
+    ":ui-core",
+    ":ui-components",
+    ":platform-api",
+    ":platform-core",
+    ":protocol",
+    ":feature-ui",
+)
+
 dependencies {
     "minecraft"(lib("minecraft"))
 
@@ -72,12 +91,13 @@ dependencies {
     implementation(project(":platform-api"))
     implementation(project(":platform-core"))
     implementation(project(":feature-ui"))
-    "include"(project(":ui-api"))
-    "include"(project(":ui-core"))
-    "include"(project(":ui-components"))
-    "include"(project(":platform-api"))
-    "include"(project(":platform-core"))
-    "include"(project(":feature-ui"))
+
+    // Every one of them listed, including the ones nothing here names directly. `include` nests exactly the
+    // jars it is given and does not follow a module's own project dependencies — so `:protocol`, which only
+    // `:platform-core` declares, was compiled against and then left out of the jar. That builds, runs in
+    // dev where the whole classpath is present, and dies with NoClassDefFoundError on the first backend
+    // connection of a real install. See `verifyNestedJars`, which now fails the build instead.
+    NESTED_MODULES.forEach { module -> "include"(project(module)) }
 
     // Compile-only: the classes come from the hypixel-mod-api mod at runtime. Everything
     // touching them is behind an `isModLoaded` guard, so a missing mod costs the extra
@@ -177,6 +197,54 @@ tasks.processResources {
 base {
     archivesName = "Sidequest-$mcVersion"
 }
+
+/**
+ * Fails the build if the mod jar is missing one of its own modules.
+ *
+ * This exists because the failure it catches is invisible everywhere else. A module left out of `include`
+ * still compiles, still passes every test, and still runs under `runClient` — the dev classpath has all of
+ * them on disk regardless — so the first thing that notices is somebody's real client, at the moment it
+ * tries to load the missing class. `:protocol` shipped that way.
+ *
+ * **What it expects is derived, not declared.** The first version of this compared the jar against
+ * `NESTED_MODULES`, the same list that produces the `include`s — so removing a module from the list removed
+ * it from both sides and the check passed happily. It reads the resolved runtime classpath instead: every
+ * project this mod actually depends on, however indirectly, has to be in the jar. That is the question the
+ * crash was asking.
+ */
+val verifyNestedJars by tasks.registering {
+    val jarFile = tasks.named<Jar>("jar").flatMap { it.archiveFile }
+    inputs.file(jarFile)
+
+    doLast {
+        // Every project on the runtime classpath, transitives included. `:protocol` appears here because
+        // `:platform-core` declares it, which is exactly the case a hand-written list missed.
+        val required = configurations.getByName("runtimeClasspath")
+            .incoming.resolutionResult.allComponents
+            .map { it.id }
+            .filterIsInstance<ProjectComponentIdentifier>()
+            .map { it.projectPath.removePrefix(":") }
+            .filterNot { it.isEmpty() || it == project.name }
+            .toSet()
+
+        val nested = ZipFile(jarFile.get().asFile).use { zip ->
+            zip.entries().asSequence()
+                .map { it.name }
+                .filter { it.startsWith("META-INF/jars/") && it.endsWith(".jar") }
+                .map { it.removePrefix("META-INF/jars/").substringBeforeLast('-') }
+                .toSet()
+        }
+
+        val missing = (required - nested).sorted()
+        check(missing.isEmpty()) {
+            "The mod jar is missing ${missing.joinToString()}. `include` nests only what it is handed and " +
+                "does not follow a module's own project dependencies — add it to NESTED_MODULES. " +
+                "Nested: ${nested.sorted().joinToString()}"
+        }
+    }
+}
+
+tasks.named("build") { dependsOn(verifyNestedJars) }
 
 // Collect every version's jar into the root build/libs so one `./gradlew build` yields one folder.
 tasks.named("build") {
