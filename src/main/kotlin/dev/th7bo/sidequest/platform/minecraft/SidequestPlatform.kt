@@ -154,19 +154,12 @@ class SidequestPlatform(
     internal val localPosition: SqPosition? get() = minecraftClient.localPosition
 
     /**
-     * Where the player is aiming, or null when nothing is in range.
+     * Where the player is aiming.
      *
-     * The crosshair's hit, whether that is a block, an entity or a player — a ping does not care which, only
-     * where. `MISS` is null rather than a far-off point along the look vector: pinging the sky because
-     * somebody was looking at it is worse than not pinging.
+     * See [CrosshairTarget] for why this is not `Minecraft.hitResult`: that field stops at arm's length,
+     * which made every distant ping land on the sender's own feet.
      */
-    internal val aimedAt: SqPosition?
-        get() {
-            val hit = net.minecraft.client.Minecraft.getInstance().hitResult ?: return null
-            if (hit.type == net.minecraft.world.phys.HitResult.Type.MISS) return null
-            val at = hit.location
-            return SqPosition(at.x, at.y, at.z)
-        }
+    internal val aimedAt: SqPosition? get() = CrosshairTarget.current()?.position
 
     private val minecraftLifecycle = MinecraftGameLifecycle(minecraftClient)
 

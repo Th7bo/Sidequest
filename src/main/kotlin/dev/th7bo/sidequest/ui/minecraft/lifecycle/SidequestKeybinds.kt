@@ -83,6 +83,53 @@ public object SidequestKeybinds {
         return pressed
     }
 
+    /** How long the ping key has been down, in ticks. -1 when it is not. */
+    private var pingHeldTicks = -1
+
+    /**
+     * How long counts as a hold.
+     *
+     * Five ticks, a quarter of a second. Short enough that reaching for the wheel does not feel like waiting,
+     * long enough that a quick point-and-ping never opens it by accident — which would be the worse mistake,
+     * since it puts a screen over the game mid-fight.
+     */
+    private const val HOLD_TICKS = 5
+
+    /**
+     * Tap to ping, hold to choose.
+     *
+     * The whole interaction, and it has to live here because this is the last place the keybind's state is
+     * readable — once the wheel's screen is open Minecraft stops updating keybind state, which is why the
+     * screen listens for its own release rather than asking the mapping.
+     *
+     * The press is drained on the way past so that nothing fires again when the wheel closes.
+     */
+    private fun tickPing() {
+        // No screen check: Minecraft releases every keybind when a screen opens, so `isDown` is already
+        // false while the wheel is up. Which is also why the wheel listens for its own release.
+        val down = ping.isDown
+
+        if (down) {
+            pingHeldTicks++
+            if (pingHeldTicks == HOLD_TICKS) {
+                // Long enough to be deliberate. The target is captured now, not when the wheel closes:
+                // somebody aims and *then* asks for the menu, and the cursor freeing itself moves the
+                // crosshair off whatever they were pointing at.
+                consumeAll(ping)
+                Sidequest.openPingWheel()
+            }
+            return
+        }
+
+        val heldFor = pingHeldTicks
+        pingHeldTicks = -1
+        // Released before the wheel appeared: a tap, which pings straight away with the style the target
+        // suggests. Nothing to drain when the wheel opened, because opening it already did.
+        if (heldFor in 0 until HOLD_TICKS && consumeAll(ping)) {
+            Sidequest.pingWhereLooking()
+        }
+    }
+
     public fun register() {
         KeyMappingHelper.registerKeyMapping(openConfig)
         KeyMappingHelper.registerKeyMapping(openHudEditor)
@@ -111,12 +158,7 @@ public object SidequestKeybinds {
                 client.setScreenAndShow(Sidequest.createStressScreen())
             }
 
-            // Drained like the rest, so holding the button pings once. The feature has its own cooldown as
-            // well — that one is about not flooding the group, this one is about not sending twenty for one
-            // press.
-            if (consumeAll(ping)) {
-                Sidequest.pingWhereLooking()
-            }
+            tickPing()
         }
     }
 }

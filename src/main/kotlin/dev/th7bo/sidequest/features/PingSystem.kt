@@ -86,7 +86,7 @@ class PingSystem(
      * [PingStyle.NEED_HELP] both mean "here", and aiming at the sky to say "help" would put the marker in the
      * sky.
      */
-    fun ping(style: PingStyle, label: String = "") {
+    fun ping(style: PingStyle, label: String = "", at: SqPosition? = null) {
         val elapsed = now() - lastPingAt
         if (elapsed < COOLDOWN_MILLIS) {
             // Silent. A cooldown that complained would be noisier than the flood it prevents, and the key is
@@ -95,7 +95,10 @@ class PingSystem(
             return
         }
 
-        val position = if (style.meansHere) standingAt() ?: aimedAt() else aimedAt() ?: standingAt()
+        // A caller-supplied position wins outright. That is the wheel handing back what the crosshair was on
+        // when it opened — asking again now would read wherever the freed cursor ended up.
+        val position = at
+            ?: if (style.meansHere) standingAt() ?: aimedAt() else aimedAt() ?: standingAt()
         if (position == null) {
             context.log.debug { "Nothing to ping at" }
             return

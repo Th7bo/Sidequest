@@ -11,6 +11,8 @@ import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
 import dev.th7bo.sidequest.platform.minecraft.ItemTextures
+import dev.th7bo.sidequest.platform.minecraft.CrosshairTarget
+import dev.th7bo.sidequest.platform.ping.PingStyle
 import dev.th7bo.sidequest.platform.minecraft.MinecraftCinematicSink
 import dev.th7bo.sidequest.platform.minecraft.MinecraftMarkerBridge
 import dev.th7bo.sidequest.platform.minecraft.MinecraftNotificationSink
@@ -32,6 +34,7 @@ import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.minecraft.hud.SidequestHudLayer
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestConfigScreen
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestHudEditorScreen
+import dev.th7bo.sidequest.ui.minecraft.screen.PingWheelScreen
 import dev.th7bo.sidequest.ui.state.UiScheduler
 import dev.th7bo.sidequest.ui.theme.DarkTheme
 import dev.th7bo.sidequest.ui.theme.HighContrastDarkTheme
@@ -550,14 +553,42 @@ object Sidequest : ClientModInitializer {
     private lateinit var pings: PingSystem
 
     /**
-     * Pings what the crosshair is on. Called from the keybind.
+     * Pings what the crosshair is on. Called from the keybind on a tap.
      *
      * Guarded rather than assumed: the key exists from the moment the mod loads and the feature does not,
      * so pressing it on the title screen must do nothing rather than throw.
+     *
+     * The style is suggested by what was hit — a player is somebody to look at, anything else alive is
+     * usually a warning — because the fast path should be right most of the time without a menu. It is only
+     * a guess, and the cost of a wrong one is low: hold the key instead and choose.
      */
     fun pingWhereLooking() {
         if (!::pings.isInitialized) return
-        pings.ping(dev.th7bo.sidequest.platform.ping.PingStyle.GO_HERE)
+        val target = CrosshairTarget.current()
+        pings.ping(target?.let(CrosshairTarget::suggest) ?: PingStyle.GO_HERE)
+    }
+
+    /**
+     * Opens the ping wheel. Called from the keybind once the key has been held.
+     *
+     * **The target is captured here, before the screen opens.** Opening a screen frees the cursor, which
+     * moves the crosshair off whatever the player was aiming at — so asking again when the wheel closes
+     * would ping wherever the mouse happened to end up. Somebody aims, then asks for the menu.
+     */
+    fun openPingWheel() {
+        if (!::pings.isInitialized) return
+        val frozen = CrosshairTarget.current() ?: return
+
+        Minecraft.getInstance().setScreenAndShow(
+            PingWheelScreen(
+                binding = SidequestKeybinds.ping,
+                onChosen = { style ->
+                    // Null is a dismissal — escape, or letting go without pushing. Deliberately not a
+                    // default ping: somebody who opened the wheel and thought better of it has said so.
+                    if (style != null) pings.ping(style, at = frozen.position)
+                },
+            ),
+        )
     }
 
     /**
