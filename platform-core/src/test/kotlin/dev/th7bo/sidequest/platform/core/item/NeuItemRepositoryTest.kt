@@ -38,6 +38,14 @@ class NeuItemRepositoryTest {
         transport.respond("$BASE/$name.json", body)
     }
 
+    /**
+     * Requests for items, ignoring the one-off attempt to fetch the name listing.
+     *
+     * The repository asks GitHub once per session for every key it has. That is not an item lookup and
+     * counting it here would make every assertion about "how many times did it ask" mean something else.
+     */
+    private fun itemRequests() = transport.requests.filter { it.url.startsWith("$BASE/") }
+
     // -- resolving a name ----------------------------------------------------
 
     @Test
@@ -219,6 +227,77 @@ class NeuItemRepositoryTest {
         assertEquals("minecraft:paper", item?.minecraftId)
     }
 
+    // -- the name listing ----------------------------------------------------
+
+    /**
+     * A name whose key nothing could have derived, resolved through the listing.
+     *
+     * `Rarefinder Chip` is `RAREFINDER_GARDEN_CHIP` — a category word that appears in the key and nowhere
+     * on the item. This is the whole reason the listing is fetched: without it, that family needed a rule,
+     * and so does every other one nobody has hit yet.
+     */
+    @Test
+    fun `an item is found through the name listing`() = runTest {
+        serveListing("RAREFINDER_GARDEN_CHIP", "HYPERION")
+        serve("RAREFINDER_GARDEN_CHIP", chipEntry())
+
+        val item = repository().byDisplayName("Rarefinder Chip")
+
+        assertEquals("RAREFINDER_GARDEN_CHIP", item?.internalName)
+        // One request, because the listing named a key that exists rather than guessing at one.
+        assertEquals(1, itemRequests().size, itemRequests().map { it.url }.toString())
+    }
+
+    /**
+     * An unreachable listing is not a broken lookup.
+     *
+     * The hand-written candidates were the whole answer before the listing existed and remain the fallback,
+     * so a client that cannot reach GitHub still resolves everything it could resolve before.
+     */
+    @Test
+    fun `a lookup still works when the listing cannot be fetched`() = runTest {
+        transport.on("api.github.com") { HttpExchange.Failure("no route to host") }
+        serve("HYPERION", HYPERION)
+
+        assertNotNull(repository().byDisplayName("Hyperion"))
+    }
+
+    /** Asked for once. A listing that could not be fetched must not be retried on every drop. */
+    @Test
+    fun `the listing is attempted once per session`() = runTest {
+        transport.on("api.github.com") { HttpExchange.Failure("no route to host") }
+        val repository = repository()
+
+        repeat(4) { repository.byDisplayName("Whatever It Is") }
+
+        val listingRequests = transport.requests.count { "api.github.com" in it.url }
+        assertEquals(1, listingRequests, "it should give up rather than ask again")
+    }
+
+    /** Serves a git tree listing naming [keys], the way GitHub answers it. */
+    private fun serveListing(vararg keys: String) {
+        transport.respond(
+            "git/trees/master",
+            """{"tree":[{"path":"items","type":"tree","sha":"itemsha"}]}""",
+        )
+        transport.respond(
+            // `trees/<sha>`, which is what the real endpoint answers. This fixture said
+            // `trees/master/<sha>` — the shape the code used — and so agreed with the bug instead of
+            // catching it. Checked against the live API.
+            "git/trees/itemsha",
+            keys.joinToString(",", """{"tree":[""", "]}") { """{"path":"$it.json","type":"blob"}""" },
+        )
+    }
+
+    private fun chipEntry() = """
+        {
+          "itemid": "minecraft:paper",
+          "displayname": "§9Rarefinder Chip",
+          "nbttag": "{ExtraAttributes:{id:\"RAREFINDER_GARDEN_CHIP\"},ItemModel:\"hypixel_skyblock:item/island_relevant/garden/chips/rarefinder_chip\"}",
+          "internalname": "RAREFINDER_GARDEN_CHIP"
+        }
+    """.trimIndent()
+
     // -- fetching ------------------------------------------------------------
 
     /**
@@ -236,10 +315,10 @@ class NeuItemRepositoryTest {
         val item = repository.byDisplayName("Necron's Handle")
 
         assertEquals("NECRON_HANDLE", item?.internalName)
-        assertEquals(2, transport.requests.size, "the wrong spelling is tried first, and only once")
+        assertEquals(2, itemRequests().size, "the wrong spelling is tried first, and only once")
 
         repository.byDisplayName("Necron's Handle")
-        assertEquals(2, transport.requests.size, "neither spelling is asked for again")
+        assertEquals(2, itemRequests().size, "neither spelling is asked for again")
     }
 
     /**
@@ -262,12 +341,12 @@ class NeuItemRepositoryTest {
 
         assertEquals(
             listOf("$BASE/BABY_YETI.json", "$BASE/BABY_YETI;4.json", "$BASE/BABY_YETI;3.json"),
-            transport.requests.map { it.url },
+            itemRequests().map { it.url },
             "it stops at the first tier that exists, rather than walking the whole ladder",
         )
 
         repository.byDisplayName("Baby Yeti")
-        assertEquals(3, transport.requests.size, "the two misses are remembered along with the hit")
+        assertEquals(3, itemRequests().size, "the two misses are remembered along with the hit")
     }
 
     @Test
@@ -278,7 +357,7 @@ class NeuItemRepositoryTest {
         repository.byDisplayName("Hyperion")
         repository.byDisplayName("Hyperion")
 
-        assertEquals(1, transport.requests.size, "the second must not hit the network")
+        assertEquals(1, itemRequests().size, "the second must not hit the network")
         assertEquals(1, repository.stats().hits)
     }
 
@@ -294,12 +373,12 @@ class NeuItemRepositoryTest {
         val repository = repository()
 
         assertNull(repository.byDisplayName("Not A Thing"))
-        val asked = transport.requests.size
+        val asked = itemRequests().size
         assertTrue(asked > 1, "it tried more than one spelling before giving up")
 
         repeat(5) { assertNull(repository.byDisplayName("Not A Thing")) }
 
-        assertEquals(asked, transport.requests.size, "every spelling it tried is remembered as missing")
+        assertEquals(asked, itemRequests().size, "every spelling it tried is remembered as missing")
         assertEquals(asked, repository.stats().known404s)
     }
 

@@ -11,6 +11,7 @@ import dev.th7bo.sidequest.platform.log.Logger
 import dev.th7bo.sidequest.platform.parser.HypixelText
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -64,6 +65,20 @@ public class NeuItemRepository(
     private var hits = 0
     private var misses = 0
 
+    /**
+     * Every key the database has, for resolving a name to one of them.
+     *
+     * Null until the listing has been fetched, and the lookup works without it — the hand-written
+     * candidates below are still tried, and were the whole answer before this existed. What the index adds
+     * is every family nobody has hit yet.
+     */
+    @Volatile
+    private var index: NeuNameIndex? = null
+
+    /** Set once, so a listing that cannot be fetched is not requested on every drop for the rest of a session. */
+    @Volatile
+    private var indexAttempted = false
+
     override fun resident(displayName: String): SkyBlockItem? = synchronized(lock) {
         candidatesFor(displayName).firstNotNullOfOrNull { items[it] }
     }
@@ -82,11 +97,78 @@ public class NeuItemRepository(
      * whose key nobody could have derived.
      */
     override suspend fun byDisplayName(displayName: String): SkyBlockItem? {
+        // The index first, because it answers without guessing: a key it names exists, so the request that
+        // follows is one that will succeed. The hand-written candidates are the fallback for a client that
+        // has not fetched the listing — a first run, or a server that could not be reached.
+        loadIndex()
+        for (candidate in index?.resolve(displayName).orEmpty()) {
+            byInternalName(candidate)?.let { return it }
+        }
         for (candidate in candidatesFor(displayName)) {
             byInternalName(candidate)?.let { return it }
         }
         return null
     }
+
+    /**
+     * Fetches the list of every key, once.
+     *
+     * Two requests: the repository's root tree, then the one for `items`. GitHub's listing API caps at a
+     * thousand entries and there are eight and a half thousand items, which is why this reads the git tree
+     * rather than the contents endpoint.
+     *
+     * A failure is remembered as an attempt rather than retried. The lookup degrades to the candidates it
+     * used before and still works; asking again on every drop would turn one unreachable host into a
+     * request per rare drop for the rest of the session.
+     */
+    private suspend fun loadIndex() {
+        if (indexAttempted || index != null) return
+        indexAttempted = true
+
+        val root = getJson(TREES + "master") ?: return
+        val itemsSha = runCatching {
+            root["tree"]!!.jsonArray
+                .first { it.jsonObject["path"]?.jsonPrimitive?.content == "items" }
+                .jsonObject["sha"]!!.jsonPrimitive.content
+        }.getOrElse {
+            log.debug(it) { "The item repository's listing did not name an items directory" }
+            return
+        }
+
+        // `trees/<sha>`, not `trees/master/<sha>`. The second reads like a path under the branch and is a
+        // 404 — which the fake in the tests happily served, because it was built to match the code rather
+        // than the API. Checked against the real endpoint.
+        val items = getJson(TREES + itemsSha) ?: return
+        val keys = runCatching {
+            items["tree"]!!.jsonArray.mapNotNull { entry ->
+                entry.jsonObject["path"]?.jsonPrimitive?.content
+                    ?.takeIf { it.endsWith(".json") }
+                    ?.removeSuffix(".json")
+            }
+        }.getOrElse {
+            log.debug(it) { "Could not read the item listing" }
+            return
+        }
+
+        if (keys.isEmpty()) return
+        index = NeuNameIndex(keys)
+        log.info { "Learned the names of ${keys.size} SkyBlock items" }
+    }
+
+    private suspend fun getJson(url: String): kotlinx.serialization.json.JsonObject? =
+        when (val response = transport.send(HttpRequest(HttpMethod.GET, url))) {
+            is HttpExchange.Failure -> {
+                log.debug { "Could not reach the item listing: ${response.reason}" }
+                null
+            }
+            is HttpExchange.Response ->
+                if (!response.isSuccess) {
+                    log.debug { "The item listing answered ${response.status}" }
+                    null
+                } else {
+                    runCatching { json.parseToJsonElement(response.body).jsonObject }.getOrNull()
+                }
+        }
 
     override suspend fun prefetch(displayName: String) {
         runCatching { byDisplayName(displayName) }
@@ -225,6 +307,15 @@ public class NeuItemRepository(
             "https://raw.githubusercontent.com/NotEnoughUpdates/NotEnoughUpdates-REPO/master/items"
 
         private const val NOT_FOUND = 404
+
+        /**
+         * The repository's git tree.
+         *
+         * The git API rather than the contents one, which caps at a thousand entries — there are eight and
+         * a half thousand items, so the obvious endpoint silently returns a fraction of them.
+         */
+        private const val TREES =
+            "https://api.github.com/repos/NotEnoughUpdates/NotEnoughUpdates-REPO/git/trees/"
 
         /** Where the skin sits in the 1.8 NBT string: `Properties:{textures:[0:{Name:"textures",…Value:"…"`. */
         private const val TEXTURE_MARKER = "Value:"
