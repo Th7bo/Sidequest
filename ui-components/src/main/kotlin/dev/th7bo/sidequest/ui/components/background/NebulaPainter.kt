@@ -212,8 +212,15 @@ public object NebulaPainter {
     /** How many lattice cells span the screen at the coarsest octave. */
     private const val BASE_FREQUENCY = 3f
 
-    /** How fast the field drifts, in lattice cells a second. */
-    private const val DRIFT = 0.012f
+    /**
+     * How fast the field drifts, in lattice cells a second.
+     *
+     * The coarsest octave spans [BASE_FREQUENCY] cells across the screen, so this is roughly a full traverse
+     * every eighty seconds — and the finer octaves move at two and three times it, which is what makes the
+     * shape change rather than slide. The first attempt was a third of this and read as a still image that
+     * happened to be very slightly wrong each time you looked at it.
+     */
+    private const val DRIFT = 0.035f
 
     /** How much the vertical drift differs from the horizontal, so the octaves shear past each other. */
     private const val SHEAR = 0.6f
