@@ -20,7 +20,9 @@ import dev.th7bo.sidequest.protocol.PairPollRequest
 import dev.th7bo.sidequest.protocol.PairPollResponse
 import dev.th7bo.sidequest.protocol.PairStartRequest
 import dev.th7bo.sidequest.protocol.PairStartResponse
+import dev.th7bo.sidequest.protocol.AccountList
 import dev.th7bo.sidequest.protocol.PairStatus
+import dev.th7bo.sidequest.protocol.PendingPairingList
 import dev.th7bo.sidequest.protocol.Protocol
 import dev.th7bo.sidequest.protocol.RealtimeMessage
 import dev.th7bo.sidequest.protocol.RealtimePayload
@@ -249,6 +251,137 @@ class BackendTest {
             assertEquals(PairStatus.APPROVED, approved.status)
             assertNotNull(approved.session)
             assertEquals(OWNER, approved.session!!.accountId)
+        }
+    }
+
+    /**
+     * The default state path is a bare filename, and a bare filename has no parent directory.
+     *
+     * `Files.createDirectories(null)` throws, so this failed on the first write of every fresh install —
+     * while somebody was pairing their first client, with nothing on screen to say why. Every existing test
+     * passed because they all point the store at a temporary file inside a directory.
+     */
+    @Test
+    fun `a state file with no directory still saves`() {
+        val previous = System.getProperty("user.dir")
+        val scratch = kotlin.io.path.createTempDirectory("sidequest-cwd")
+        try {
+            System.setProperty("user.dir", scratch.toString())
+            val store = ServerStore(java.nio.file.Path.of("sidequest-state.json"))
+
+            store.mutate { state -> state.copy(accounts = state.accounts) to Unit }
+        } finally {
+            System.setProperty("user.dir", previous)
+            scratch.toFile().deleteRecursively()
+        }
+    }
+
+    // -- the setup page ---------------------------------------------------
+
+    /**
+     * The whole flow the page performs, in order.
+     *
+     * Worth a test because the page itself cannot have one: it is a file served to a browser. What it does
+     * is these three calls, so testing them is testing the thing that would break.
+     */
+    @Test
+    fun `an operator can list a pending pairing and approve it`() = runTest {
+        withServer {
+            val start = startPairing(name = "chrooted")
+
+            val waiting: PendingPairingList = client.get(Endpoints.PAIR_PENDING) {
+                header(HttpHeaders.Authorization, "Bearer $OPERATOR")
+            }.decode()
+
+            assertEquals(1, waiting.pending.size)
+            val entry = waiting.pending.single()
+            assertEquals(start.code, entry.code)
+            assertEquals("chrooted", entry.minecraftName)
+
+            approve(entry.code, OWNER)
+            assertEquals(PairStatus.APPROVED, poll(start).status)
+        }
+    }
+
+    /**
+     * The list never carries a secret.
+     *
+     * The code is safe to show — it grants nothing without the device secret, which is the reason the flow
+     * has two values. This asserts the response body genuinely does not contain the secret, rather than
+     * asserting the type does not have a field for one, because the second is not the same claim.
+     */
+    @Test
+    fun `the pending list leaks no secret`() = runTest {
+        withServer {
+            val start = startPairing()
+
+            val body = client.get(Endpoints.PAIR_PENDING) {
+                header(HttpHeaders.Authorization, "Bearer $OPERATOR")
+            }.bodyAsText()
+
+            assertFalse(body.contains(start.deviceSecret), "the device secret was in the listing")
+        }
+    }
+
+    /** Listing pending pairings is administration, and a game client must never be able to do it. */
+    @Test
+    fun `listing pending pairings needs the operator token`() = runTest {
+        withServer {
+            startPairing()
+
+            val anonymous = client.get(Endpoints.PAIR_PENDING)
+            assertEquals(HttpStatusCode.Unauthorized, anonymous.status)
+
+            val wrong = client.get(Endpoints.PAIR_PENDING) {
+                header(HttpHeaders.Authorization, "Bearer not-the-token")
+            }
+            assertEquals(HttpStatusCode.Unauthorized, wrong.status)
+        }
+    }
+
+    @Test
+    fun `an approved pairing drops off the pending list`() = runTest {
+        withServer {
+            val start = startPairing()
+            approve(start.code, OWNER)
+
+            val waiting: PendingPairingList = client.get(Endpoints.PAIR_PENDING) {
+                header(HttpHeaders.Authorization, "Bearer $OPERATOR")
+            }.decode()
+
+            assertTrue(waiting.pending.isEmpty(), "it still offered a decision nobody has to make")
+        }
+    }
+
+    /** The account picker's contents, and the device count beside each name. */
+    @Test
+    fun `accounts are listed with how many devices they have`() = runTest {
+        withServer {
+            val start = startPairing()
+            approve(start.code, OWNER)
+            poll(start)
+
+            val accounts: AccountList = client.get(Endpoints.ACCOUNTS) {
+                header(HttpHeaders.Authorization, "Bearer $OPERATOR")
+            }.decode()
+
+            val owner = accounts.accounts.firstOrNull { it.id == OWNER }
+            assertNotNull(owner)
+            assertEquals(1, owner!!.deviceCount)
+        }
+    }
+
+    @Test
+    fun `the setup page is served at the root and at its own path`() = runTest {
+        withServer {
+            for (path in listOf("/", Endpoints.ADMIN)) {
+                val response = client.get(path)
+                assertEquals(HttpStatusCode.OK, response.status, path)
+                val body = response.bodyAsText()
+                assertTrue(body.contains("<!doctype html>"), "$path did not serve the page")
+                // The operator token must never be baked into something served to a browser.
+                assertFalse(body.contains(OPERATOR), "the page shipped the operator token")
+            }
         }
     }
 

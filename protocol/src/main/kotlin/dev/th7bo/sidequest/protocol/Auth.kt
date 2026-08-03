@@ -224,3 +224,40 @@ public data class GroupState(
     /** Bumped by the server on every change, so a client can tell whether it is current. */
     public val revision: Long = 0,
 )
+
+// -- administration --------------------------------------------------------
+
+/**
+ * A pairing waiting for somebody to approve it.
+ *
+ * **Carries no secret.** The code is in here because it is what the approver clicks, and it is safe to
+ * show for the same reason it is safe to read aloud: on its own it grants nothing, because polling for
+ * the resulting tokens also requires the device secret that never leaves the mod.
+ *
+ * The Minecraft name and UUID are what the device *asserted* about itself and are display only — they
+ * are how a human recognises "yes, that is my client" and nothing more.
+ */
+@Serializable
+public data class PendingPairingSummary(
+    public val code: String,
+    public val minecraftName: String,
+    public val minecraftUuid: String,
+    public val deviceName: String,
+    public val expiresAtMillis: Long,
+)
+
+@Serializable
+public data class PendingPairingList(public val pending: List<PendingPairingSummary> = emptyList())
+
+/** An account a device can be bound to. */
+@Serializable
+public data class AccountSummary(
+    public val id: AccountId,
+    public val displayName: String,
+    public val role: GroupRole,
+    /** How many devices are already paired to it, revoked ones excluded. */
+    public val deviceCount: Int,
+)
+
+@Serializable
+public data class AccountList(public val accounts: List<AccountSummary> = emptyList())

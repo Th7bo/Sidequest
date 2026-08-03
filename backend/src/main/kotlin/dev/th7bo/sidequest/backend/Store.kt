@@ -176,7 +176,11 @@ public class ServerStore(
     }
 
     private fun persist(state: ServerState) {
-        Files.createDirectories(file.parent)
+        // Null for a bare relative filename, which is the *default* state path — so this threw on the first
+        // write of every fresh install and the server could not save anything at all. It failed at the point
+        // somebody was trying to pair their first client, which is the worst possible moment for a server to
+        // look broken for a reason nothing explains.
+        file.parent?.let { Files.createDirectories(it) }
         val temporary = file.resolveSibling("${file.fileName}.tmp")
         Files.writeString(temporary, json.encodeToString(ServerState.serializer(), state))
         if (Files.exists(file)) {

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Sidequest — setup</title>
+<style>
+  :root {
+    --bg: #0b0a14; --panel: #16142099; --line: #ffffff14; --text: #e8e6f0;
+    --muted: #a09cb8; --accent: #a78bfa; --accent-dim: #8b5cf6;
+    --good: #4ade80; --bad: #f87171; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 2rem 1rem 4rem;
+    background: radial-gradient(1200px 600px at 50% -10%, #251f45 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 42rem; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 2rem; }
+  h1 { font-size: 1.6rem; margin: 0 0 .3rem; letter-spacing: -.02em; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0; }
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 1.25rem; margin-bottom: 1rem; backdrop-filter: blur(6px);
+  }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+       color: var(--muted); margin: 0 0 .9rem; font-weight: 600; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: .35rem; }
+  input, select {
+    width: 100%; padding: .6rem .7rem; border-radius: 9px; border: 1px solid var(--line);
+    background: #0e0d18; color: var(--text); font: inherit;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent-dim); outline-offset: 0; border-color: transparent; }
+  button {
+    padding: .55rem 1rem; border-radius: 9px; border: 1px solid transparent;
+    background: var(--accent-dim); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:hover { background: var(--accent); }
+  button.ghost { background: transparent; border-color: var(--line); color: var(--muted); font-weight: 500; }
+  button.ghost:hover { color: var(--text); border-color: var(--muted); }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: .6rem; align-items: flex-end; flex-wrap: wrap; }
+  .row > div { flex: 1 1 12rem; }
+  .card {
+    display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+    padding: .9rem; border: 1px solid var(--line); border-radius: 11px; margin-bottom: .6rem;
+    background: #ffffff06;
+  }
+  .card .who { flex: 1 1 12rem; min-width: 0; }
+  .card .name { font-weight: 600; }
+  .card .meta { color: var(--muted); font-size: .82rem; }
+  .code {
+    font: 600 1.35rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .18em; color: var(--accent); padding: .45rem .6rem;
+    border: 1px dashed var(--line); border-radius: 9px; background: #0e0d18;
+  }
+  .empty { color: var(--muted); text-align: center; padding: 1.4rem .5rem; }
+  .note { color: var(--muted); font-size: .86rem; margin: .8rem 0 0; }
+  ol { margin: 0; padding-left: 1.2rem; color: var(--muted); }
+  ol li { margin-bottom: .45rem; }
+  ol li strong { color: var(--text); font-weight: 600; }
+  code.inline { background: #0e0d18; border: 1px solid var(--line); border-radius: 6px;
+                padding: .1rem .35rem; font-size: .88em; color: var(--text); }
+  #status { min-height: 1.3rem; font-size: .86rem; margin-top: .7rem; }
+  .ok { color: var(--good); } .err { color: var(--bad); } .warn { color: var(--warn); }
+  .hidden { display: none !important; }
+  .dot { display:inline-block; width:.5rem; height:.5rem; border-radius:50%; margin-right:.4rem;
+         background: var(--muted); vertical-align: middle; }
+  .dot.live { background: var(--good); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Side<span>quest</span></h1>
+    <p class="sub">Approve a client so it can talk to the group.</p>
+  </header>
+
+  <!-- Step 1: the operator proves who they are. -->
+  <section id="signin">
+    <h2>Operator token</h2>
+    <div class="row">
+      <div>
+        <label for="token">The value of SIDEQUEST_OPERATOR_TOKEN on the server</label>
+        <input id="token" type="password" autocomplete="off" spellcheck="false"
+               placeholder="paste it here">
+      </div>
+      <button id="unlock">Unlock</button>
+    </div>
+    <p class="note">
+      Kept in this tab only, never written to disk, and gone when you close it. It is the one credential
+      that can bind a device to an account, which is why the mod never has it.
+    </p>
+    <div id="status"></div>
+  </section>
+
+  <!-- Step 2: what is waiting. -->
+  <section id="pending" class="hidden">
+    <h2><span class="dot" id="live"></span>Waiting to be approved</h2>
+    <div id="list"></div>
+    <div class="row" style="margin-top:1rem">
+      <div>
+        <label for="account">Bind to account</label>
+        <select id="account"></select>
+      </div>
+      <div>
+        <label for="newAccount">…or a new one</label>
+        <input id="newAccount" placeholder="e.g. chrooted" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <p class="note">
+      An account is one person. Pair every one of their devices to the same account — a second account
+      for the same human is a second person as far as the group is concerned.
+    </p>
+  </section>
+
+  <!-- Step 3: what to do in the game. Shown always, because it is the half people get stuck on. -->
+  <section>
+    <h2>In Minecraft</h2>
+    <ol>
+      <li>Open <strong>Settings → Network</strong> and set the server to <code class="inline" id="origin"></code></li>
+      <li>Press <strong>Pair</strong>. The game shows a six-character code.</li>
+      <li>It appears above. Approve it, and the client is connected.</li>
+    </ol>
+    <p class="note">
+      Pings, shared waypoints and ready checks only reach people whose clients are paired to
+      <em>this</em> server. Being in the same Hypixel party is not enough on its own.
+    </p>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var token = null;
+  var timer = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+  $("origin").textContent = location.origin;
+
+  function status(message, kind) {
+    var el = $("status");
+    el.textContent = message || "";
+    el.className = kind || "";
+  }
+
+  function api(path, options) {
+    options = options || {};
+    options.headers = Object.assign(
+      { "Authorization": "Bearer " + token },
+      options.body ? { "Content-Type": "application/json" } : {}
+    );
+    return fetch(path, options).then(function (response) {
+      if (response.status === 401) { throw new Error("That token was not accepted."); }
+      if (!response.ok) { throw new Error("Server said " + response.status + "."); }
+      return response.status === 204 ? null : response.json();
+    });
+  }
+
+  function unlock() {
+    token = $("token").value.trim();
+    if (!token) { status("Paste the token first.", "err"); return; }
+    status("Checking…");
+    api("/api/pair/pending").then(function () {
+      status("");
+      $("signin").classList.add("hidden");
+      $("pending").classList.remove("hidden");
+      $("live").classList.add("live");
+      refresh();
+      // Polled rather than pushed: the page is open for a minute during setup, and a websocket for
+      // that would be more moving parts than the thing it is setting up.
+      timer = setInterval(refresh, 2000);
+    }).catch(function (error) {
+      token = null;
+      status(error.message, "err");
+    });
+  }
+
+  function refresh() {
+    Promise.all([api("/api/pair/pending"), api("/api/accounts")])
+      .then(function (results) {
+        render(results[0].pending || [], results[1].accounts || []);
+      })
+      .catch(function (error) { status(error.message, "err"); });
+  }
+
+  function render(pending, accounts) {
+    var select = $("account");
+    var chosen = select.value;
+    select.innerHTML = "";
+    accounts.forEach(function (account) {
+      var option = document.createElement("option");
+      option.value = account.id;
+      option.textContent = account.displayName + " (" + account.deviceCount + " device" +
+        (account.deviceCount === 1 ? "" : "s") + ")";
+      select.appendChild(option);
+    });
+    if (!accounts.length) {
+      var none = document.createElement("option");
+      none.value = "";
+      none.textContent = "— none yet, name one on the right —";
+      select.appendChild(none);
+    }
+    if (chosen) { select.value = chosen; }
+
+    var list = $("list");
+    list.innerHTML = "";
+    if (!pending.length) {
+      var empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "Nothing waiting. Press Pair in the game and it will show up here.";
+      list.appendChild(empty);
+      return;
+    }
+    pending.forEach(function (entry) { list.appendChild(card(entry)); });
+  }
+
+  function card(entry) {
+    var wrapper = document.createElement("div");
+    wrapper.className = "card";
+
+    var code = document.createElement("div");
+    code.className = "code";
+    code.textContent = entry.code;
+
+    var who = document.createElement("div");
+    who.className = "who";
+    var name = document.createElement("div");
+    name.className = "name";
+    name.textContent = entry.minecraftName || "unknown client";
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    var seconds = Math.max(0, Math.round((entry.expiresAtMillis - Date.now()) / 1000));
+    // The name is what somebody recognises; the UUID is only a tiebreak between two of them. Showing all
+    // thirty-six characters wrapped it across two lines and made the card about the UUID.
+    meta.textContent = entry.deviceName + " · " + entry.minecraftUuid.slice(0, 8) +
+      "… · expires in " + seconds + "s";
+    meta.title = entry.minecraftUuid;
+    who.appendChild(name);
+    who.appendChild(meta);
+
+    var approve = document.createElement("button");
+    approve.textContent = "Approve";
+    approve.onclick = function () { decide(entry.code, true, approve); };
+
+    var deny = document.createElement("button");
+    deny.className = "ghost";
+    deny.textContent = "Deny";
+    deny.onclick = function () { decide(entry.code, false, deny); };
+
+    wrapper.appendChild(code);
+    wrapper.appendChild(who);
+    wrapper.appendChild(approve);
+    wrapper.appendChild(deny);
+    return wrapper;
+  }
+
+  function decide(code, approve, button) {
+    // The typed name wins over the dropdown: somebody who bothered to type one meant it.
+    var account = ($("newAccount").value.trim() || $("account").value || "").trim();
+    if (approve && !account) {
+      status("Choose or name an account first — a device has to belong to somebody.", "warn");
+      return;
+    }
+    button.disabled = true;
+    api("/api/pair/approve", {
+      method: "POST",
+      body: JSON.stringify({ code: code, accountId: account || "unknown", approve: approve })
+    }).then(function () {
+      status(approve ? "Approved. The client should connect within a couple of seconds." : "Denied.",
+             approve ? "ok" : "");
+      $("newAccount").value = "";
+      refresh();
+    }).catch(function (error) {
+      button.disabled = false;
+      status(error.message, "err");
+    });
+  }
+
+  $("unlock").onclick = unlock;
+  $("token").addEventListener("keydown", function (event) {
+    if (event.key === "Enter") { unlock(); }
+  });
+})();
+</script>
+</body>
+</html>

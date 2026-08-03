@@ -22,3 +22,6 @@ versions/*/build/
 
 # OS
 .DS_Store
+
+# The backend's state file, when it is run from a checkout rather than from Docker
+sidequest-state.json*

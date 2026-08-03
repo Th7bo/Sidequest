@@ -169,4 +169,19 @@ public object Endpoints {
 
     /** The WebSocket. Authenticated by an access token in the query, see the auth notes. */
     public const val REALTIME: String = "/realtime"
+
+    /**
+     * Pending pairings, for whoever is approving them.
+     *
+     * Operator-authenticated, like approving itself. The list carries no secrets — a code is worthless
+     * without the device secret the mod holds, which is the whole reason the pairing flow has two values
+     * instead of one.
+     */
+    public const val PAIR_PENDING: String = "$BASE/pair/pending"
+
+    /** The accounts a device can be bound to. Operator-authenticated. */
+    public const val ACCOUNTS: String = "$BASE/accounts"
+
+    /** The setup page. Plain HTML, served by the same server, so a fresh install needs nothing else. */
+    public const val ADMIN: String = "/setup"
 }

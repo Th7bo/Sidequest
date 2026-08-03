@@ -12,7 +12,11 @@ import dev.th7bo.sidequest.protocol.EventBatchResult
 import dev.th7bo.sidequest.protocol.EventPage
 import dev.th7bo.sidequest.protocol.GroupMember
 import dev.th7bo.sidequest.protocol.GroupState
+import dev.th7bo.sidequest.protocol.AccountList
+import dev.th7bo.sidequest.protocol.AccountSummary
 import dev.th7bo.sidequest.protocol.PairApproveRequest
+import dev.th7bo.sidequest.protocol.PendingPairingList
+import dev.th7bo.sidequest.protocol.PendingPairingSummary
 import dev.th7bo.sidequest.protocol.PairPollRequest
 import dev.th7bo.sidequest.protocol.PairStartRequest
 import dev.th7bo.sidequest.protocol.Protocol
@@ -26,6 +30,8 @@ import dev.th7bo.sidequest.protocol.RevokeRequest
 import dev.th7bo.sidequest.protocol.ServerInfo
 import dev.th7bo.sidequest.protocol.SessionList
 import dev.th7bo.sidequest.protocol.TokenScope
+import io.ktor.http.ContentType
+import io.ktor.server.response.respondText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -169,6 +175,75 @@ public class SidequestBackend(
                 call.fail(HttpStatusCode.NotFound, ApiErrorCode.NOT_FOUND, "no such pairing code")
             }
         }
+
+        /**
+         * What is waiting to be approved.
+         *
+         * Operator-only, like approving. Expired entries are filtered here rather than shown greyed out:
+         * a code that can no longer be approved is not a decision anybody has to make, and listing it
+         * only invites clicking it.
+         */
+        get(Endpoints.PAIR_PENDING) {
+            if (auth.authenticateOperator(call.bearerToken()) == null) {
+                call.fail(HttpStatusCode.Unauthorized, ApiErrorCode.UNAUTHENTICATED, "operator token required")
+                return@get
+            }
+            // The server's own clock, not the wall clock. Everything else here goes through `now` — it is
+            // what the tests move and what a deployment could in principle override — and reading the real
+            // time in one place made this filter disagree with the expiry the pairing was written with.
+            val cutoff = now()
+            call.respondWithTime(
+                PendingPairingList(
+                    store.read { it.pending }
+                        .filter { it.expiresAtMillis > cutoff && it.approvedBy == null && !it.denied }
+                        .sortedBy { it.expiresAtMillis }
+                        .map {
+                            PendingPairingSummary(
+                                code = it.code,
+                                minecraftName = it.minecraftName,
+                                minecraftUuid = it.minecraftUuid,
+                                deviceName = it.deviceName,
+                                expiresAtMillis = it.expiresAtMillis,
+                            )
+                        },
+                ),
+            )
+        }
+
+        /** The accounts a device can be bound to, so the page can offer them rather than ask for typing. */
+        get(Endpoints.ACCOUNTS) {
+            if (auth.authenticateOperator(call.bearerToken()) == null) {
+                call.fail(HttpStatusCode.Unauthorized, ApiErrorCode.UNAUTHENTICATED, "operator token required")
+                return@get
+            }
+            // One read for both halves: two would be two snapshots, and a device paired between them
+            // would be counted against an account list that did not have it.
+            val accounts = store.read { state ->
+                state.accounts.map { account ->
+                    AccountSummary(
+                        id = account.id,
+                        displayName = account.displayName,
+                        role = account.role,
+                        deviceCount = state.devices.count { it.accountId == account.id && !it.isRevoked },
+                    )
+                }
+            }
+            call.respondWithTime(AccountList(accounts))
+        }
+
+        // -- the setup page -------------------------------------------------
+
+        /**
+         * Served from the same server as the API, deliberately.
+         *
+         * A pairing page hosted anywhere else would need the operator to open a hole for it, and would ask
+         * somebody setting up a private server for their friends to trust a third party with the one
+         * credential that binds devices to accounts. One process, one origin, no configuration.
+         */
+        get(Endpoints.ADMIN) { call.respondSetupPage() }
+
+        // The bare root, because that is what somebody types after `docker compose up`.
+        get("/") { call.respondSetupPage() }
 
         // -- session --------------------------------------------------------
 
@@ -442,6 +517,32 @@ public class SidequestBackend(
      * account to be created first would mean a second endpoint that exists only for the first five minutes
      * of a server's life.
      */
+    /**
+     * Serves the setup page.
+     *
+     * Read from the classpath on every request rather than cached, and that is deliberate at this size: the
+     * file is a few kilobytes, this is hit a handful of times during setup, and a cache would be a thing to
+     * invalidate for no measurable gain.
+     *
+     * A missing resource answers 500 with the reason rather than an empty page. A blank screen at the exact
+     * moment somebody is trying to work out why nothing is connecting is the least helpful thing this could
+     * do.
+     */
+    private suspend fun ApplicationCall.respondSetupPage() {
+        val page = SidequestBackend::class.java.getResourceAsStream("/web/setup.html")?.use {
+            it.readBytes().toString(Charsets.UTF_8)
+        }
+        if (page == null) {
+            respondText(
+                "The setup page is missing from this build.",
+                ContentType.Text.Plain,
+                HttpStatusCode.InternalServerError,
+            )
+            return
+        }
+        respondText(page, ContentType.Text.Html)
+    }
+
     private fun ensureAccount(accountId: AccountId) {
         store.mutate { state ->
             if (state.accounts.any { it.id == accountId }) return@mutate state to Unit
