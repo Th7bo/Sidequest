@@ -44,7 +44,30 @@ public object MinecraftItemStacks {
 
         val stack = ItemStack(registered)
         item.skin?.let { stack.set(DataComponents.PROFILE, profileFor(it)) }
+        modelFor(item.model)?.let { stack.set(DataComponents.ITEM_MODEL, it) }
         return stack
+    }
+
+    /**
+     * Hypixel's own model for an item, but only if this client can actually draw it.
+     *
+     * SkyBlock ships a resource pack, and most of what it adds is a vanilla item wearing one of its models
+     * — which is why a Revenant Catalyst was drawing as the sheet of paper it is built on. Somebody running
+     * that pack, or one that restores the original art, has the model on disk, and handing the id to the
+     * game draws the real thing.
+     *
+     * **Asked of the resource manager rather than assumed.** A model that is not installed does not fall
+     * back gracefully: the game draws its missing-model cube, which is far worse than the vanilla item. So
+     * the file has to be there — and for anybody without the pack this returns null and nothing changes.
+     */
+    private fun modelFor(model: String?): Identifier? {
+        if (model.isNullOrEmpty()) return null
+        val id = runCatching { Identifier.parse(model) }.getOrNull() ?: return null
+        // Item models are declared under `items/`, not `models/`: since 1.21.4 that directory holds the
+        // *definition* the `minecraft:item_model` component names, and it is what has to exist.
+        val definition = Identifier.fromNamespaceAndPath(id.namespace, "items/" + id.path + ".json")
+        val manager = net.minecraft.client.Minecraft.getInstance().resourceManager
+        return if (manager.getResource(definition).isPresent) id else null
     }
 
     /**

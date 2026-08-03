@@ -379,6 +379,53 @@ class PersistenceTest {
         assertTrue(store.load(temp).report.wasEmpty)
     }
 
+    /**
+     * A change made outside the screen is saved, but only after the bindings are refreshed.
+     *
+     * A snapshot encodes each setting's *binding*, and a mirror binding caches — it re-reads its source
+     * only when told to. So a save requested after a plain property write faithfully wrote the value the
+     * binding had been holding since startup, and the change vanished on the next load. In Sidequest that
+     * was every item somebody ignored from a drop toast.
+     */
+    @Test
+    fun `an external write is saved once the bindings are refreshed`() = runBlocking {
+        var ignored = listOf("Enchanted Book")
+        val external = configScreen(UiId.of("test", "external"), "External") {
+            category(UiId.of("test", "external.main"), "Main") {
+                section("Drops") {
+                    list(
+                        id = UiId.of("test", "external.ignored"),
+                        title = "Ignored",
+                        value = dev.th7bo.sidequest.ui.binding.bind(
+                            get = { ignored },
+                            set = { ignored = it },
+                            debugName = "ignored",
+                        ),
+                        elementSerializer = dev.th7bo.sidequest.ui.config.SettingSerializers.string,
+                        itemLabel = { it },
+                    )
+                }
+            }
+        }
+        val store = store()
+        val controller = ConfigPersistenceController(
+            external, store, CoroutineScope(Dispatchers.Default), ImmediateScheduler(), schemaVersion = 1,
+        )
+
+        // Somebody ignores an item from a toast: the property is written directly, the screen is not open.
+        ignored = ignored + "Revenant Catalyst"
+
+        // Without the refresh the snapshot still holds the value from when the binding was built.
+        val stale = controller.snapshot()[UiId.of("test", "external.ignored")].toString()
+        assertFalse(stale.contains("Revenant Catalyst"), "this is the trap the refresh exists for")
+
+        external.refreshBindings()
+        val fresh = controller.snapshot()[UiId.of("test", "external.ignored")].toString()
+        assertTrue(fresh.contains("Revenant Catalyst"), "after refreshing, the new item is written")
+
+        controller.dispose()
+    }
+
     @Test
     fun `the default profile cannot be deleted or renamed`() = runBlocking {
         val store = store()

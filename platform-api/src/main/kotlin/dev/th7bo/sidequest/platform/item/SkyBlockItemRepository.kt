@@ -33,6 +33,16 @@ public data class SkyBlockItem(
      * item or like a blank skull.
      */
     public val skullTexture: String? = null,
+    /**
+     * The model Hypixel draws it with, when that is one of theirs — `hypixel_skyblock:item/…`.
+     *
+     * Kept rather than discarded because a player running Hypixel's resource pack, or one that restores
+     * the original textures, *has* these models. Handing the id to the game then draws the real item
+     * instead of the vanilla base it is built on, which is the difference between a Revenant Catalyst and
+     * a sheet of paper. Null when the item resolves to a vanilla model, where [minecraftId] is already
+     * the answer.
+     */
+    public val modelId: String? = null,
 ) {
     public val isPlayerHead: Boolean get() = skullTexture != null
 }

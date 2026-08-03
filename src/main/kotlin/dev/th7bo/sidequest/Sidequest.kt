@@ -801,10 +801,18 @@ object Sidequest : ClientModInitializer {
      * The ignore action on a drop's toast is the case this exists for: it edits a setting the screen owns,
      * from a place the screen is not open. The controller normally saves when a *binding* changes, and a
      * plain property write is invisible to it — so this asks for the save explicitly.
+     *
+     * **The refresh is the whole of it, and asking for the save was never enough.** A snapshot encodes each
+     * setting's *binding*, and a mirror binding caches: it re-reads its source only when told to. So a save
+     * requested after a plain property write faithfully wrote the value the binding had been holding since
+     * the game started, and the change was gone on the next load. Every item somebody ignored from a toast
+     * was lost this way.
      */
     fun saveConfiguration() {
-        runCatching { persistence.scheduleSave() }
-            .onFailure { logger.warn("Could not save the configuration", it) }
+        runCatching {
+            configScreen.refreshBindings()
+            persistence.scheduleSave()
+        }.onFailure { logger.warn("Could not save the configuration", it) }
     }
 
     /**

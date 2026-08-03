@@ -397,10 +397,19 @@ public object HypixelChatRules {
 
     private val petDrop = chatRule(
         id = SqId.sidequest("chat.drop.pet"),
-        regex = """(?:§.)*PET DROP! (?:§.)*§(?<rarityColor>.)(?<item>[^§(\n]+?)\s*(?:(?:§.)*\(.*)?""",
+        // Two shapes, and the second is why this needed changing. A pet from a mob comes as
+        // `PET DROP! §5Baby Yeti`; one from farming or a pest comes with its rarity spelled out in bold
+        // first — `PET DROP! §5§lEPIC §5Slug` — and a pattern that expected a colour code straight after
+        // the words matched the first and silently ignored the second. Somebody's Slug never animated.
+        regex = """(?:§.)*PET DROP! """ +
+            """(?:(?:§.)*(?:COMMON|UNCOMMON|RARE|EPIC|LEGENDARY|MYTHIC|DIVINE)\s+)?""" +
+            """(?:§.)*(?<item>[^§(\n]+?)\s*(?:(?:§.)*\(.*)?""",
         fixtures = listOf(
             "§6§lPET DROP! §r§5Baby Yeti §r§b(+168% ✯ Magic Find)",
             "§6§lPET DROP! §r§6Rat",
+            // Farming and pest drops. Recorded by SkyHanni, and the shape reported from a real client.
+            "§6§lPET DROP! §r§5Slug §6(§6+1300)",
+            "§6§lPET DROP! §5§lEPIC §5Slug §6(§6+153☘)",
         ),
     ) { match -> match.drop(DropRarity.PET) }
 

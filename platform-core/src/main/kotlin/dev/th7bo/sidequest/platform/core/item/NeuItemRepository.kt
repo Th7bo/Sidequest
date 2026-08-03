@@ -166,11 +166,15 @@ public class NeuItemRepository(
         val display = root["displayname"]?.jsonPrimitive?.content ?: internalName
         val nbt = root["nbttag"]?.jsonPrimitive?.content.orEmpty()
 
+        val model = modelFrom(nbt)
         SkyBlockItem(
             internalName = internalName,
             displayName = HypixelText.clean(display),
-            minecraftId = modernIdFor(legacyId, modelFrom(nbt)),
+            minecraftId = modernIdFor(legacyId, model),
             skullTexture = skullTextureFrom(nbt),
+            // Only Hypixel's own. A vanilla model is already what `minecraftId` names, and repeating it
+            // here would have the client set a component that changes nothing.
+            modelId = model?.takeUnless { it.startsWith(VANILLA) },
         )
     }.getOrElse { thrown ->
         log.warn(thrown) { "Could not read the repository entry for $internalName" }

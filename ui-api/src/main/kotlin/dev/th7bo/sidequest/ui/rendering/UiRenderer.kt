@@ -292,6 +292,13 @@ public data class ItemRef(
      * items would all draw as the same blank skull.
      */
     public val skin: String? = null,
+    /**
+     * A model the host should draw it with, when one is known — otherwise [id] decides.
+     *
+     * Opaque here, like everything else on this type. It exists because the host may have art for an item
+     * that its own id does not name, and the framework has no way to know that and no business deciding.
+     */
+    public val model: String? = null,
 )
 
 /** A host texture reference. Opaque to the framework. */

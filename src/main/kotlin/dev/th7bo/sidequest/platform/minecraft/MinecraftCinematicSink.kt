@@ -149,7 +149,7 @@ class MinecraftCinematicSink(
      */
     private fun iconFor(itemName: String, glow: Int?): StageElement? {
         items().resident(itemName)?.let { known ->
-            return StageElement.Item(ItemRef(known.minecraftId, known.skullTexture), glow = glow)
+            return StageElement.Item(ItemRef(known.minecraftId, known.skullTexture, known.modelId), glow = glow)
         }
         return ItemTextures.textureFor(itemName)?.let { StageElement.Image(it, glow = glow) }
     }

@@ -345,6 +345,31 @@ class ChatRulesTest {
         assertEquals(168.0, event.magicFindPercent)
     }
 
+    /**
+     * A pet from farming spells its rarity out first.
+     *
+     * `PET DROP! §5§lEPIC §5Slug` rather than `PET DROP! §5Slug`. The pattern expected a colour code
+     * straight after the words, so this shape matched nothing at all and the animation never played —
+     * and the interesting half is not that it matches now but that the *name* is the pet, not the word
+     * "EPIC" it happens to sit behind.
+     */
+    @Test
+    fun `a pet drop that spells out its rarity still names the pet`() {
+        val event = one<RareDropEvent>("§6§lPET DROP! §5§lEPIC §5Slug §6(§6+153☘)")
+
+        assertEquals("Slug", event.itemName)
+        assertEquals(DropRarity.PET, event.rarity)
+    }
+
+    /** The same drop without the rarity word, which is how a pest drop arrives. */
+    @Test
+    fun `a pet drop with a fortune bonus is read`() {
+        val event = one<RareDropEvent>("§6§lPET DROP! §r§5Slug §6(§6+1300)")
+
+        assertEquals("Slug", event.itemName)
+        assertEquals(DropRarity.PET, event.rarity)
+    }
+
     // ---------------------------------------------------------------
     // Progression and completion
     // ---------------------------------------------------------------
