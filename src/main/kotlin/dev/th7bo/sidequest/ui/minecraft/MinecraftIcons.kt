@@ -76,10 +76,13 @@ public object MinecraftIcons {
      */
     public val playtime: Icon = item("clock_00")
 
+    /** The title screen's nebula. A nether star is the closest the game has to one. */
+    public val titleScreen: Icon = item("nether_star")
+
     /** Every icon here, for the registration below and for a gallery. */
     public val all: List<Icon> = listOf(
         settings, features, network, tools,
-        appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics, playtime,
+        appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics, playtime, titleScreen,
     )
 }
 

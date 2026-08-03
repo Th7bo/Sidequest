@@ -7,7 +7,8 @@
     "defaultRequire": 1
   },
   "client": [
-    "EntityRendererMixin"
+    "EntityRendererMixin",
+    "ScreenPanoramaMixin"
   ],
   "mixins": []
 }

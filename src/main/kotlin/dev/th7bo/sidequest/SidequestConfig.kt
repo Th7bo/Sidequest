@@ -37,6 +37,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     val dropsOn = mutableStateOf(SidequestSettings.Drops.isEnabled, "drops.enabled")
     val cosmeticsOn = mutableStateOf(SidequestSettings.Cosmetics.isEnabled, "cosmetics.enabled")
     val playtimeOn = mutableStateOf(SidequestSettings.Playtime.isEnabled, "playtime.enabled")
+    val titleScreenOn = mutableStateOf(SidequestSettings.TitleScreen.isEnabled, "title.enabled")
 
     /** Every change pushes into the services. See [SidequestSettings.applyToPlatform]. */
     fun applied() = SidequestSettings.applyToPlatform()
@@ -360,6 +361,68 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     elementSerializer = ISLAND_SERIALIZER,
                 ) {
                     visibleWhen = dropsOn
+                }
+            }
+
+            section("Title screen", description = "The nebula behind the main menu", icon = MinecraftIcons.titleScreen, collapsible = true, startsCollapsed = true) {
+                toggle(
+                    id = id("title.enabled"),
+                    title = "Replace the panorama",
+                    description = "Off leaves Minecraft's own. Another mod's title screen is left alone either way.",
+                    value = bind(
+                        get = { SidequestSettings.TitleScreen.isEnabled },
+                        set = { SidequestSettings.TitleScreen.isEnabled = it; titleScreenOn.value = it },
+                        debugName = "title.enabled",
+                    ),
+                )
+                toggle(
+                    id = id("title.animate"),
+                    title = "Let it drift",
+                    description = "Turn this off for a still image, and keep the nebula",
+                    value = bind(
+                        get = { SidequestSettings.TitleScreen.animate },
+                        set = { SidequestSettings.TitleScreen.animate = it },
+                        debugName = "title.animate",
+                    ),
+                ) {
+                    visibleWhen = titleScreenOn
+                    keywords("motion", "reduced motion", "still", "animation")
+                }
+                colorPicker(
+                    id = id("title.deep"),
+                    title = "Empty sky",
+                    value = bind(
+                        get = { SidequestSettings.TitleScreen.deepColour },
+                        set = { SidequestSettings.TitleScreen.deepColour = it },
+                        debugName = "title.deep",
+                    ),
+                ) {
+                    visibleWhen = titleScreenOn
+                }
+                colorPicker(
+                    id = id("title.cloud"),
+                    title = "Clouds",
+                    value = bind(
+                        get = { SidequestSettings.TitleScreen.cloudColour },
+                        set = { SidequestSettings.TitleScreen.cloudColour = it },
+                        debugName = "title.cloud",
+                    ),
+                    presets = ACCENT_PRESETS,
+                ) {
+                    visibleWhen = titleScreenOn
+                }
+                colorPicker(
+                    id = id("title.highlight"),
+                    title = "Bright cores",
+                    description = "Where the clouds pile up",
+                    value = bind(
+                        get = { SidequestSettings.TitleScreen.highlightColour },
+                        set = { SidequestSettings.TitleScreen.highlightColour = it },
+                        debugName = "title.highlight",
+                    ),
+                    presets = ACCENT_PRESETS,
+                ) {
+                    visibleWhen = titleScreenOn
                 }
             }
 

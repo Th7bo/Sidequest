@@ -117,6 +117,26 @@ public object SidequestSettings {
         public var ignoredIslands: List<Island> = emptyList()
     }
 
+    // -- title screen --------------------------------------------------------
+
+    public object TitleScreen {
+        /** Off by default. Replacing the first thing somebody sees is not a decision to make for them. */
+        public var isEnabled: Boolean = false
+
+        /**
+         * Whether it drifts.
+         *
+         * Separate from [isEnabled] because they answer different questions. Somebody who finds slow motion
+         * uncomfortable still gets the nebula; somebody who wants Mojang's panorama turns the whole thing off.
+         */
+        public var animate: Boolean = true
+
+        /** The three colours a sky needs: what is empty, what is cloud, and what is bright. */
+        public var deepColour: Color = Color.parse("#0B0A14")
+        public var cloudColour: Color = Color.parse("#4C3A8C")
+        public var highlightColour: Color = Color.parse("#A78BFA")
+    }
+
     // -- playtime ------------------------------------------------------------
 
     public object Playtime {
