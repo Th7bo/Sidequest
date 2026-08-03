@@ -34,8 +34,13 @@ import kotlin.time.Duration.Companion.seconds
 class ReadyChecks(
     /** Who we are, by name — the party speaks in names, because that is what Hypixel gives it. */
     private val localName: () -> String?,
-    /** Starts one. Returns false when there is no party to ask. */
-    private val start: (timeout: Duration, note: String?) -> Boolean,
+    /**
+     * Starts one locally. Returns false when there is no party to ask.
+     *
+     * Takes who asked, because a check arriving from somebody else has to be started here too — see
+     * [remoteStarted] — and recording it as ours would put the wrong name on it.
+     */
+    private val start: (startedBy: String, timeout: Duration, note: String?) -> Boolean,
     /** Records our own answer, and returns whether it was accepted. */
     private val answer: (name: String, response: ReadyResponse) -> Boolean,
     /** Publishes to the group. False when nothing was sent. */
@@ -103,18 +108,21 @@ class ReadyChecks(
     // -- asking --------------------------------------------------------------
 
     private fun ask(note: String?) {
-        if (!start(TIMEOUT, note)) {
+        val me = localName() ?: ""
+        if (!start(me, TIMEOUT, note)) {
             say("Nobody to ask", "You are not in a party.")
             return
         }
         reported = null
         val check = context.party.readyCheck
-        if (check != null && !publishStart(check)) {
-            // Said plainly rather than hidden. Without the backend the check still works — it just only
-            // knows what this client can see, which is a different and much weaker promise.
-            context.log.debug { "Ready check started locally; nothing was sent" }
-        }
-        say("Asked ${check?.responses?.size ?: 0} people", note ?: "They have ${TIMEOUT.inWholeSeconds}s.")
+        val shared = check != null && publishStart(check)
+        say(
+            "Asked ${check?.responses?.size ?: 0} people",
+            // Said out loud rather than logged. A ready check nobody else received looks identical to one
+            // everybody ignored, and the difference is the whole point — one is a party not paying
+            // attention and the other is the mod not being connected to anything.
+            if (shared) note ?: "They have ${TIMEOUT.inWholeSeconds}s." else NOT_CONNECTED,
+        )
     }
 
     // -- answering -----------------------------------------------------------
@@ -137,8 +145,8 @@ class ReadyChecks(
             say("Already answered", "Your first answer stands.")
             return
         }
-        publishAnswer(isReady)
-        say(if (isReady) "Ready" else "Not ready")
+        val shared = publishAnswer(isReady)
+        say(if (isReady) "Ready" else "Not ready", if (shared) "" else NOT_CONNECTED)
     }
 
     // -- telling the leader --------------------------------------------------
@@ -206,6 +214,19 @@ class ReadyChecks(
      * arrives is the prompt, and answering is what goes back.
      */
     fun remoteStarted(from: String, note: String?) {
+        // A local check, from this client's own view of the party. Without one there is nothing to answer
+        // *into*: the prompt appeared, the buttons did nothing, and `/sqready yes` said "no ready check is
+        // running" — which is what happens when a rationale gets written and the code behind it does not.
+        //
+        // Built here rather than taken from the message on purpose, and the payload carries no member list
+        // for the same reason: two clients each shipping who they think is in the party is how they come to
+        // disagree about it.
+        if (!start(from, TIMEOUT, note)) {
+            context.log.debug { "$from asked, but this client sees no party" }
+            return
+        }
+        reported = null
+
         context.notifications.notify(
             notification(
                 category = NotificationCategory.SOCIAL,
@@ -240,6 +261,9 @@ class ReadyChecks(
 
     private companion object {
         val VERBS = listOf("yes", "no")
+
+        /** What to say when the group cannot hear it. Named once so both places word it the same. */
+        const val NOT_CONNECTED = "Only on your client — Sidequest is not connected to the group."
 
         /**
          * How long people get.

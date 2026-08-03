@@ -541,9 +541,9 @@ object Sidequest : ClientModInitializer {
 
         readyChecks = ReadyChecks(
             localName = { platform.client.localPlayerName },
-            start = { timeout, note ->
+            start = { startedBy, timeout, note ->
                 platform.partyService.startReadyCheck(
-                    startedBy = platform.client.localPlayerName.orEmpty(),
+                    startedBy = startedBy,
                     timeout = timeout,
                     note = note,
                 ) != null
@@ -677,7 +677,12 @@ object Sidequest : ClientModInitializer {
                 )
             }.onFailure { logger.debug("Could not send {}", payload::class.simpleName, it) }
         }
-        return true
+
+        // Whether anybody is actually on the other end, not whether a client object exists. This returned
+        // true whenever a server *URL* was configured — which it is by default — so every caller was told
+        // its message had gone out while it sat in an offline queue. A feature that says "shared" when
+        // nothing was shared is worse than one that admits it is local.
+        return realtime.isConnected
     }
 
     private lateinit var pings: PingSystem

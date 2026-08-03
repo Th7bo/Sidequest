@@ -54,6 +54,9 @@ class PingSystem(
     /** When the last ping went out, so the key can be held without flooding the group. */
     private var lastPingAt = 0L
 
+    /** Whether the "nobody else can see this" notice has been given. Once a session is enough. */
+    private var warnedAboutSharing = false
+
     override fun onEnable(context: FeatureContext) {
         this.context = context
 
@@ -116,6 +119,20 @@ class PingSystem(
         placeLocal(location, style, label)
 
         if (!publish(location, style, label.take(MAX_LABEL))) {
+            // Once a session, not once a ping. Somebody with no backend would otherwise be told the same
+            // thing every time they pointed at something, which is how a warning becomes wallpaper — but
+            // never saying it at all is why "pinging does not share" looks like a broken feature rather
+            // than an unconfigured one.
+            if (!warnedAboutSharing) {
+                warnedAboutSharing = true
+                context.notifications.notify(
+                    notification(
+                        category = NotificationCategory.SOCIAL,
+                        title = "Pings are staying local",
+                        subtitle = "Sidequest is not connected to the group. Pair it under Network in the settings.",
+                    ),
+                )
+            }
             context.log.debug { "Ping shown locally; nothing was sent" }
         }
     }
