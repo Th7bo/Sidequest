@@ -44,6 +44,17 @@ public data class RealtimeMessage(
     /** Which permission gates this payload. See the class comment. */
     public val scope: Permission,
     /**
+     * Who it is for, or empty for everybody the permissions already allow.
+     *
+     * **It narrows and never widens.** Naming somebody here does not hand them anything: [scope] is still
+     * checked, and the two are an *and*. That is the whole safety property of the field — a client that
+     * could widen its audience by listing people would be a client that could route round a permission.
+     *
+     * Empty is the common case and deliberately the default, because most of this traffic is meant for
+     * whoever is entitled to it. A "come here" aimed at one person is the exception.
+     */
+    public val recipients: Set<AccountId> = emptySet(),
+    /**
      * Whether the sender wants to know this arrived.
      *
      * Opt-in, because most of this traffic is presence and pings that are worthless a second later —
@@ -57,6 +68,21 @@ public data class RealtimeMessage(
     /** Whether this message is too old to be worth acting on. See [STALE_AFTER_MILLIS]. */
     public fun isStale(nowMillis: Long): Boolean =
         payload.expiresAfterMillis?.let { nowMillis - timestampMillis > it } ?: false
+
+    /**
+     * Whether [viewer] is among those this was addressed to.
+     *
+     * Defined here rather than on the server because both ends need the answer — the server to route, a
+     * client to decide what to draw — and two implementations of one rule is how a targeted message ends
+     * up on a screen it was not meant for.
+     *
+     * **Not a permission check.** It only ever removes people, so a caller still has to gate on [scope].
+     *
+     * The sender always sees their own message. They chose the recipients; being unable to read back what
+     * they sent would make a resume lose the sender's own copy of it.
+     */
+    public fun isAddressedTo(viewer: AccountId): Boolean =
+        recipients.isEmpty() || viewer in recipients || senderAccount == viewer
 
     public companion object {
         /**

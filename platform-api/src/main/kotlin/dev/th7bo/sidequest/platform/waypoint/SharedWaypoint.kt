@@ -73,6 +73,50 @@ public val WaypointAudience.isShared: Boolean
         !(this is WaypointAudience.Selected && players.isEmpty())
 
 /**
+ * Who a waypoint is actually sent to, once the audience has been resolved.
+ *
+ * A separate type from [WaypointAudience] because sending and drawing ask different questions. Drawing asks
+ * "may this person see it" and can ask again every frame; sending asks "who do I address this to" once, and
+ * the answer has to be a concrete list because the server has never heard of anybody's party.
+ *
+ * The reason it is three cases rather than a set: on the wire an empty recipient list means *everybody
+ * entitled*, so a resolver that returned a bare set would make "shared with the group" and "shared with a
+ * party that turned out to be empty" the same value — and the second one would go to the whole group.
+ */
+public sealed interface WaypointDelivery {
+
+    /** Send nothing. Either it is private, or its audience resolved to no one. */
+    public data object None : WaypointDelivery
+
+    /** Everybody the group's permissions already allow, with no further narrowing. */
+    public data object Everybody : WaypointDelivery
+
+    /** These people and nobody else. Never empty — that case is [None], deliberately. */
+    public data class Named(public val players: Set<PlayerId>) : WaypointDelivery
+}
+
+/**
+ * Resolves an audience into who to actually send to, right now.
+ *
+ * **Resolved when it is sent, not when it is read.** [WaypointAudience] is otherwise an intent answered at
+ * view time, and that is still true of drawing — but a message has to be addressed before it leaves, and
+ * nothing on the far side knows who is in a party. So a waypoint shared "with your party" reaches the party
+ * of the moment it was shared; joining a different one later does not resend it, which is the honest reading
+ * of a message that has already been delivered.
+ */
+public fun WaypointAudience.deliveryTo(members: AudienceMembers): WaypointDelivery = when (this) {
+    is WaypointAudience.Private -> WaypointDelivery.None
+    is WaypointAudience.Group -> WaypointDelivery.Everybody
+    is WaypointAudience.Selected -> players.toDelivery()
+    is WaypointAudience.Friends -> members.friends.toDelivery()
+    is WaypointAudience.Party -> members.party.toDelivery()
+}
+
+/** Empty collapses to [WaypointDelivery.None]. See the note on [WaypointDelivery]. */
+private fun Set<PlayerId>.toDelivery(): WaypointDelivery =
+    if (isEmpty()) WaypointDelivery.None else WaypointDelivery.Named(this)
+
+/**
  * A waypoint somebody saved.
  *
  * Distinct from a `Marker`, which is the transient in-world thing drawn this session: a marker is placed and

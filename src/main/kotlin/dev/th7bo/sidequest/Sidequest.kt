@@ -13,6 +13,7 @@ import dev.th7bo.sidequest.feature.ui.WaypointScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildWaypointScreen
 import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
 import dev.th7bo.sidequest.platform.player.PlayerId
+import dev.th7bo.sidequest.platform.waypoint.WaypointDelivery
 import dev.th7bo.sidequest.platform.backend.BackendConfig
 import dev.th7bo.sidequest.platform.backend.PairingStatus
 import dev.th7bo.sidequest.platform.minecraft.ItemTextures
@@ -530,6 +531,7 @@ object Sidequest : ClientModInitializer {
         waypoints = SharedWaypoints(
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
             standingAt = { platform.localPosition },
+            publish = ::publishWaypoint,
         )
         waypoints.openManager = ::openWaypointManager
 
@@ -764,6 +766,68 @@ object Sidequest : ClientModInitializer {
                     ),
                 )
             }.onFailure { logger.debug("Could not send a ping", it) }
+        }
+        return true
+    }
+
+    /**
+     * Sends a shared waypoint out, or takes it back.
+     *
+     * The addressing is the whole of the work here. [WaypointDelivery.Everybody] leaves the recipient set
+     * empty, which the protocol reads as "everybody the permissions allow"; [WaypointDelivery.Named] resolves
+     * Minecraft players to accounts and addresses the message to exactly those.
+     *
+     * **A name that cannot be resolved means nobody, not everybody.** If none of the named people are in the
+     * group listing the resolved set is empty, and sending it as-is would turn "share this with two friends"
+     * into a broadcast. That case refuses instead, and the feature says so.
+     */
+    private fun publishWaypoint(
+        waypoint: dev.th7bo.sidequest.platform.waypoint.SharedWaypoint,
+        to: WaypointDelivery,
+        removed: Boolean,
+    ): Boolean {
+        if (to == WaypointDelivery.None) return false
+        val platform = platformOrNull ?: return false
+        val realtime = platform.realtime ?: return false
+
+        val recipients = when (to) {
+            is WaypointDelivery.Everybody, WaypointDelivery.None -> emptySet()
+            is WaypointDelivery.Named -> {
+                val accounts = to.players.mapNotNullTo(HashSet()) { platform.accountsByPlayer[it] }
+                // See the note above. Not a broadcast, and not silence either — false travels back to the
+                // feature, which tells the player nothing was sent.
+                if (accounts.isEmpty()) {
+                    logger.debug("Waypoint not sent: none of its {} recipients are known accounts", to.players.size)
+                    return false
+                }
+                accounts
+            }
+        }
+
+        val payload = dev.th7bo.sidequest.protocol.RealtimePayload.Waypoint(
+            id = waypoint.id,
+            location = waypoint.location,
+            label = waypoint.label,
+            // Never the note. The feature strips it before calling, and this is the second door out of the
+            // same house — stated twice on purpose, because a note reaching the group cannot be recalled.
+            note = null,
+            removed = removed,
+        )
+
+        ioScope.launch {
+            runCatching {
+                realtime.send(
+                    dev.th7bo.sidequest.protocol.RealtimeMessage(
+                        messageId = java.util.UUID.randomUUID().toString(),
+                        timestampMillis = platform.backend?.serverTime
+                            ?.toServer(System.currentTimeMillis())
+                            ?: System.currentTimeMillis(),
+                        scope = payload.scope,
+                        recipients = recipients,
+                        payload = payload,
+                    ),
+                )
+            }.onFailure { logger.debug("Could not send a waypoint", it) }
         }
         return true
     }

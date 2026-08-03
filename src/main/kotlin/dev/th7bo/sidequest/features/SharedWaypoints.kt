@@ -21,6 +21,9 @@ import dev.th7bo.sidequest.platform.waypoint.AudienceMembers
 import dev.th7bo.sidequest.platform.waypoint.SharedWaypoint
 import dev.th7bo.sidequest.platform.waypoint.WaypointAudience
 import dev.th7bo.sidequest.platform.waypoint.WaypointCollection
+import dev.th7bo.sidequest.platform.waypoint.WaypointDelivery
+import dev.th7bo.sidequest.platform.waypoint.deliveryTo
+import dev.th7bo.sidequest.platform.waypoint.isShared
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -34,14 +37,25 @@ import kotlin.time.Duration.Companion.seconds
  * distance labels, and already decides what is on screen. A second thing drawing waypoints would be a second
  * set of those decisions, differing in small ways nobody could explain.
  *
- * **Nothing is sent yet.** The audience is recorded and resolved, and [shareableWith] produces exactly what
- * would go out, but there is no transport call here — sharing over the backend is its own piece of work and
- * pretending otherwise would mean a "shared" waypoint that silently reached nobody.
+ * **What actually goes out is narrower than what is stored.** Notes are stripped, for the reason
+ * `WaypointBook.shareableWith` gives: a note is private commentary attached to a place somebody is happy to
+ * share. And a waypoint shared with named people is *addressed* to them on the wire rather than sent to
+ * everybody and filtered on arrival — a client that receives something and chooses not to draw it has still
+ * received it.
  */
 class SharedWaypoints(
     /** Who is playing, and where they are standing. Both need the game. */
     private val localPlayer: () -> PlayerId?,
     private val standingAt: () -> SqPosition?,
+    /**
+     * Sends a waypoint to the group, or takes it back when [removed] is set.
+     *
+     * A function rather than the realtime client, so this feature cannot do anything else with the
+     * connection and the whole of the sharing logic stays testable without one. Returns false when nothing
+     * went out, which is what lets sharing say so instead of claiming a waypoint reached people it did not.
+     */
+    private val publish: (waypoint: SharedWaypoint, to: WaypointDelivery, removed: Boolean) -> Boolean =
+        { _, _, _ -> false },
     private val now: () -> Long = System::currentTimeMillis,
 ) : Feature {
 
@@ -230,6 +244,7 @@ class SharedWaypoints(
         book = book.withoutWaypoint(waypoint.id)
         persist()
         refresh()
+        if (waypoint.audience.isShared) retract(waypoint, waypoint.audience)
         say("Removed ${waypoint.label}")
     }
 
@@ -245,11 +260,80 @@ class SharedWaypoints(
             return
         }
 
-        book = book.withWaypoint(waypoint.copy(audience = audience))
+        val updated = waypoint.copy(audience = audience)
+        book = book.withWaypoint(updated)
         persist()
         refresh()
-        // Said plainly, because sharing is the one action here somebody cannot take back by themselves.
-        say("${waypoint.label} is now ${describe(audience)}")
+
+        // Said plainly, because sharing is the one action here somebody cannot take back by themselves — and
+        // so is *not* sharing when somebody has been told it worked.
+        say("${waypoint.label} is now ${describe(audience)}", explain(send(updated, previously = waypoint.audience)))
+    }
+
+    // -- sending -------------------------------------------------------------
+
+    /**
+     * What became of an attempt to send.
+     *
+     * Four outcomes rather than a boolean, because three of them need different sentences and telling them
+     * apart is the point. "Your party is empty" and "the group is unreachable" are both nothing happening,
+     * and only one of them is fixed by checking the network settings.
+     */
+    private enum class Sent {
+        /** It went out. */
+        YES,
+
+        /** Private, so there was nothing to send. Not a failure. */
+        NOT_SHARED,
+
+        /** Shared with a party or a friends list that currently has nobody in it. */
+        NOBODY,
+
+        /** Somebody to send to, and no way to send it. */
+        UNREACHABLE,
+    }
+
+    /**
+     * Sends a waypoint out, or takes it back, according to what its audience now resolves to.
+     *
+     * @param previously the audience before this change, so narrowing can be told from never having shared.
+     */
+    private fun send(waypoint: SharedWaypoint, previously: WaypointAudience): Sent {
+        val delivery = waypoint.audience.deliveryTo(membersNow())
+        if (delivery != WaypointDelivery.None) {
+            // Notes never travel. `WaypointBook.shareableWith` already established that sharing a place does
+            // not share the commentary on it, and this is the other door out of the same house.
+            val sent = publish(waypoint.copy(note = null), delivery, false)
+            return if (sent) Sent.YES else Sent.UNREACHABLE
+        }
+
+        // Narrowed to nobody. Whoever had it has to be told, or their copy sits on their screen forever —
+        // the one case where sending nothing is worse than sending something.
+        if (previously.isShared) retract(waypoint, previously)
+        return if (waypoint.audience.isShared) Sent.NOBODY else Sent.NOT_SHARED
+    }
+
+    private fun explain(sent: Sent): String = when (sent) {
+        Sent.YES, Sent.NOT_SHARED -> ""
+        // The distinction that earns the enum. Somebody who shares with an empty party has not hit a bug and
+        // should not be sent to the network settings to look for one.
+        Sent.NOBODY -> "Nobody to send it to right now. It will not be sent later either — share it again."
+        Sent.UNREACHABLE -> "Nothing was sent. Sidequest is not connected to the group."
+    }
+
+    /**
+     * Takes back a waypoint from the audience that had it.
+     *
+     * Addressed to the *previous* audience rather than to everybody, because a removal still carries the
+     * waypoint's name and coordinates — telling the whole group to forget a place would be telling them where
+     * it is. The cost is that somebody who has left the party since it was shared keeps their copy; they
+     * already have its contents, so that is a stale marker rather than a leak, and it is the better half of
+     * the trade.
+     */
+    private fun retract(waypoint: SharedWaypoint, audience: WaypointAudience): Boolean {
+        val delivery = audience.deliveryTo(membersNow())
+        if (delivery == WaypointDelivery.None) return false
+        return publish(waypoint.copy(note = null), delivery, true)
     }
 
     // -- drawing -------------------------------------------------------------
@@ -362,9 +446,15 @@ class SharedWaypoints(
      */
     fun editWaypoint(id: String, change: (SharedWaypoint) -> SharedWaypoint) {
         val existing = book.waypoint(id) ?: return
-        book = book.withWaypoint(change(existing))
+        val updated = change(existing)
+        book = book.withWaypoint(updated)
         persist()
         refresh()
+
+        // Only when what the recipients are holding actually changed. The manager screen calls this on every
+        // keystroke and every toggle, and republishing on each would put a message on the wire for hiding a
+        // waypoint on your own screen — which is explicitly not a sharing decision.
+        if (updated.sharedFace != existing.sharedFace) send(updated, previously = existing.audience)
     }
 
     /** Sets every waypoint's own switch. Collections keep theirs, so this cannot un-hide a hidden folder. */
@@ -375,10 +465,11 @@ class SharedWaypoints(
     }
 
     fun deleteWaypoint(id: String) {
-        if (book.waypoint(id) == null) return
+        val waypoint = book.waypoint(id) ?: return
         book = book.withoutWaypoint(id)
         persist()
         refresh()
+        if (waypoint.audience.isShared) retract(waypoint, waypoint.audience)
     }
 
     fun editCollection(id: String, change: (WaypointCollection) -> WaypointCollection) {
@@ -423,3 +514,14 @@ class SharedWaypoints(
         const val SUBTITLE_LIMIT = 160
     }
 }
+
+/**
+ * The part of a waypoint that the people it was shared with are actually holding.
+ *
+ * Compared to decide whether an edit is worth putting on the wire. Deliberately *not* the whole waypoint: the
+ * note is stripped before it goes out and `isVisible` is a switch on your own screen, so changing either must
+ * not send anything. The audience is in here because changing it changes who the next message is addressed
+ * to, even when the words on the beam are the same.
+ */
+private val SharedWaypoint.sharedFace: List<Any?>
+    get() = listOf(label, location, audience)

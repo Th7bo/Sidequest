@@ -156,12 +156,14 @@ class BackendTest {
         payload: RealtimePayload,
         id: String = UUID.randomUUID().toString(),
         sender: AccountId? = null,
+        recipients: Set<AccountId> = emptySet(),
     ) = RealtimeMessage(
         messageId = id,
         timestampMillis = clock,
         scope = payload.scope,
         payload = payload,
         senderAccount = sender,
+        recipients = recipients,
     )
 
     // -- server info -------------------------------------------------------
@@ -1088,6 +1090,130 @@ class BackendTest {
 
             assertNotNull(adminConnection.outbound.tryReceive().getOrNull())
             assertNull(guestConnection.outbound.tryReceive().getOrNull())
+        }
+    }
+
+    // -- addressing --------------------------------------------------------
+
+    /** A message naming somebody reaches them and nobody else. */
+    @Test
+    fun `a targeted message reaches only who it names`() = runTest {
+        withServer { backend ->
+            // Both members, so the capability gate passes for each and the only thing left deciding
+            // delivery is who the message names.
+            backend.store.mutate { state ->
+                state.copy(
+                    permissions = state.permissions.copy(
+                        roles = mapOf(
+                            "intended" to GroupRole.MEMBER,
+                            "bystander" to GroupRole.MEMBER,
+                            "sender" to GroupRole.MEMBER,
+                        ),
+                    ),
+                ) to Unit
+            }
+            val intended = backend.hub.register(Connection(AccountId("intended"), DeviceId("i")))
+            val bystander = backend.hub.register(Connection(AccountId("bystander"), DeviceId("b")))
+
+            val delivered = backend.hub.fanOut(
+                message(
+                    RealtimePayload.Ping(location()),
+                    sender = AccountId("sender"),
+                    recipients = setOf(AccountId("intended")),
+                ),
+            )
+
+            assertEquals(1, delivered)
+            assertNotNull(intended.outbound.tryReceive().getOrNull())
+            assertNull(bystander.outbound.tryReceive().getOrNull()) { "a targeted ping reached somebody it did not name" }
+        }
+    }
+
+    /**
+     * Naming somebody does not hand them anything they could not already see.
+     *
+     * The property that makes the field safe to accept from a client at all: addressing is an *and* with the
+     * permission, never an *or*. If it widened, a client could route round the ledger's permission simply by
+     * listing the person it wanted to tell.
+     */
+    @Test
+    fun `addressing narrows and never widens`() = runTest {
+        withServer { backend ->
+            backend.store.mutate { state ->
+                state.copy(
+                    permissions = state.permissions.copy(
+                        roles = mapOf("admin" to GroupRole.ADMIN, "guest" to GroupRole.GUEST),
+                    ),
+                ) to Unit
+            }
+            val guest = backend.hub.register(Connection(AccountId("guest"), DeviceId("g")))
+
+            val delivered = backend.hub.fanOut(
+                message(
+                    RealtimePayload.PaymentConfirmed("d1", 500),
+                    sender = AccountId("admin"),
+                    recipients = setOf(AccountId("guest")),
+                ),
+            )
+
+            assertEquals(0, delivered)
+            assertNull(guest.outbound.tryReceive().getOrNull()) { "being named let a guest into the ledger" }
+        }
+    }
+
+    /**
+     * A targeted message is filtered on replay too.
+     *
+     * The one that matters most, and the one an implementation forgets: fan-out and history are two paths to
+     * the same event. Filtering only the live one would make a targeted waypoint reach the whole group the
+     * moment somebody reconnected — a leak with a delay on it rather than no leak.
+     */
+    @Test
+    fun `a targeted message is not replayed to somebody it did not name`() = runTest {
+        withServer {
+            val owner = pair(OWNER, "Th7bo")
+            val other = pair(AccountId("other"), "Other")
+
+            submit(
+                owner.accessToken,
+                message(
+                    RealtimePayload.Waypoint("wp1", location(), "Secret spot"),
+                    recipients = setOf(AccountId("nobody-here")),
+                ),
+            )
+
+            val ownerPage: EventPage = authedGet("${Endpoints.EVENTS_SINCE}?since=0", owner.accessToken).decode()
+            val otherPage: EventPage = authedGet("${Endpoints.EVENTS_SINCE}?since=0", other.accessToken).decode()
+
+            assertEquals(1, ownerPage.messages.size) { "the sender should still see what they sent" }
+            assertTrue(otherPage.messages.isEmpty()) { "a targeted waypoint was replayed to somebody it did not name" }
+        }
+    }
+
+    /**
+     * The recipients a client asks for are kept, unlike the sender it asks for.
+     *
+     * The two fields are treated differently on purpose and it is worth pinning which is which: a sender the
+     * client chose is impersonation, while recipients the client chose can only take its own message away
+     * from people.
+     */
+    @Test
+    fun `the recipients a client sets survive the server's stamping`() = runTest {
+        withServer { backend ->
+            val owner = pair(OWNER, "Th7bo")
+
+            submit(
+                owner.accessToken,
+                message(
+                    RealtimePayload.Ping(location()),
+                    sender = AccountId("someone-else"),
+                    recipients = setOf(AccountId("named")),
+                ),
+            )
+
+            val stored = backend.store.read { it.events }.single()
+            assertEquals(setOf(AccountId("named")), stored.recipients)
+            assertEquals(OWNER, stored.senderAccount) { "the client's chosen sender should have been discarded" }
         }
     }
 

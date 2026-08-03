@@ -37,7 +37,7 @@ public class Connection(
 /**
  * Who is connected, and who may see what.
  *
- * The fan-out is where the privacy model becomes real, and it does two things a naive broadcast does not.
+ * The fan-out is where the privacy model becomes real, and it does three things a naive broadcast does not.
  *
  * **The sender's disclosures are enforced here, on the server.** A client that shares its island but not
  * its position could be trusted to leave the position out — and trusting a client is how a privacy
@@ -46,6 +46,10 @@ public class Connection(
  *
  * **The receiver's capabilities are checked here too.** Somebody with no business in the ledger does not
  * receive a copy of it. That is not tidiness: a debt event names who owes what.
+ *
+ * **A message addressed to named people goes only to them.** The narrowing is done here rather than left to
+ * the receiving client, because a client that receives something and chooses not to draw it has still
+ * received it.
  */
 public class RealtimeHub(
     private val store: ServerStore,
@@ -102,6 +106,10 @@ public class RealtimeHub(
         permissions: PermissionSettings,
     ): RealtimeMessage? {
         val scope = message.scope
+
+        // Addressing, first and on its own. It can only remove people — every permission gate below still
+        // runs — so naming somebody as a recipient can never be a way round one.
+        if (!message.isAddressedTo(viewer)) return null
 
         if (scope.kind == PermissionKind.CAPABILITY) {
             // A capability-scoped event goes to people who could have performed it themselves.

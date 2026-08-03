@@ -193,13 +193,6 @@ public class PresencePublisher(
     }
 
     /**
-     * Takes the account-to-player mapping from a group listing.
-     *
-     * Called whenever the group is fetched. Accounts that share nothing have no Minecraft identity in the
-     * listing, so they map to nothing and their presence is quietly ignored — which is what a privacy
-     * setting should feel like from the other side.
-     */
-    /**
      * Who is who, as accounts to Minecraft players.
      *
      * Exposed so the marker receiver can attribute an incoming ping without building the same mapping from the
@@ -207,6 +200,28 @@ public class PresencePublisher(
      */
     public val accountToPlayer: Map<AccountId, PlayerId> get() = minecraftByAccount
 
+    /**
+     * The same mapping, read the other way.
+     *
+     * What addressing a message to named people needs: the mod decides in Minecraft UUIDs and the wire speaks
+     * in accounts. Inverted from the one map rather than built alongside it, so the two directions cannot
+     * come to disagree about who somebody is.
+     *
+     * Somebody whose account this client has never seen has no entry, and the caller must treat that as
+     * *nobody* rather than as everybody — an unresolved name that fell back to an empty recipient set would
+     * broadcast the message it was meant to narrow.
+     */
+    public val playerToAccount: Map<PlayerId, AccountId> get() = accountByMinecraft
+
+    private var accountByMinecraft: Map<PlayerId, AccountId> = emptyMap()
+
+    /**
+     * Takes the account-to-player mapping from a group listing.
+     *
+     * Called whenever the group is fetched. Accounts that share nothing have no Minecraft identity in the
+     * listing, so they map to nothing and their presence is quietly ignored — which is what a privacy
+     * setting should feel like from the other side.
+     */
     public fun onGroup(group: GroupState) {
         minecraftByAccount = group.members
             .mapNotNull { member ->
@@ -215,6 +230,7 @@ public class PresencePublisher(
                     ?.let { member.accountId to it }
             }
             .toMap()
+        accountByMinecraft = minecraftByAccount.entries.associate { (account, player) -> player to account }
 
         // Names too. The group listing is often the only place a client learns the name behind an account
         // it has never shared a lobby with.

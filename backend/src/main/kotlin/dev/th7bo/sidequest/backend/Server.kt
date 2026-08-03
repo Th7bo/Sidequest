@@ -535,6 +535,10 @@ public class SidequestBackend(
         val device = store.read { state -> state.devices.firstOrNull { it.id == caller.deviceId } }
         val stamped = message.copy(
             // Overwritten, not defaulted. Whatever the client put here is discarded.
+            //
+            // `recipients` is deliberately *kept*, and the difference is the direction each field moves in:
+            // a sender the client chose would let it impersonate somebody, while recipients the client chose
+            // can only take its own message away from people.
             senderAccount = caller.accountId,
             senderMinecraftUuid = device?.minecraftUuid,
             protocolVersion = Protocol.VERSION,
@@ -561,12 +565,21 @@ public class SidequestBackend(
         return EventBatchResult(accepted, rejected, store.read { it.sequence })
     }
 
+    /**
+     * Whether [viewer] may see [message] when it is replayed to them.
+     *
+     * The same rules as the live fan-out, and it has to stay that way: this is the path a resuming or
+     * polling client takes, so a message filtered on the way out and not on the way back is a message that
+     * leaks to everybody the moment somebody reconnects. Delivery being immediate is not a privacy
+     * mechanism.
+     */
     private fun visibleTo(
         message: RealtimeMessage,
         viewer: AccountId,
         permissions: dev.th7bo.sidequest.platform.permission.PermissionSettings,
     ): Boolean {
         val scope = message.scope
+        if (!message.isAddressedTo(viewer)) return false
         return if (scope.kind == dev.th7bo.sidequest.platform.permission.PermissionKind.CAPABILITY) {
             permissions.can(viewer.value, scope)
         } else {

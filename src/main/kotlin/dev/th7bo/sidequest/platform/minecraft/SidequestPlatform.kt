@@ -97,6 +97,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import dev.th7bo.sidequest.platform.storage.StorageProvider
 import dev.th7bo.sidequest.platform.storage.StorageScope
+import dev.th7bo.sidequest.protocol.AccountId
 import dev.th7bo.sidequest.protocol.RealtimeMessage
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import org.slf4j.LoggerFactory as Slf4jLoggerFactory
@@ -483,6 +484,16 @@ class SidequestPlatform(
     val backend: DefaultBackendClient? get() = backendClient
 
     val realtime: DefaultRealtimeClient? get() = realtimeClient
+
+    /**
+     * Who is who, as Minecraft players to backend accounts.
+     *
+     * What addressing a message to named people needs. Empty until the group listing has been fetched, and
+     * a player who is not in it has no entry — a caller must read that as *nobody*, never as everybody,
+     * because an unresolved name that fell through to an empty recipient set would broadcast the message it
+     * was meant to narrow.
+     */
+    val accountsByPlayer: Map<PlayerId, AccountId> get() = presencePublisher?.playerToAccount.orEmpty()
 
     /**
      * The backend configuration.
