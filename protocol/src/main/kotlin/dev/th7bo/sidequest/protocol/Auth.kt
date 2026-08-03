@@ -261,3 +261,17 @@ public data class AccountSummary(
 
 @Serializable
 public data class AccountList(public val accounts: List<AccountSummary> = emptyList())
+
+/**
+ * What the setup page needs before it draws anything.
+ *
+ * Carries no token and no Discord id — only whether somebody is signed in, and what this server supports,
+ * so the page can offer the right way in rather than guessing.
+ */
+@Serializable
+public data class WebIdentity(
+    public val signedIn: Boolean,
+    public val username: String? = null,
+    public val discordConfigured: Boolean = false,
+    public val operatorTokenConfigured: Boolean = false,
+)

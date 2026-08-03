@@ -23,6 +23,7 @@ import dev.th7bo.sidequest.protocol.PairStartResponse
 import dev.th7bo.sidequest.protocol.AccountList
 import dev.th7bo.sidequest.protocol.PairStatus
 import dev.th7bo.sidequest.protocol.PendingPairingList
+import dev.th7bo.sidequest.protocol.WebIdentity
 import dev.th7bo.sidequest.protocol.Protocol
 import dev.th7bo.sidequest.protocol.RealtimeMessage
 import dev.th7bo.sidequest.protocol.RealtimePayload
@@ -65,6 +66,8 @@ import java.util.UUID
  * server should refuse.
  */
 class BackendTest {
+
+    private val GUILD = "1234567890"
 
     @TempDir
     lateinit var root: Path
@@ -273,6 +276,165 @@ class BackendTest {
         } finally {
             System.setProperty("user.dir", previous)
             scratch.toFile().deleteRecursively()
+        }
+    }
+
+    // -- Discord sign-in ---------------------------------------------------
+
+    /**
+     * The guild is the membership list, so being in it is the whole authorisation.
+     *
+     * Tested against [DiscordAuth] rather than through the routes, because what matters is the decision
+     * and every interesting version of it — a member, somebody in other guilds, somebody in none, a
+     * stale code, an unreachable Discord — is one a real sign-in cannot be made to produce on demand.
+     */
+    @Test
+    fun `a guild member is recognised`() {
+        val discord = fakeDiscord(guilds = listOf(GUILD, "999"))
+
+        val result = discord.identify("code") as DiscordResult.Success
+
+        assertEquals("42", result.identity.userId)
+        assertEquals("chrooted", result.identity.username)
+        assertTrue(result.identity.isInGuild)
+    }
+
+    @Test
+    fun `somebody in other guilds is not in this one`() {
+        val discord = fakeDiscord(guilds = listOf("111", "222"))
+
+        val result = discord.identify("code") as DiscordResult.Success
+
+        assertFalse(result.identity.isInGuild, "they are in servers, just not ours")
+    }
+
+    @Test
+    fun `somebody in no guilds is refused`() {
+        val result = fakeDiscord(guilds = emptyList()).identify("code") as DiscordResult.Success
+
+        assertFalse(result.identity.isInGuild)
+    }
+
+    /** A reused or expired code. Distinguished from being unreachable, because they need different words. */
+    @Test
+    fun `a code Discord will not exchange is reported as such`() {
+        val discord = DiscordAuth(discordConfig()) { _ -> 400 to """{"error":"invalid_grant"}""" }
+
+        val result = discord.identify("stale") as DiscordResult.Failure
+
+        assertEquals(DiscordFailure.BAD_CODE, result.reason)
+    }
+
+    @Test
+    fun `an unreachable Discord is not mistaken for a refusal`() {
+        val discord = DiscordAuth(discordConfig()) { _ -> throw java.io.IOException("no route to host") }
+
+        val result = discord.identify("code") as DiscordResult.Failure
+
+        assertEquals(DiscordFailure.BAD_CODE, result.reason, "the exchange is what failed")
+    }
+
+    /** The scopes asked for are the two that are used, and the state travels. */
+    @Test
+    fun `the authorize url asks only for what it needs`() {
+        val url = DiscordAuth(discordConfig()).authorizeUrl("the-state")
+
+        assertTrue(url.contains("scope=identify+guilds") || url.contains("scope=identify%20guilds"), url)
+        assertFalse(url.contains("guilds.members.read"), "roles are not read, so they are not requested")
+        assertTrue(url.contains("state=the-state"), url)
+        assertTrue(url.contains("client_id=client"), url)
+    }
+
+    // -- browser sessions ---------------------------------------------------
+
+    /**
+     * A `state` is single use.
+     *
+     * It is what stops a link somebody was sent completing a sign-in inside their browser. One that could
+     * be replayed would protect nothing after the first time a history was read.
+     */
+    @Test
+    fun `an oauth state works once`() {
+        val sessions = WebSessions(ttlMillis = 1000, now = { clock })
+        val state = sessions.issueState()
+
+        assertTrue(sessions.consumeState(state))
+        assertFalse(sessions.consumeState(state), "a second use must fail")
+        assertFalse(sessions.consumeState("never-issued"))
+        assertFalse(sessions.consumeState(null))
+    }
+
+    @Test
+    fun `a session expires`() {
+        val sessions = WebSessions(ttlMillis = 1000, now = { clock })
+        val session = sessions.open("42", "chrooted")
+
+        assertNotNull(sessions.resolve(session.token))
+        clock += 2000
+        assertNull(sessions.resolve(session.token), "it should be gone once its time is up")
+        assertEquals(0, sessions.count())
+    }
+
+    @Test
+    fun `signing out ends the session at once`() {
+        val sessions = WebSessions(ttlMillis = 100_000, now = { clock })
+        val session = sessions.open("42", "chrooted")
+
+        sessions.close(session.token)
+
+        assertNull(sessions.resolve(session.token))
+    }
+
+    // -- what the page is told ----------------------------------------------
+
+    @Test
+    fun `the page is told which ways in this server has`() {
+        withServer {
+            val identity: WebIdentity = client.get(Endpoints.WEB_ME).decode()
+
+            assertFalse(identity.signedIn)
+            assertFalse(identity.discordConfigured, "no Discord application is configured in this test")
+            assertTrue(identity.operatorTokenConfigured)
+        }
+    }
+
+    /** With no Discord application configured, the route says so rather than redirecting nowhere. */
+    @Test
+    fun `starting a discord sign-in without one configured is refused clearly`() {
+        withServer {
+            val response = client.get(Endpoints.DISCORD_START)
+
+            assertEquals(HttpStatusCode.NotImplemented, response.status)
+        }
+    }
+
+    /** A callback with no state — a link somebody was sent, or a stale one — never opens a session. */
+    @Test
+    fun `a callback without a valid state is refused`() {
+        withServer {
+            val response = client.get(Endpoints.DISCORD_CALLBACK + "?code=whatever&state=forged")
+
+            assertEquals(HttpStatusCode.Forbidden, response.status)
+            assertNull(response.headers[HttpHeaders.SetCookie], "no session may be opened")
+        }
+    }
+
+    private fun discordConfig() = BackendConfig(
+        discordClientId = "client",
+        discordClientSecret = "secret",
+        discordGuildId = GUILD,
+        publicBaseUrl = "https://example.invalid",
+    )
+
+    /** Discord, scripted. Answers the token exchange, then the two GETs, by URL. */
+    private fun fakeDiscord(guilds: List<String>) = DiscordAuth(discordConfig()) { request ->
+        val url = request.uri().toString()
+        when {
+            url.endsWith("/oauth2/token") -> 200 to """{"access_token":"at","token_type":"Bearer"}"""
+            url.endsWith("/users/@me") -> 200 to """{"id":"42","username":"chrooted"}"""
+            url.endsWith("/users/@me/guilds") ->
+                200 to guilds.joinToString(",", "[", "]") { """{"id":"$it","name":"g"}""" }
+            else -> 404 to "{}"
         }
     }
 

@@ -5,14 +5,30 @@
 # The **volume**: everything the group has ever done is in one file under /data. Without a volume a
 # redeploy is a factory reset, and the first anybody knows about it is when their debts are gone.
 #
-# The **operator token**: without it pairing is disabled and no device can be approved. It is read from
-# the environment rather than written here, so the value does not end up in the repository.
+# The **Discord application**: how somebody proves they belong. Being in the guild is the whole
+# membership test, so the guild is the only roster anybody has to keep. Create an application at
+# https://discord.com/developers/applications, add a redirect of <your public url>/auth/discord/callback,
+# and copy the client id and secret here.
+#
+# The **operator token**: the break-glass path, for when Discord is down or not yet configured. Keep one
+# so a misconfigured Discord app is an inconvenience rather than a locked door. Read from the environment
+# rather than written here, so the value does not end up in the repository.
 services:
   sidequest:
     build: .
     restart: unless-stopped
     environment:
-      # Required for pairing. Generate one with: head -c 32 /dev/urandom | base64
+      # How people sign in. All four together or none — a partial set counts as not configured, so a
+      # half-filled deployment falls back to the operator token rather than failing halfway through a
+      # redirect.
+      SIDEQUEST_DISCORD_CLIENT_ID: ${SIDEQUEST_DISCORD_CLIENT_ID:-}
+      SIDEQUEST_DISCORD_CLIENT_SECRET: ${SIDEQUEST_DISCORD_CLIENT_SECRET:-}
+      SIDEQUEST_DISCORD_GUILD_ID: ${SIDEQUEST_DISCORD_GUILD_ID:-}
+      # Where a browser reaches this server. It cannot be guessed: behind a proxy the server only sees
+      # 127.0.0.1, and sending Discord that would send the user's browser there too.
+      SIDEQUEST_PUBLIC_URL: ${SIDEQUEST_PUBLIC_URL:-}
+
+      # The fallback. Generate one with: head -c 32 /dev/urandom | base64
       SIDEQUEST_OPERATOR_TOKEN: ${SIDEQUEST_OPERATOR_TOKEN:?set this to a long random string}
       # Optional.
       # SIDEQUEST_OWNER_ACCOUNT: owner

@@ -184,4 +184,16 @@ public object Endpoints {
 
     /** The setup page. Plain HTML, served by the same server, so a fresh install needs nothing else. */
     public const val ADMIN: String = "/setup"
+
+    /** Starts the Discord sign-in. A browser path, not an API one — it answers with a redirect. */
+    public const val DISCORD_START: String = "/auth/discord"
+
+    /** Where Discord sends the browser back. Registered with the Discord application verbatim. */
+    public const val DISCORD_CALLBACK: String = "/auth/discord/callback"
+
+    /** Ends a browser session. */
+    public const val WEB_LOGOUT: String = "/auth/logout"
+
+    /** Who the browser is signed in as, and what the server can do. Drives the setup page. */
+    public const val WEB_ME: String = "$BASE/me"
 }

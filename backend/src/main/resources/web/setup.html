@@ -68,6 +68,17 @@
   #status { min-height: 1.3rem; font-size: .86rem; margin-top: .7rem; }
   .ok { color: var(--good); } .err { color: var(--bad); } .warn { color: var(--warn); }
   .hidden { display: none !important; }
+  a.discord {
+    display: inline-flex; align-items: center; gap: .6rem; text-decoration: none;
+    padding: .7rem 1.1rem; border-radius: 10px; background: #5865f2; color: #fff; font-weight: 600;
+  }
+  a.discord:hover { background: #6b76f5; }
+  details { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: .9rem; }
+  details summary { cursor: pointer; color: var(--muted); font-size: .88rem; }
+  details summary:hover { color: var(--text); }
+  details[open] summary { color: var(--text); }
+  .who-tag { float: right; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--muted); }
+  .who-tag a { color: var(--muted); margin-left: .5rem; }
   .dot { display:inline-block; width:.5rem; height:.5rem; border-radius:50%; margin-right:.4rem;
          background: var(--muted); vertical-align: middle; }
   .dot.live { background: var(--good); }
@@ -80,27 +91,52 @@
     <p class="sub">Approve a client so it can talk to the group.</p>
   </header>
 
-  <!-- Step 1: the operator proves who they are. -->
+  <!-- Step 1: prove you are one of us. Discord first; the token is the way in when Discord cannot be. -->
   <section id="signin">
-    <h2>Operator token</h2>
-    <div class="row">
-      <div>
-        <label for="token">The value of SIDEQUEST_OPERATOR_TOKEN on the server</label>
-        <input id="token" type="password" autocomplete="off" spellcheck="false"
-               placeholder="paste it here">
-      </div>
-      <button id="unlock">Unlock</button>
+    <h2>Sign in</h2>
+    <div id="discordBox" class="hidden">
+      <a class="discord" href="/auth/discord">
+        <svg viewBox="0 0 24 18" width="22" height="17" aria-hidden="true"><path fill="currentColor"
+          d="M20.3 1.6A19.8 19.8 0 0 0 15.4.1l-.3.5c1.7.4 3.2 1 4.6 1.9a16.6 16.6 0 0 0-15.5 0C5.6 1.6 7.1 1 8.8.6L8.6.1A19.8 19.8 0 0 0 3.7 1.6C.6 6.2-.3 10.7.2 15.1a20 20 0 0 0 6 3l1.2-1.8c-1-.4-1.8-.8-2.6-1.4l.6-.4a14.2 14.2 0 0 0 13.2 0l.6.4c-.8.6-1.7 1-2.6 1.4l1.2 1.8a20 20 0 0 0 6-3c.6-5.1-.8-9.6-3.5-13.5ZM8.2 12.4c-1.2 0-2.1-1.1-2.1-2.4S7 7.6 8.2 7.6s2.1 1.1 2.1 2.4-.9 2.4-2.1 2.4Zm7.6 0c-1.2 0-2.1-1.1-2.1-2.4s.9-2.4 2.1-2.4S18 8.7 18 10s-.9 2.4-2.2 2.4Z"/></svg>
+        Continue with Discord
+      </a>
+      <p class="note">
+        You need to be in the group's Discord server. Sidequest reads your name and which servers you are
+        in, nothing else — no messages, no roles.
+      </p>
     </div>
-    <p class="note">
-      Kept in this tab only, never written to disk, and gone when you close it. It is the one credential
-      that can bind a device to an account, which is why the mod never has it.
-    </p>
+
+    <div id="noDiscord" class="hidden">
+      <p class="note" style="margin-top:0">
+        Discord sign-in is not set up on this server. Set <code class="inline">SIDEQUEST_DISCORD_CLIENT_ID</code>,
+        <code class="inline">SIDEQUEST_DISCORD_CLIENT_SECRET</code>, <code class="inline">SIDEQUEST_DISCORD_GUILD_ID</code>
+        and <code class="inline">SIDEQUEST_PUBLIC_URL</code>, or use the operator token below.
+      </p>
+    </div>
+
+    <details id="fallback">
+      <summary>Use the operator token instead</summary>
+      <div class="row" style="margin-top:.8rem">
+        <div>
+          <label for="token">The value of SIDEQUEST_OPERATOR_TOKEN on the server</label>
+          <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="paste it here">
+        </div>
+        <button id="unlock">Unlock</button>
+      </div>
+      <p class="note">
+        The break-glass path, for when Discord is down or not yet configured. Kept in this tab only and
+        gone when you close it.
+      </p>
+    </details>
     <div id="status"></div>
   </section>
 
   <!-- Step 2: what is waiting. -->
   <section id="pending" class="hidden">
-    <h2><span class="dot" id="live"></span>Waiting to be approved</h2>
+    <h2>
+      <span class="dot" id="live"></span>Waiting to be approved
+      <span id="who" class="who-tag"></span>
+    </h2>
     <div id="list"></div>
     <div class="row" style="margin-top:1rem">
       <div>
@@ -137,6 +173,7 @@
 (function () {
   "use strict";
 
+  // Null when signed in with Discord — the session then rides on a cookie and needs no header.
   var token = null;
   var timer = null;
 
@@ -151,15 +188,52 @@
 
   function api(path, options) {
     options = options || {};
+    // Always send the cookie; add the bearer only when signing in the other way. The server accepts
+    // either, so the page does not have to know which one got it in.
+    options.credentials = "same-origin";
     options.headers = Object.assign(
-      { "Authorization": "Bearer " + token },
+      token ? { "Authorization": "Bearer " + token } : {},
       options.body ? { "Content-Type": "application/json" } : {}
     );
     return fetch(path, options).then(function (response) {
-      if (response.status === 401) { throw new Error("That token was not accepted."); }
+      if (response.status === 401) { throw new Error("Not signed in, or that token was not accepted."); }
       if (!response.ok) { throw new Error("Server said " + response.status + "."); }
       return response.status === 204 ? null : response.json();
     });
+  }
+
+  // What this server supports, asked before anything is drawn — so the page offers the way in that
+  // actually exists rather than a Discord button on a server with no Discord application.
+  function begin() {
+    fetch("/api/me", { credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (me) {
+        $("discordBox").classList.toggle("hidden", !me.discordConfigured);
+        $("noDiscord").classList.toggle("hidden", me.discordConfigured);
+        $("fallback").open = !me.discordConfigured;
+        if (!me.operatorTokenConfigured) { $("fallback").classList.add("hidden"); }
+        if (me.signedIn) { enter(me.username); }
+      })
+      .catch(function () { status("This server did not answer. Is it still running?", "err"); });
+  }
+
+  function enter(username) {
+    status("");
+    $("signin").classList.add("hidden");
+    $("pending").classList.remove("hidden");
+    $("live").classList.add("live");
+    if (username) {
+      $("who").innerHTML = "";
+      $("who").appendChild(document.createTextNode(username));
+      var out = document.createElement("a");
+      out.href = "/auth/logout";
+      out.textContent = "sign out";
+      $("who").appendChild(out);
+    }
+    refresh();
+    // Polled rather than pushed: the page is open for a minute during setup, and a websocket for
+    // that would be more moving parts than the thing it is setting up.
+    timer = setInterval(refresh, 2000);
   }
 
   function unlock() {
@@ -167,14 +241,7 @@
     if (!token) { status("Paste the token first.", "err"); return; }
     status("Checking…");
     api("/api/pair/pending").then(function () {
-      status("");
-      $("signin").classList.add("hidden");
-      $("pending").classList.remove("hidden");
-      $("live").classList.add("live");
-      refresh();
-      // Polled rather than pushed: the page is open for a minute during setup, and a websocket for
-      // that would be more moving parts than the thing it is setting up.
-      timer = setInterval(refresh, 2000);
+      enter(null);
     }).catch(function (error) {
       token = null;
       status(error.message, "err");
@@ -246,12 +313,12 @@
 
     var approve = document.createElement("button");
     approve.textContent = "Approve";
-    approve.onclick = function () { decide(entry.code, true, approve); };
+    approve.onclick = function () { decide(entry, true, approve); };
 
     var deny = document.createElement("button");
     deny.className = "ghost";
     deny.textContent = "Deny";
-    deny.onclick = function () { decide(entry.code, false, deny); };
+    deny.onclick = function () { decide(entry, false, deny); };
 
     wrapper.appendChild(code);
     wrapper.appendChild(who);
@@ -260,9 +327,10 @@
     return wrapper;
   }
 
-  function decide(code, approve, button) {
-    // The typed name wins over the dropdown: somebody who bothered to type one meant it.
-    var account = ($("newAccount").value.trim() || $("account").value || "").trim();
+  function decide(entry, approve, button) {
+    // Typed name, then the dropdown, then the Minecraft name the client asserted. The last is why this
+    // rarely needs touching: an account is a Minecraft account, and the pairing already says which.
+    var account = ($("newAccount").value.trim() || $("account").value || entry.minecraftName || "").trim();
     if (approve && !account) {
       status("Choose or name an account first — a device has to belong to somebody.", "warn");
       return;
@@ -270,9 +338,9 @@
     button.disabled = true;
     api("/api/pair/approve", {
       method: "POST",
-      body: JSON.stringify({ code: code, accountId: account || "unknown", approve: approve })
+      body: JSON.stringify({ code: entry.code, accountId: account, approve: approve })
     }).then(function () {
-      status(approve ? "Approved. The client should connect within a couple of seconds." : "Denied.",
+      status(approve ? "Approved as " + account + ". The client should connect within a couple of seconds." : "Denied.",
              approve ? "ok" : "");
       $("newAccount").value = "";
       refresh();
@@ -286,6 +354,7 @@
   $("token").addEventListener("keydown", function (event) {
     if (event.key === "Enter") { unlock(); }
   });
+  begin();
 })();
 </script>
 </body>

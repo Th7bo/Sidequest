@@ -17,6 +17,7 @@ import dev.th7bo.sidequest.protocol.AccountSummary
 import dev.th7bo.sidequest.protocol.PairApproveRequest
 import dev.th7bo.sidequest.protocol.PendingPairingList
 import dev.th7bo.sidequest.protocol.PendingPairingSummary
+import dev.th7bo.sidequest.protocol.WebIdentity
 import dev.th7bo.sidequest.protocol.PairPollRequest
 import dev.th7bo.sidequest.protocol.PairStartRequest
 import dev.th7bo.sidequest.protocol.Protocol
@@ -31,6 +32,8 @@ import dev.th7bo.sidequest.protocol.ServerInfo
 import dev.th7bo.sidequest.protocol.SessionList
 import dev.th7bo.sidequest.protocol.TokenScope
 import io.ktor.http.ContentType
+import io.ktor.http.Cookie
+import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -75,6 +78,12 @@ public class SidequestBackend(
     public val store: ServerStore = ServerStore(config.statePath)
 
     public val auth: AuthService = AuthService(store, config, now)
+
+    /** Browser sessions, for the setup page. In memory; see [WebSessions]. */
+    private val webSessions = WebSessions(config.webSessionTtlMillis, now)
+
+    /** Discord sign-in. Built even when unconfigured, so the routes can answer honestly rather than 404. */
+    private val discord = DiscordAuth(config)
 
     public val hub: RealtimeHub = RealtimeHub(store)
 
@@ -161,12 +170,9 @@ public class SidequestBackend(
 
         post(Endpoints.PAIR_APPROVE) {
             // Deliberately *not* the ordinary token path. Approving is what binds a device to an account,
-            // so it is the one thing a game client must never be able to do.
-            val operator = auth.authenticateOperator(call.bearerToken())
-            if (operator == null) {
-                call.fail(HttpStatusCode.Unauthorized, ApiErrorCode.UNAUTHENTICATED, "operator token required")
-                return@post
-            }
+            // so it is the one thing a game client must never be able to do. A signed-in guild member or
+            // the operator token; nothing else.
+            if (!call.mayAdminister()) return@post
             val request = call.receive<PairApproveRequest>()
             ensureAccount(request.accountId)
             if (auth.approvePairing(request)) {
@@ -184,10 +190,7 @@ public class SidequestBackend(
          * only invites clicking it.
          */
         get(Endpoints.PAIR_PENDING) {
-            if (auth.authenticateOperator(call.bearerToken()) == null) {
-                call.fail(HttpStatusCode.Unauthorized, ApiErrorCode.UNAUTHENTICATED, "operator token required")
-                return@get
-            }
+            if (!call.mayAdminister()) return@get
             // The server's own clock, not the wall clock. Everything else here goes through `now` — it is
             // what the tests move and what a deployment could in principle override — and reading the real
             // time in one place made this filter disagree with the expiry the pairing was written with.
@@ -212,10 +215,7 @@ public class SidequestBackend(
 
         /** The accounts a device can be bound to, so the page can offer them rather than ask for typing. */
         get(Endpoints.ACCOUNTS) {
-            if (auth.authenticateOperator(call.bearerToken()) == null) {
-                call.fail(HttpStatusCode.Unauthorized, ApiErrorCode.UNAUTHENTICATED, "operator token required")
-                return@get
-            }
+            if (!call.mayAdminister()) return@get
             // One read for both halves: two would be two snapshots, and a device paired between them
             // would be counted against an account list that did not have it.
             val accounts = store.read { state ->
@@ -229,6 +229,99 @@ public class SidequestBackend(
                 }
             }
             call.respondWithTime(AccountList(accounts))
+        }
+
+        // -- signing in -----------------------------------------------------
+
+        /**
+         * Begins a Discord sign-in.
+         *
+         * A `state` is issued and remembered here, and required on the way back. Without one, a link
+         * somebody was sent could complete a sign-in inside their browser, which for a page whose only
+         * power is approving devices is the whole attack.
+         */
+        get(Endpoints.DISCORD_START) {
+            if (!config.isDiscordConfigured) {
+                call.respondText(
+                    "Discord sign-in is not configured on this server.",
+                    ContentType.Text.Plain,
+                    HttpStatusCode.NotImplemented,
+                )
+                return@get
+            }
+            call.respondRedirect(discord.authorizeUrl(webSessions.issueState()))
+        }
+
+        /**
+         * Where Discord sends the browser back.
+         *
+         * Answers in HTML rather than JSON: a person is looking at this, and the three ways it can go
+         * wrong — a stale link, somebody who is not in the guild, Discord being unreachable — each need
+         * different words.
+         */
+        get(Endpoints.DISCORD_CALLBACK) {
+            if (!config.isDiscordConfigured) {
+                call.respondSignInResult(false, "Discord sign-in is not configured on this server.")
+                return@get
+            }
+            if (!webSessions.consumeState(call.request.queryParameters["state"])) {
+                // Also what an expired or reused link looks like, which is why it says so rather than
+                // accusing anybody of anything.
+                call.respondSignInResult(false, "That sign-in link was not one this server handed out, or it has expired. Start again from the setup page.")
+                return@get
+            }
+            val code = call.request.queryParameters["code"]
+            if (code.isNullOrBlank()) {
+                call.respondSignInResult(false, "Discord did not send a code back. You may have cancelled.")
+                return@get
+            }
+
+            when (val result = discord.identify(code)) {
+                is DiscordResult.Failure -> call.respondSignInResult(false, result.detail)
+                is DiscordResult.Success -> {
+                    if (!result.identity.isInGuild) {
+                        call.respondSignInResult(
+                            false,
+                            "You are signed in as ${result.identity.username}, but you are not in this group's Discord server.",
+                        )
+                        return@get
+                    }
+                    val session = webSessions.open(result.identity.userId, result.identity.username)
+                    call.response.cookies.append(
+                        Cookie(
+                            name = SESSION_COOKIE,
+                            value = session.token,
+                            httpOnly = true,
+                            // Lax rather than Strict: the browser is arriving from Discord, and Strict
+                            // would withhold the cookie on exactly that navigation.
+                            extensions = mapOf("SameSite" to "Lax"),
+                            secure = config.publicBaseUrl?.startsWith("https://") == true,
+                            path = "/",
+                            maxAge = (config.webSessionTtlMillis / 1_000).toInt(),
+                        ),
+                    )
+                    call.respondRedirect(Endpoints.ADMIN)
+                }
+            }
+        }
+
+        get(Endpoints.WEB_LOGOUT) {
+            webSessions.close(call.request.cookies[SESSION_COOKIE])
+            call.response.cookies.append(Cookie(SESSION_COOKIE, "", path = "/", maxAge = 0))
+            call.respondRedirect(Endpoints.ADMIN)
+        }
+
+        /** What the setup page needs to know before it draws anything. */
+        get(Endpoints.WEB_ME) {
+            val session = webSessions.resolve(call.request.cookies[SESSION_COOKIE])
+            call.respondWithTime(
+                WebIdentity(
+                    signedIn = session != null,
+                    username = session?.discordUsername,
+                    discordConfigured = config.isDiscordConfigured,
+                    operatorTokenConfigured = config.operatorToken != null,
+                ),
+            )
         }
 
         // -- the setup page -------------------------------------------------
@@ -518,6 +611,48 @@ public class SidequestBackend(
      * of a server's life.
      */
     /**
+     * Whether this caller may approve devices.
+     *
+     * A signed-in Discord guild member, or the operator token. One place answers it, because "who may bind
+     * a device to an account" is the single most consequential question this server asks and two places
+     * deciding it is how one of them ends up wrong.
+     *
+     * Answers 401 itself, so every call site is one line and none of them can forget to.
+     */
+    private suspend fun ApplicationCall.mayAdminister(): Boolean {
+        if (webSessions.resolve(request.cookies[SESSION_COOKIE]) != null) return true
+        if (auth.authenticateOperator(bearerToken()) != null) return true
+        fail(
+            HttpStatusCode.Unauthorized,
+            ApiErrorCode.UNAUTHENTICATED,
+            "sign in with Discord, or send the operator token",
+        )
+        return false
+    }
+
+    /** A plain page for the end of a sign-in. Rendered here because it is three lines of text. */
+    private suspend fun ApplicationCall.respondSignInResult(ok: Boolean, message: String) {
+        val colour = if (ok) "#4ade80" else "#f87171"
+        respondText(
+            """
+            <!doctype html><html lang="en"><head><meta charset="utf-8">
+            <title>Sidequest</title><meta name="robots" content="noindex, nofollow"></head>
+            <body style="margin:0;min-height:100vh;display:grid;place-items:center;
+                         background:#0b0a14;color:#e8e6f0;
+                         font:15px/1.6 ui-sans-serif,system-ui,sans-serif;text-align:center;padding:2rem">
+            <div style="max-width:30rem">
+              <p style="color:$colour;font-weight:600;margin:0 0 .6rem">${message.escapeHtml()}</p>
+              <p><a href="${Endpoints.ADMIN}" style="color:#a78bfa">Back to setup</a></p>
+            </div></body></html>
+            """.trimIndent(),
+            ContentType.Text.Html,
+            if (ok) HttpStatusCode.OK else HttpStatusCode.Forbidden,
+        )
+    }
+
+    private fun String.escapeHtml(): String = replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    /**
      * Serves the setup page.
      *
      * Read from the classpath on every request rather than cached, and that is deliberate at this size: the
@@ -637,6 +772,9 @@ public class SidequestBackend(
  * A fixed window rather than a sliding one, because the failure it guards against is a runaway loop and a
  * fixed window catches that with one integer per caller.
  */
+/** The cookie a browser session travels in. Named once so the routes and the gate cannot disagree. */
+internal const val SESSION_COOKIE: String = "sq_session"
+
 public class RateLimiter(
     private val perMinute: Int,
     private val now: () -> Long,
