@@ -298,8 +298,38 @@ public class NeuItemRepository(
             return buildList {
                 add(plain)
                 add(withoutPossessive)
+                // The families whose key is not the name. Before the pet ladder, so a chip costs one extra
+                // request rather than seven — the ladder is six 404s that only a pet ever gets past.
+                addAll(familyKeys(cleaned, plain))
                 if (plain.isNotEmpty()) for (tier in PET_TIERS) add("$plain;$tier")
             }.filter { it.isNotEmpty() }.distinct()
+        }
+
+        /**
+         * Keys for the item families the database files under something other than their name.
+         *
+         * Each of these was found by looking, not reasoned about: `Rarefinder Chip` is filed as
+         * `RAREFINDER_GARDEN_CHIP` and `Pray For Me Vinyl` as `VINYL_PRAY_FOR_ME`, both verified against the
+         * live repository. There is no rule that produces either from the words — one expands a category
+         * that is not written down, the other moves it to the front — which is why this is a short list of
+         * observed shapes and not a clever transformation.
+         *
+         * Anything not in a known family contributes nothing, so the cost is zero for every other item.
+         */
+        private fun familyKeys(cleaned: String, plain: String): List<String> {
+            val words = cleaned.trim().split(' ').filter { it.isNotEmpty() }
+            if (words.size < 2) return emptyList()
+            val last = words.last().lowercase()
+            val rest = internalNameFor(words.dropLast(1).joinToString(" "))
+            if (rest.isEmpty()) return emptyList()
+
+            return when (last) {
+                // A Garden chip. The word "Garden" appears in the key and never in the name.
+                "chip" -> listOf(rest + "_GARDEN_CHIP")
+                // A vinyl. The category leads the key and trails the name.
+                "vinyl" -> listOf("VINYL_" + rest)
+                else -> emptyList()
+            }.filterNot { it == plain }
         }
 
         /**

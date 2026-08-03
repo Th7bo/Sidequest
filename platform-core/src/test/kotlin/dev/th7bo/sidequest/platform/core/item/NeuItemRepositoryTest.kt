@@ -85,6 +85,40 @@ class NeuItemRepositoryTest {
         )
     }
 
+    /**
+     * A Garden chip is filed under a word that is not in its name.
+     *
+     * `Rarefinder Chip` is `RAREFINDER_GARDEN_CHIP` — the category is written into the key and nowhere on
+     * the item. Verified against the live repository, like every other shape here, because nothing about
+     * the words could have told anybody that.
+     */
+    @Test
+    fun `a chip is offered under its garden key`() {
+        val candidates = NeuItemRepository.candidatesFor("Rarefinder Chip")
+
+        assertTrue("RAREFINDER_GARDEN_CHIP" in candidates, candidates.toString())
+        assertTrue(
+            candidates.indexOf("RAREFINDER_GARDEN_CHIP") < candidates.indexOf("RAREFINDER_CHIP;4"),
+            "the family key should be tried before the pet ladder: $candidates",
+        )
+    }
+
+    /** A vinyl moves its category to the front: `Pray For Me Vinyl` is `VINYL_PRAY_FOR_ME`. */
+    @Test
+    fun `a vinyl is offered with its category first`() {
+        val candidates = NeuItemRepository.candidatesFor("Pray For Me Vinyl")
+
+        assertTrue("VINYL_PRAY_FOR_ME" in candidates, candidates.toString())
+    }
+
+    /** Nothing else pays for those two rules. */
+    @Test
+    fun `an ordinary name gains no family keys`() {
+        val candidates = NeuItemRepository.candidatesFor("Revenant Catalyst")
+
+        assertTrue(candidates.none { it.contains("GARDEN") || it.startsWith("VINYL_") }, candidates.toString())
+    }
+
     /** The plain reading is always tried first, so a name that resolves costs one request and not seven. */
     @Test
     fun `the plain reading leads`() {
