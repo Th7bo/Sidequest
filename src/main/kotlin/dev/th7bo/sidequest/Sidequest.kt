@@ -584,6 +584,7 @@ object Sidequest : ClientModInitializer {
                 editCollection = waypoints::editCollection,
                 deleteCollection = waypoints::deleteCollection,
                 addCollection = { waypoints.addCollection() },
+                showAll = waypoints::showAll,
                 // Also deferred, and for a different reason: a button cannot rebuild the tree it is being
                 // clicked inside. The outer `execute` already handles it, so this simply calls through.
                 reopen = ::openWaypointManager,

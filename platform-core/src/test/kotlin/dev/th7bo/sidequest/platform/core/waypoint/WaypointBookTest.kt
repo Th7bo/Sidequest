@@ -113,13 +113,63 @@ class WaypointBookTest {
         assertTrue(book.visibleTo(friend, members, NOW).isEmpty())
     }
 
-    /** A hidden collection is "not right now" — it applies to the owner too, or it would be a strange switch. */
+    // -- hiding, which is not the same as not sharing ------------------------
+
+    /**
+     * Hiding takes it off the screen and changes nothing about who it is shared with.
+     *
+     * The distinction the two methods exist for. Somebody hides a folder because six beams are cluttering
+     * their view, not to withdraw those places from the friends they gave them to — and a switch that did
+     * both would be a sharing decision disguised as a display one.
+     */
     @Test
-    fun `hiding a collection hides it for its owner as well`() {
+    fun `hiding a collection stops it being drawn but not being shared`() {
         val book = WaypointBook()
             .withCollection(WaypointCollection(id = "f7", name = "Floor 7", isVisible = false))
-            .withWaypoint(waypoint("secret", collection = "f7"))
+            .withWaypoint(waypoint("secret", WaypointAudience.Friends, collection = "f7"))
 
+        assertTrue(book.drawnFor(me, members, NOW).isEmpty(), "not on my screen")
+        assertEquals(1, book.visibleTo(friend, members, NOW).size, "still theirs to see")
+        assertEquals(1, book.shareableWith(friend, members, NOW).waypoints.size, "and still sent")
+    }
+
+    @Test
+    fun `hiding one waypoint leaves the rest of its collection alone`() {
+        val book = WaypointBook()
+            .withCollection(WaypointCollection(id = "f7", name = "Floor 7"))
+            .withWaypoint(waypoint("shown", collection = "f7"))
+            .withWaypoint(waypoint("hidden", collection = "f7").copy(isVisible = false))
+
+        assertEquals(listOf("shown"), book.drawnFor(me, members, NOW).map { it.id })
+    }
+
+    /** The two switches compose, so "hide the folder except one" needs no special case. */
+    @Test
+    fun `a shown waypoint in a hidden collection stays hidden`() {
+        val book = WaypointBook()
+            .withCollection(WaypointCollection(id = "f7", name = "Floor 7", isVisible = false))
+            .withWaypoint(waypoint("shown", collection = "f7"))
+
+        assertTrue(book.drawnFor(me, members, NOW).isEmpty())
+        assertFalse(book.isShown(book.waypoint("shown")!!))
+    }
+
+    @Test
+    fun `showing everything sets each waypoint's own switch`() {
+        val book = WaypointBook()
+            .withWaypoint(waypoint("a").copy(isVisible = false))
+            .withWaypoint(waypoint("b").copy(isVisible = false))
+
+        assertEquals(2, book.withAllShown(true).drawnFor(me, members, NOW).size)
+        assertTrue(book.withAllShown(false).drawnFor(me, members, NOW).isEmpty())
+    }
+
+    /** Hiding does not resurrect anything: an expired waypoint is gone from both answers. */
+    @Test
+    fun `a shown but expired waypoint is still not drawn`() {
+        val book = WaypointBook().withWaypoint(waypoint("temp", expiresAt = NOW - 1))
+
+        assertTrue(book.drawnFor(me, members, NOW).isEmpty())
         assertTrue(book.visibleTo(me, members, NOW).isEmpty())
     }
 

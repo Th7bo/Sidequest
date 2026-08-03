@@ -76,19 +76,37 @@ public data class WaypointBook(
         waypoints.filter { it.collectionId == collectionId }
 
     /**
-     * The waypoints [viewer] should see, expiry and collection visibility applied.
+     * The waypoints [viewer] is *allowed* to see: audience and expiry, nothing else.
      *
-     * One place answers this, and everything that draws or lists goes through it. Two places deciding who can
+     * One place answers this, and everything about permission goes through it. Two places deciding who can
      * see a waypoint is how one of them ends up showing somebody a private one.
+     *
+     * Deliberately unaffected by whether anything is hidden. Hiding is a display switch — see [drawnFor] —
+     * and folding it in here would mean tidying your own screen quietly withdrew waypoints from the people
+     * you had shared them with.
      */
     public fun visibleTo(viewer: PlayerId, members: AudienceMembers, nowMillis: Long): List<SharedWaypoint> =
         waypoints.filter { waypoint ->
-            !waypoint.hasExpired(nowMillis) &&
-                waypoint.isVisibleTo(viewer, members) &&
-                // A hidden collection hides its contents for everybody, including the owner. It is a switch
-                // for "not right now", and one that only worked on other people would be a strange thing.
-                (collection(waypoint.collectionId)?.isVisible ?: true)
+            !waypoint.hasExpired(nowMillis) && waypoint.isVisibleTo(viewer, members)
         }
+
+    /**
+     * What to actually draw for [viewer]: allowed, and not hidden.
+     *
+     * The two switches compose the obvious way — a hidden collection hides everything in it, and a hidden
+     * waypoint stays hidden even in a shown collection — so "hide this folder except one" is one toggle and
+     * not a special case.
+     */
+    public fun drawnFor(viewer: PlayerId, members: AudienceMembers, nowMillis: Long): List<SharedWaypoint> =
+        visibleTo(viewer, members, nowMillis).filter { isShown(it) }
+
+    /** Whether [waypoint] and its collection are both switched on. */
+    public fun isShown(waypoint: SharedWaypoint): Boolean =
+        waypoint.isVisible && (collection(waypoint.collectionId)?.isVisible ?: true)
+
+    /** Sets every waypoint's own switch, for a "show all" or "hide all" that does not touch collections. */
+    public fun withAllShown(shown: Boolean): WaypointBook =
+        copy(waypoints = waypoints.map { it.copy(isVisible = shown) })
 
     /**
      * The route in a collection, in order.
@@ -127,6 +145,9 @@ public data class WaypointBook(
      * Only what [viewer] is meant to see, and **notes are stripped**. A note is where somebody writes "sell
      * here, the guy undercuts" — private commentary attached to a place they are happy to share. Sharing the
      * place should not share the commentary, and the least surprising rule is that it never does.
+     *
+     * Built from [visibleTo] rather than [drawnFor], so hiding something on your own screen does not withdraw
+     * it from the people you shared it with. The recipient's own copy is theirs to hide.
      */
     public fun shareableWith(viewer: PlayerId, members: AudienceMembers, nowMillis: Long): WaypointBook {
         val shared = visibleTo(viewer, members, nowMillis).map { it.copy(note = null) }

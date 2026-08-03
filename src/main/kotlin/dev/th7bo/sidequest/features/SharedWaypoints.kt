@@ -99,14 +99,15 @@ class SharedWaypoints(
         context.command(
             name = "sqwp",
             description = "Save and manage waypoints",
-            usage = "[add <name>|list|remove <name>|share <name> <who>]",
+            usage = "[add <name>|list|hide <name>|show <name>|remove <name>|share <name> <who>]",
             completions = { arguments ->
                 when (arguments.size) {
                     0, 1 -> VERBS
                     2 -> when (arguments.first().lowercase()) {
                         // Names rather than ids. An id is a timestamp in base 36 and nobody is typing one —
                         // completing them was the command's worst part.
-                        "remove", "share" -> book.waypoints.map { it.label.quotedIfSpaced() }
+                        "remove", "share", "hide", "show" ->
+                            book.waypoints.map { it.label.quotedIfSpaced() }
                         else -> emptyList()
                     }
                     3 -> if (arguments.first().lowercase() == "share") AUDIENCES.keys.toList() else emptyList()
@@ -125,6 +126,9 @@ class SharedWaypoints(
             "list" -> list()
             "remove", "delete" -> remove(arguments.drop(1).joinToString(" "))
             "share" -> share(arguments.getOrNull(1), arguments.getOrNull(2))
+            // Hiding is a display switch, not a sharing one: what you have shared stays shared.
+            "hide" -> setShown(arguments.drop(1).joinToString(" "), shown = false)
+            "show" -> setShown(arguments.drop(1).joinToString(" "), shown = true)
             // An unrecognised first word is a name, not a mistake: `/sqwp bazaar door` saves one. The verbs
             // are short and specific enough that nothing anybody would call a waypoint collides with them.
             else -> add(arguments.joinToString(" "))
@@ -186,11 +190,35 @@ class SharedWaypoints(
             say("Waypoints", "None saved. /sqwp add <name> saves where you are standing.")
             return
         }
+        val hidden = visible.count { !book.isShown(it) }
         say(
-            "${visible.size} waypoint${if (visible.size == 1) "" else "s"}",
-            visible.joinToString(" · ") { "${it.label} (${it.location.island.displayName})" }
-                .take(SUBTITLE_LIMIT),
+            "${visible.size} waypoint${if (visible.size == 1) "" else "s"}" +
+                if (hidden > 0) " · $hidden hidden" else "",
+            // Hidden ones are still listed, marked. Leaving them out would make "where did my waypoint go"
+            // unanswerable by the command that exists to answer it.
+            visible.joinToString(" · ") { waypoint ->
+                val mark = if (book.isShown(waypoint)) "" else " (hidden)"
+                "${waypoint.label}$mark"
+            }.take(SUBTITLE_LIMIT),
         )
+    }
+
+    /** Flips one waypoint's own switch, or every one of them when no name is given. */
+    private fun setShown(query: String, shown: Boolean) {
+        if (query.isBlank()) {
+            book = book.withAllShown(shown)
+            persist()
+            refresh()
+            say(if (shown) "Showing every waypoint" else "Hid every waypoint", "Collections keep their own switch.")
+            return
+        }
+        val waypoint = find(query)
+        if (waypoint == null) {
+            say("No such waypoint", ambiguityHint(query))
+            return
+        }
+        editWaypoint(waypoint.id) { it.copy(isVisible = shown) }
+        say(if (shown) "Showing ${waypoint.label}" else "Hid ${waypoint.label}")
     }
 
     private fun remove(query: String) {
@@ -238,7 +266,7 @@ class SharedWaypoints(
         context.markers.removeAll(MarkerKind.WAYPOINT)
 
         val here = context.gameContext.island
-        for (waypoint in book.visibleTo(mine, membersNow(), now())) {
+        for (waypoint in book.drawnFor(mine, membersNow(), now())) {
             // Only this island's. A waypoint in the Hub means nothing while standing in a dungeon, and the
             // marker service would happily draw a beam at those coordinates anyway.
             if (waypoint.location.island != here) continue
@@ -339,6 +367,13 @@ class SharedWaypoints(
         refresh()
     }
 
+    /** Sets every waypoint's own switch. Collections keep theirs, so this cannot un-hide a hidden folder. */
+    fun showAll(shown: Boolean) {
+        book = book.withAllShown(shown)
+        persist()
+        refresh()
+    }
+
     fun deleteWaypoint(id: String) {
         if (book.waypoint(id) == null) return
         book = book.withoutWaypoint(id)
@@ -370,7 +405,7 @@ class SharedWaypoints(
     }
 
     private companion object {
-        val VERBS = listOf("add", "list", "remove", "share")
+        val VERBS = listOf("add", "list", "remove", "share", "hide", "show")
 
         val AUDIENCES: Map<String, WaypointAudience> = mapOf(
             "private" to WaypointAudience.Private,

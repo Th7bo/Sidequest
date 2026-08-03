@@ -35,6 +35,8 @@ public class WaypointActions(
     public val editCollection: (id: String, change: (WaypointCollection) -> WaypointCollection) -> Unit,
     public val deleteCollection: (id: String) -> Unit,
     public val addCollection: () -> Unit,
+    /** Sets every waypoint's own switch. Collections keep theirs. */
+    public val showAll: (shown: Boolean) -> Unit,
     /** Rebuilds and reopens. For the edits that change the screen's own shape. */
     public val reopen: () -> Unit,
 )
@@ -70,6 +72,18 @@ public fun buildWaypointScreen(book: WaypointBook, actions: WaypointActions): Co
             if (book.waypoints.isEmpty()) {
                 section("Nothing saved yet", description = "Stand somewhere and run /sqwp add <name>.") {
                     button(id("waypoints.help"), "How it works", label = "Got it") { }
+                }
+            }
+            if (book.waypoints.isNotEmpty()) {
+                section("Everything", description = "Applies to every waypoint's own switch", collapsible = true) {
+                    button(id("waypoints.show_all"), "Show them all", label = "Show all") {
+                        actions.showAll(true)
+                        actions.reopen()
+                    }
+                    button(id("waypoints.hide_all"), "Hide them all", label = "Hide all") {
+                        actions.showAll(false)
+                        actions.reopen()
+                    }
                 }
             }
             for (waypoint in loose) waypointSection(waypoint, book, actions)
@@ -163,6 +177,16 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.waypointSection(
         collapsible = true,
         startsCollapsed = true,
     ) {
+        toggle(
+            id = id("$prefix.shown"),
+            title = "Show this one",
+            description = "Only on your screen. Anyone you shared it with still has it.",
+            value = bind(
+                get = { live(actions, waypoint)?.isVisible ?: true },
+                set = { value -> actions.edit(waypoint.id) { it.copy(isVisible = value) } },
+                debugName = "waypoint.visible",
+            ),
+        )
         textField(
             id = id("$prefix.label"),
             title = "Name",
@@ -252,11 +276,15 @@ private fun describe(waypoint: SharedWaypoint): String = buildString {
     append(waypoint.location.island.displayName)
     append(" · ")
     append(AUDIENCE_LABELS[waypoint.audience.key] ?: "Private")
+    // Said on the collapsed header, because a hidden waypoint's whole problem is that you cannot see it —
+    // having to open each one to find which is switched off would be the same problem again.
+    if (!waypoint.isVisible) append(" · hidden")
 }
 
 private fun folderLabel(collection: WaypointCollection, count: Int): String {
     val where = collection.folder.ifEmpty { "Top level" }
-    return "$where · $count"
+    val hidden = if (collection.isVisible) "" else " · hidden"
+    return "$where · $count$hidden"
 }
 
 /**

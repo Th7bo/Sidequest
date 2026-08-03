@@ -98,6 +98,15 @@ public data class SharedWaypoint(
     public val expiresAtMillis: Long? = null,
     /** Position in a route, or null for one that is not part of one. */
     public val routeOrder: Int? = null,
+    /**
+     * Whether it is drawn on this client.
+     *
+     * **A display switch, not a sharing one.** Hiding a waypoint means "not on my screen right now"; who else
+     * can see it is [audience] and nothing else. Conflating the two would mean tidying up your own view
+     * quietly un-shared things from the people you had shared them with, which is not what anybody hiding a
+     * beam is asking for.
+     */
+    public val isVisible: Boolean = true,
 ) {
     public fun hasExpired(nowMillis: Long): Boolean =
         expiresAtMillis != null && nowMillis >= expiresAtMillis
@@ -122,7 +131,12 @@ public data class WaypointCollection(
     /** Slash-separated, no leading or trailing slash. Empty for the top level. */
     public val folder: String = "",
     public val colour: Int? = null,
-    /** Whether its waypoints are drawn. Off hides the lot without deleting anything. */
+    /**
+     * Whether its waypoints are drawn. Off hides the lot without deleting anything.
+     *
+     * Local, like [SharedWaypoint.isVisible]: hiding a folder tidies your own screen and changes nothing
+     * about who it is shared with.
+     */
     public val isVisible: Boolean = true,
     public val audience: WaypointAudience = WaypointAudience.Private,
 )
