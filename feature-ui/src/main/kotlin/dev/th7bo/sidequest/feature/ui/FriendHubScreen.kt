@@ -41,6 +41,13 @@ public class FriendActions(
     public val remove: (id: PlayerId) -> Unit,
     /** Rebuilds and reopens. For the edits that change the screen's own shape. */
     public val reopen: () -> Unit,
+    /**
+     * Opens the action menu for somebody.
+     *
+     * One of the five places the plan wants that menu opened from. Defaulted to doing nothing so a host
+     * without one still gets a usable hub — the rest of this screen does not depend on it.
+     */
+    public val openActions: (PlayerId) -> Unit = {},
 )
 
 /**
@@ -184,6 +191,16 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.friendSection(
                 debugName = "friend.favourite",
             ),
         )
+        button(
+            id = id("$prefix.actions"),
+            title = "Do something",
+            label = "Actions",
+            // Deliberately vague, because this screen genuinely does not know what will be on the menu —
+            // every feature contributes its own, and naming them here would go stale the moment one is added.
+            description = "Invite them, ping them, whatever else is on offer",
+        ) {
+            actions.openActions(friend.id)
+        }
         button(
             id = id("$prefix.remove"),
             title = "Remove",

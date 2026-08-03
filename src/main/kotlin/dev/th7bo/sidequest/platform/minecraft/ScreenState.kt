@@ -25,6 +25,16 @@ internal object ScreenState {
     /** The screen currently open, weakly identified. Only ever compared, never used. */
     private var current: Screen? = null
 
+    /**
+     * Whether [screen] is the one open right now.
+     *
+     * A comparison rather than a getter, keeping to what the field above promises. What needs it is closing
+     * a screen from inside one of its own buttons: 26.x exposes no current screen on `Minecraft` at all —
+     * it moved onto `Gui` — so "is this still mine to close" cannot be asked of the game, and closing
+     * without asking would shut whatever an action had just opened.
+     */
+    fun isCurrent(screen: Screen?): Boolean = screen != null && current === screen
+
     fun install() {
         ScreenEvents.AFTER_INIT.register { _, screen, _, _ ->
             current = screen

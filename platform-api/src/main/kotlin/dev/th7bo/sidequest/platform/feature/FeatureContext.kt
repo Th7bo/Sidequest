@@ -26,6 +26,7 @@ import dev.th7bo.sidequest.platform.rule.RuleEngine
 import dev.th7bo.sidequest.platform.party.PartyService
 import dev.th7bo.sidequest.platform.permission.Permission
 import dev.th7bo.sidequest.platform.permission.PermissionService
+import dev.th7bo.sidequest.platform.player.PlayerActionRegistry
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
@@ -153,6 +154,15 @@ public interface FeatureContext {
 
     /** Finding the player somebody means: crosshair, last target, or a typed name. */
     public val targeting: PlayerTargeting
+
+    /**
+     * Where a feature contributes what it can do to a player.
+     *
+     * A feature registers what it offers and never learns who else offered anything. That is what keeps the
+     * action menu from having to import every feature it can reach — see
+     * [PlayerActionRegistry][dev.th7bo.sidequest.platform.player.PlayerActionRegistry].
+     */
+    public val playerActions: PlayerActionRegistry
 
     /**
      * The party.

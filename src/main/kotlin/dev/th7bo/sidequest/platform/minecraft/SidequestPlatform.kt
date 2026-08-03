@@ -67,6 +67,8 @@ import dev.th7bo.sidequest.platform.notification.NotificationManager
 import dev.th7bo.sidequest.platform.notification.NotificationSink
 import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
+import dev.th7bo.sidequest.platform.core.player.DefaultPlayerActionRegistry
+import dev.th7bo.sidequest.platform.player.PlayerActionRegistry
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.notification.Notification
@@ -229,6 +231,19 @@ class SidequestPlatform(
     /** Finding the player somebody means. Needs the game, so it is an adapter. */
     private val playerTargeting = MinecraftPlayerTargeting(playerDirectory)
 
+    /**
+     * What every feature can do to a player, gathered in one place.
+     *
+     * Built here rather than by a feature, because it is the thing features contribute *to* — one of them
+     * owning it would make the others depend on that one to be able to offer anything.
+     */
+    private val playerActionRegistry = DefaultPlayerActionRegistry(
+        loggers.create(LogCategory.FEATURE, SqId.sidequest("player.actions")),
+    )
+
+    /** Where the action menu asks what is on offer. */
+    val playerActions: PlayerActionRegistry get() = playerActionRegistry
+
     val targeting: PlayerTargeting get() = playerTargeting
 
     /**
@@ -241,6 +256,9 @@ class SidequestPlatform(
         events = events,
         players = playerDirectory,
         log = loggers.create(LogCategory.PARSER, SqId.sidequest("party")),
+        // The one line this mod says to Hypixel that a player did not type. Routed through the service so
+        // the set of things it can say stays a list somebody can read.
+        runServerCommand = { command -> minecraftClient.runServerCommand(command) },
     )
 
     val party: PartyService get() = partyServiceImpl
@@ -530,6 +548,7 @@ class SidequestPlatform(
         gameContext = contextService,
         players = playerDirectory,
         targeting = playerTargeting,
+        playerActions = playerActionRegistry,
         party = partyServiceImpl,
         notifications = notificationManager,
         sounds = soundManager,

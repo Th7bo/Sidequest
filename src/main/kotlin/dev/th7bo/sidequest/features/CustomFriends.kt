@@ -10,6 +10,8 @@ import dev.th7bo.sidequest.platform.feature.FeatureDescriptor
 import dev.th7bo.sidequest.platform.feature.command
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.notification.NotificationCategory
+import dev.th7bo.sidequest.platform.player.PlayerAction
+import dev.th7bo.sidequest.platform.player.PlayerActionEntry
 import dev.th7bo.sidequest.platform.player.PlayerFirstSeenEvent
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerRenamedEvent
@@ -81,6 +83,56 @@ class CustomFriends(
         context.listen(PlayerRenamedEvent::class) { event -> onSeen(event.player.id, event.player.username) }
 
         registerCommands()
+        registerActions()
+    }
+
+    /**
+     * What this feature can do to a player, offered to the action menu.
+     *
+     * Registered rather than reached for, so the menu never imports this file. Only two, and they are the
+     * two the menu would otherwise have no way to offer: being on the friend list is the thing this feature
+     * is the sole authority on.
+     */
+    private fun registerActions() {
+        context.scope.add(
+            context.playerActions.register(context.owner) { target ->
+                // Never yourself. Being your own friend is not a state this list should be able to reach,
+                // and the menu is opened on the crosshair — which does occasionally find you in a mirror of
+                // one kind or another.
+                if (target.isSelf) return@register emptyList()
+
+                listOf(
+                    if (target.isFriend) {
+                        PlayerActionEntry(
+                            PlayerAction(
+                                id = SqId.sidequest("action.friend.remove"),
+                                label = "Remove friend",
+                                description = "Stops Sidequest treating them as one. Nothing else is deleted.",
+                                order = REMOVE_ORDER,
+                                isDestructive = true,
+                            ),
+                        ) {
+                            removeFriend(target.player.id)
+                            say("Removed ${target.player.displayName}")
+                        }
+                    } else {
+                        PlayerActionEntry(
+                            PlayerAction(
+                                id = SqId.sidequest("action.friend.add"),
+                                label = "Add friend",
+                                description = "Adds them to the list the social features use",
+                                order = ADD_ORDER,
+                            ),
+                        ) {
+                            // Through the same path the command uses, so the id is resolved and stored the
+                            // one way. A second "add a friend" here would be a second set of rules about
+                            // what a friend is.
+                            add(target.player.id.value)
+                        }
+                    },
+                )
+            },
+        )
     }
 
     override fun onDisable() {
@@ -131,14 +183,14 @@ class CustomFriends(
         context.command(
             name = "sqfriend",
             description = "Manage the people the social features are for",
-            usage = "[add <name>|remove <name>|list|nick <name> <nickname>|note <name> <text>|fav <name>]",
+            usage = "[add <name>|remove <name>|list|actions <name>|nick <name> <nickname>|note <name> <text>|fav <name>]",
             completions = { arguments ->
                 when (arguments.size) {
                     0, 1 -> VERBS
                     2 -> when (arguments.first().lowercase()) {
                         // Only the verbs that act on somebody already on the list. Completing friends for
                         // `add` would suggest exactly the people who cannot be added.
-                        "remove", "nick", "note", "fav", "unfav" ->
+                        "remove", "nick", "note", "fav", "unfav", "actions" ->
                             roster.sorted().map { it.displayName.quotedIfSpaced() }
                         else -> emptyList()
                     }
@@ -161,6 +213,9 @@ class CustomFriends(
             "note" -> note(rest.firstOrNull(), rest.drop(1).joinToString(" "))
             "fav", "favourite" -> favourite(rest.joinToString(" "), true)
             "unfav" -> favourite(rest.joinToString(" "), false)
+            // The plan's "open through a command", and the fallback for everything the menu offers that this
+            // feature does not: it asks every feature, not just this one.
+            "actions", "do" -> actions(rest.joinToString(" "))
             // An unrecognised first word is a name, matching `/sqwp`: `/sqfriend chrooted` adds them. The
             // verbs are short and specific enough that no Minecraft name collides with one.
             else -> add(arguments.joinToString(" "))
@@ -334,6 +389,33 @@ class CustomFriends(
     /** Opens the friend hub. Set by the mod, which owns screens. */
     var openHub: () -> Unit = {}
 
+    /** Opens the action menu for a player. Set by the mod, for the same reason. */
+    var openActions: (PlayerId) -> Unit = {}
+
+    /**
+     * Opens the action menu for whoever was named, or for whoever is under the crosshair.
+     *
+     * Resolved the same way adding is, so `/sqfriend actions` on somebody you are looking at works whether
+     * or not they are a friend — the menu asks *every* feature, and most of what it offers has nothing to do
+     * with this list.
+     */
+    private fun actions(query: String) {
+        val name = query.trim().trim('"')
+        val target = when {
+            name.isEmpty() -> context.targeting.resolveTarget()?.id
+            else -> roster.find(name)?.id ?: resolve(name)?.first
+        }
+
+        if (target == null) {
+            say(
+                if (name.isEmpty()) "Not looking at anybody" else "Never seen $name",
+                "Sidequest can only act on players it has seen.",
+            )
+            return
+        }
+        openActions(target)
+    }
+
     private fun persist() {
         val store = repository ?: return
         val snapshot = roster
@@ -354,10 +436,14 @@ class CustomFriends(
     private fun String.quotedIfSpaced(): String = if (' ' in this) "\"$this\"" else this
 
     private companion object {
-        val VERBS = listOf("add", "remove", "list", "nick", "note", "fav", "unfav")
+        val VERBS = listOf("add", "remove", "list", "nick", "note", "fav", "unfav", "actions")
 
         const val MAX_NOTE = 200
 
         const val SUBTITLE_LIMIT = 160
+
+        /** Adding sits near the top; removing is destructive and sorts last regardless. */
+        const val ADD_ORDER = 20
+        const val REMOVE_ORDER = 900
     }
 }

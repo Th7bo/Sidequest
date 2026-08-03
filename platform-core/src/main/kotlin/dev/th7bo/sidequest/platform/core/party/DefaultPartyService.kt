@@ -49,6 +49,13 @@ public class DefaultPartyService(
     private val players: PlayerDirectory,
     private val log: Logger,
     private val now: () -> Long = System::currentTimeMillis,
+    /**
+     * Sends a command to Hypixel, without the leading slash.
+     *
+     * Injected rather than reached for, so this service stays testable without a game — and defaulted to
+     * doing nothing, so a harness that never invites anybody need not supply one.
+     */
+    private val runServerCommand: (String) -> Unit = { },
 ) : PartyService {
 
     override var party: PartyState = PartyState.None
@@ -56,6 +63,28 @@ public class DefaultPartyService(
 
     override var readyCheck: ReadyCheck? = null
         private set
+
+    /**
+     * Invites somebody, by sending what Hypixel actually accepts.
+     *
+     * `party <name>`, which is the shorthand — **not** `party invite <name>`. Taken from SkyHanni's
+     * `HypixelCommands.partyInvite` rather than from memory, which is the rule for anything this mod says to
+     * Hypixel: their form is the one proven against the live server.
+     *
+     * A name is all Hypixel takes, so this is the one place a username is the right key. It is still not
+     * stored anywhere — it is spoken and forgotten.
+     */
+    override fun invite(username: String): Boolean {
+        val name = username.trim()
+        // Anything with a space in it is not a Minecraft name, and appending it to a command would send
+        // whatever came after the space as further arguments.
+        if (name.isEmpty() || name.any { it.isWhitespace() }) {
+            log.debug { "Refused to invite '$username': not a name" }
+            return false
+        }
+        runServerCommand("party $name")
+        return true
+    }
 
     /** Names accumulated from chat, in the order they were seen. */
     private val tracked = LinkedHashSet<String>()

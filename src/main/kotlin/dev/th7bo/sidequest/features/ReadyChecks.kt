@@ -8,6 +8,8 @@ import dev.th7bo.sidequest.platform.feature.FeatureContext
 import dev.th7bo.sidequest.platform.feature.FeatureDescriptor
 import dev.th7bo.sidequest.platform.feature.command
 import dev.th7bo.sidequest.platform.id.SqId
+import dev.th7bo.sidequest.platform.player.PlayerAction
+import dev.th7bo.sidequest.platform.player.PlayerActionEntry
 import dev.th7bo.sidequest.platform.notification.NotificationAction
 import dev.th7bo.sidequest.platform.notification.NotificationCategory
 import dev.th7bo.sidequest.platform.notification.NotificationPriority
@@ -89,6 +91,50 @@ class ReadyChecks(
             usage = "[yes|no|<note>]",
             completions = { arguments -> if (arguments.size <= 1) VERBS else emptyList() },
         ) { arguments -> handle(arguments) }
+
+        registerActions()
+    }
+
+    /**
+     * Inviting somebody to the party, offered to the action menu.
+     *
+     * Here because this is the feature that already deals in parties, and because the invite goes through
+     * `PartyService` — putting it in a feature that had no other reason to hold one would be reaching for a
+     * service to use a single method on it.
+     *
+     * Not offered to somebody already in the party, and not when there is no name to invite: Hypixel takes a
+     * username and nothing else, so somebody the client only knows by UUID cannot be invited at all.
+     */
+    private fun registerActions() {
+        context.scope.add(
+            context.playerActions.register(context.owner) { target ->
+                if (target.isSelf || target.isInParty || target.player.username.isBlank()) {
+                    return@register emptyList()
+                }
+
+                listOf(
+                    PlayerActionEntry(
+                        PlayerAction(
+                            id = SqId.sidequest("action.party.invite"),
+                            label = "Invite to party",
+                            description = "Sends /party to Hypixel",
+                            order = INVITE_ORDER,
+                        ),
+                    ) {
+                        // The name Hypixel knows, never the nickname. A local nickname is a thing this
+                        // client made up, and sending it would invite nobody.
+                        val sent = context.party.invite(target.player.username)
+                        context.notifications.notify(
+                            notification(
+                                category = NotificationCategory.SOCIAL,
+                                title = if (sent) "Invited ${target.player.username}" else "Could not invite them",
+                                subtitle = if (sent) "" else "Sidequest has no usable name for them.",
+                            ),
+                        )
+                    },
+                )
+            },
+        )
     }
 
     override fun onDisable() {
@@ -261,6 +307,9 @@ class ReadyChecks(
 
     private companion object {
         val VERBS = listOf("yes", "no")
+
+        /** Above pinging, below adding a friend: inviting is the most common thing to want from a menu. */
+        const val INVITE_ORDER = 50
 
         /** What to say when the group cannot hear it. Named once so both places word it the same. */
         const val NOT_CONNECTED = "Only on your client — Sidequest is not connected to the group."

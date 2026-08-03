@@ -51,6 +51,9 @@ class PartyServiceTest {
     private lateinit var party: DefaultPartyService
 
     private val owner = OwnerId(SqId.sidequest("test"))
+
+    /** Everything the service said to Hypixel, in order. */
+    private val sent = mutableListOf<String>()
     private var clock = 1_000L
 
     @BeforeEach
@@ -59,7 +62,8 @@ class PartyServiceTest {
         chat = DefaultChatParser(events, NoopLogger, now = { clock })
         chat.registerAll(HypixelChatRules.all { LOCAL_PLAYER }, OwnerId.PLATFORM)
         players = DefaultPlayerDirectory(events, now = { clock })
-        party = DefaultPartyService(events, players, NoopLogger, now = { clock })
+        sent.clear()
+        party = DefaultPartyService(events, players, NoopLogger, now = { clock }, runServerCommand = sent::add)
         party.install()
     }
 
@@ -399,6 +403,46 @@ class PartyServiceTest {
             listOf("joined Throwpo", "+riblets", "-riblets (${PartyLeaveReason.LEFT})", "disbanded"),
             seen,
         )
+    }
+
+    // -- inviting ------------------------------------------------------------
+
+    /**
+     * The exact text sent to Hypixel.
+     *
+     * Asserted literally, because this is one of the very few things the mod says to a server on the
+     * player's behalf and getting it wrong is not a quiet failure — it is the mod typing something
+     * unintended into a live chat. `party <name>` is SkyHanni's form, taken from their
+     * `HypixelCommands.partyInvite` rather than from memory: **not** `party invite <name>`.
+     */
+    @Test
+    fun `inviting sends the shorthand Hypixel actually takes`() {
+        assertTrue(party.invite("riblets"))
+
+        assertEquals(listOf("party riblets"), sent)
+    }
+
+    /**
+     * Nothing that is not a name is ever sent.
+     *
+     * A username cannot contain a space, so anything that does is either a mistake or a display name with a
+     * rank on it — and appending it to a command would send whatever came after the space to Hypixel as
+     * further arguments. Refused rather than sanitised: there is no correct guess about what was meant.
+     */
+    @Test
+    fun `a name with a space in it is refused rather than sent`() {
+        assertFalse(party.invite("[MVP+] riblets"))
+        assertFalse(party.invite(""))
+        assertFalse(party.invite("   "))
+
+        assertTrue(sent.isEmpty(), "sent: $sent")
+    }
+
+    @Test
+    fun `surrounding whitespace is trimmed rather than refused`() {
+        assertTrue(party.invite("  riblets  "))
+
+        assertEquals(listOf("party riblets"), sent)
     }
 
     private companion object {

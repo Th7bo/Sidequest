@@ -32,6 +32,7 @@ import dev.th7bo.sidequest.platform.storage.StorageProvider
 import dev.th7bo.sidequest.platform.storage.StorageScope
 import kotlinx.serialization.KSerializer
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
+import dev.th7bo.sidequest.platform.player.PlayerActionRegistry
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import dev.th7bo.sidequest.platform.scheduler.Debounced
@@ -63,6 +64,7 @@ internal class DefaultFeatureContext(
     override val gameContext: GameContextService,
     override val players: PlayerDirectory,
     override val targeting: PlayerTargeting,
+    override val playerActions: PlayerActionRegistry,
     override val party: PartyService,
     override val notifications: NotificationManager,
     override val sounds: SoundManager,

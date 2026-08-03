@@ -13,6 +13,8 @@ import dev.th7bo.sidequest.platform.marker.MarkerRender
 import dev.th7bo.sidequest.platform.notification.NotificationCategory
 import dev.th7bo.sidequest.platform.notification.NotificationPriority
 import dev.th7bo.sidequest.platform.ping.PingStyle
+import dev.th7bo.sidequest.platform.player.PlayerAction
+import dev.th7bo.sidequest.platform.player.PlayerActionEntry
 import dev.th7bo.sidequest.platform.skyblock.SqLocation
 import dev.th7bo.sidequest.platform.skyblock.SqPosition
 
@@ -76,6 +78,37 @@ class PingSystem(
             val label = if (style == null) arguments.joinToString(" ") else arguments.drop(1).joinToString(" ")
             ping(style ?: PingStyle.GO_HERE, label)
         }
+
+        registerActions()
+    }
+
+    /**
+     * Pinging somebody's position, offered to the action menu.
+     *
+     * Distinct from pinging what you are looking at: this one says "here is *this person*", which is what
+     * somebody picking a name out of a menu means. Only offered when they are somewhere to point at — a ping
+     * at an unknown position would draw a beam at the origin of the world.
+     */
+    private fun registerActions() {
+        context.scope.add(
+            context.playerActions.register(context.owner) { target ->
+                val where = target.player.presence.location
+                if (target.isSelf || !target.isOnline || where == null) return@register emptyList()
+
+                listOf(
+                    PlayerActionEntry(
+                        PlayerAction(
+                            id = SqId.sidequest("action.ping.player"),
+                            label = "Ping their position",
+                            description = "Shows everybody where they are",
+                            order = PING_ORDER,
+                        ),
+                    ) {
+                        ping(PingStyle.GO_HERE, target.player.displayName, at = where.position)
+                    },
+                )
+            },
+        )
     }
 
     override fun onDisable() {
@@ -186,6 +219,9 @@ class PingSystem(
          * another.
          */
         const val COOLDOWN_MILLIS = 500L
+
+        /** Below the friend actions: pointing at somebody is a smaller thing than adding them. */
+        const val PING_ORDER = 200
     }
 }
 

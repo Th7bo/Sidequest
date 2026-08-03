@@ -19,6 +19,7 @@ import dev.th7bo.sidequest.platform.core.marker.DefaultMarkerService
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
 import dev.th7bo.sidequest.platform.testkit.FakeGameClient
 import dev.th7bo.sidequest.platform.core.rule.DefaultRuleEngine
+import dev.th7bo.sidequest.platform.core.player.DefaultPlayerActionRegistry
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.core.command.DefaultCommandRegistry
 import dev.th7bo.sidequest.platform.core.event.DefaultEventBus
@@ -96,6 +97,7 @@ class FeatureRegistryTest {
         gameContext = gameContext,
         players = players,
         targeting = PlayerTargeting.None,
+        playerActions = DefaultPlayerActionRegistry(NoopLogger),
         party = DefaultPartyService(bus, players, NoopLogger),
         notifications = DefaultNotificationManager(NotificationSink.None, gameContext, NoopLogger),
         sounds = DefaultSoundManager(SoundSink.None, NoopLogger),

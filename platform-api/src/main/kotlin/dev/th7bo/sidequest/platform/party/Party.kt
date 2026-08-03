@@ -110,6 +110,19 @@ public interface PartyService {
     public val readyCheck: ReadyCheck?
 
     public val isInParty: Boolean get() = party.isInParty
+
+    /**
+     * Invites somebody to the party.
+     *
+     * Here rather than in the feature that wants it, because sending to Hypixel goes through
+     * [GameClient.runServerCommand][dev.th7bo.sidequest.platform.game.GameClient.runServerCommand], which is
+     * restricted to the platform's own services — so that "what does this mod send to Hypixel" stays a
+     * finite, reviewable list rather than something any feature can add to.
+     *
+     * @return false when there is no way to send it. Nothing is queued: an invite that arrived after the
+     *   moment had passed would be an invite nobody was expecting.
+     */
+    public fun invite(username: String): Boolean = false
 }
 
 /**

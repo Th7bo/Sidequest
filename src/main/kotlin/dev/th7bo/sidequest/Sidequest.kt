@@ -12,6 +12,7 @@ import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.feature.ui.FriendActions
 import dev.th7bo.sidequest.feature.ui.FriendScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildFriendHubScreen
+import dev.th7bo.sidequest.feature.ui.buildPlayerActionScreen
 import dev.th7bo.sidequest.feature.ui.WaypointActions
 import dev.th7bo.sidequest.feature.ui.WaypointScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildWaypointScreen
@@ -27,6 +28,7 @@ import dev.th7bo.sidequest.platform.minecraft.MinecraftCinematicSink
 import dev.th7bo.sidequest.platform.minecraft.MinecraftMarkerBridge
 import dev.th7bo.sidequest.platform.minecraft.MinecraftNotificationSink
 import dev.th7bo.sidequest.platform.minecraft.MinecraftSoundSink
+import dev.th7bo.sidequest.platform.minecraft.ScreenState
 import dev.th7bo.sidequest.platform.minecraft.SidequestPlatform
 import dev.th7bo.sidequest.platform.minecraft.toSq
 import dev.th7bo.sidequest.platform.text.SqStyle
@@ -536,6 +538,7 @@ object Sidequest : ClientModInitializer {
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
         )
         friends.openHub = ::openFriendHub
+        friends.openActions = ::openPlayerActions
 
         waypoints = SharedWaypoints(
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
@@ -659,6 +662,7 @@ object Sidequest : ClientModInitializer {
                 edit = friends::editFriend,
                 remove = friends::removeFriend,
                 reopen = ::openFriendHub,
+                openActions = ::openPlayerActions,
             )
             client.setScreenAndShow(
                 SidequestConfigScreen(
@@ -666,6 +670,53 @@ object Sidequest : ClientModInitializer {
                     activeTheme(),
                 ),
             )
+        }
+    }
+
+    /**
+     * Opens the action menu for a player.
+     *
+     * The context is assembled *here* rather than by each provider, so every provider gets the same answers
+     * to "is this a friend", "are they in my party". Two providers disagreeing about that would show "add
+     * friend" and "remove friend" side by side.
+     *
+     * Deferred with `schedule` like the other screens: a command runs inside chat's key handling and chat
+     * closes itself afterwards.
+     */
+    fun openPlayerActions(target: PlayerId) {
+        val platform = platformOrNull ?: return
+        val client = Minecraft.getInstance()
+        client.schedule {
+            val identity = platform.players.byId(target) ?: return@schedule
+            val context = dev.th7bo.sidequest.platform.player.PlayerActionContext(
+                player = identity,
+                isSelf = platform.client.localPlayerId?.let { PlayerId.of(it) } == target,
+                isFriend = identity.isCustomFriend,
+                // By name, because that is all Hypixel's party output gives — the one place a username is
+                // the right key, and it is compared rather than stored.
+                isInParty = platform.party.party.members.any {
+                    it.id == target || it.name.equals(identity.username, ignoreCase = true)
+                },
+                isOnline = identity.presence.isOnline,
+                isPartyLeader = platform.party.party.isLeader(platform.client.localPlayerName) == true,
+            )
+
+            // Held so the close can check it is still this menu being closed. An action that opened a
+            // screen of its own would otherwise have it shut from under it a tick later.
+            var opened: SidequestConfigScreen? = null
+            val menu = SidequestConfigScreen(
+                buildPlayerActionScreen(
+                    context = context,
+                    entries = platform.playerActions.actionsFor(context),
+                    // An action is one-shot, so the menu has done its job. Closed by asking the screen
+                    // rather than by setting the screen to null: 26.2 has no `setScreen` at all, only
+                    // `setScreenAndShow`, and `onClose` is the one door both versions have.
+                    onChosen = { client.schedule { opened?.takeIf(ScreenState::isCurrent)?.onClose() } },
+                ),
+                activeTheme(),
+            )
+            opened = menu
+            client.setScreenAndShow(menu)
         }
     }
 

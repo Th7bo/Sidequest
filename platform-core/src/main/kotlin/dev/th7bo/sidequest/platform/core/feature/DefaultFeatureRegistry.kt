@@ -28,6 +28,7 @@ import dev.th7bo.sidequest.platform.party.PartyService
 import dev.th7bo.sidequest.platform.permission.PermissionService
 import dev.th7bo.sidequest.platform.storage.StorageProvider
 import dev.th7bo.sidequest.platform.player.PlayerDirectory
+import dev.th7bo.sidequest.platform.player.PlayerActionRegistry
 import dev.th7bo.sidequest.platform.player.PlayerTargeting
 import dev.th7bo.sidequest.platform.skyblock.GameContextService
 import dev.th7bo.sidequest.platform.scheduler.Scheduler
@@ -54,6 +55,7 @@ public class DefaultFeatureRegistry(
     private val gameContext: GameContextService,
     private val players: PlayerDirectory,
     private val targeting: PlayerTargeting,
+    private val playerActions: PlayerActionRegistry,
     private val party: PartyService,
     private val notifications: NotificationManager,
     private val sounds: SoundManager,
@@ -154,6 +156,7 @@ public class DefaultFeatureRegistry(
             gameContext = gameContext,
             players = players,
             targeting = targeting,
+            playerActions = playerActions,
             party = party,
             notifications = notifications,
             sounds = sounds,
