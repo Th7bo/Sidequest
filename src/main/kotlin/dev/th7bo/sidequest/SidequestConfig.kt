@@ -1,6 +1,7 @@
 package dev.th7bo.sidequest
 
 import dev.th7bo.sidequest.platform.chat.DropRarity
+import dev.th7bo.sidequest.platform.core.skyblock.LevelPalette
 import dev.th7bo.sidequest.platform.skyblock.Island
 import dev.th7bo.sidequest.ui.binding.bind
 import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
@@ -38,6 +39,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     val cosmeticsOn = mutableStateOf(SidequestSettings.Cosmetics.isEnabled, "cosmetics.enabled")
     val playtimeOn = mutableStateOf(SidequestSettings.Playtime.isEnabled, "playtime.enabled")
     val titleScreenOn = mutableStateOf(SidequestSettings.TitleScreen.isEnabled, "title.enabled")
+    val levelsOn = mutableStateOf(SidequestSettings.Levels.isEnabled, "levels.enabled")
 
     /** Every change pushes into the services. See [SidequestSettings.applyToPlatform]. */
     fun applied() = SidequestSettings.applyToPlatform()
@@ -361,6 +363,35 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     elementSerializer = ISLAND_SERIALIZER,
                 ) {
                     visibleWhen = dropsOn
+                }
+            }
+
+            section("SkyBlock levels", description = "How the level above a player's head is coloured", icon = MinecraftIcons.levels, collapsible = true, startsCollapsed = true) {
+                toggle(
+                    id = id("levels.enabled"),
+                    title = "Colour the level",
+                    description = "Adds the bands the game never named, past level 520",
+                    value = bind(
+                        get = { SidequestSettings.Levels.isEnabled },
+                        set = { SidequestSettings.Levels.isEnabled = it; levelsOn.value = it },
+                        debugName = "levels.enabled",
+                    ),
+                )
+                dropdown(
+                    id = id("levels.palette"),
+                    title = "Palette",
+                    value = bind(
+                        get = { SidequestSettings.Levels.palette },
+                        set = { SidequestSettings.Levels.palette = it },
+                        debugName = "levels.palette",
+                    ),
+                    options = listOf(
+                        option("tiered", "Tiered", LevelPalette.TIERED),
+                        option("rainbow", "Rainbow", LevelPalette.RAINBOW),
+                    ),
+                ) {
+                    visibleWhen = levelsOn
+                    keywords("nametag", "colour", "color", "level")
                 }
             }
 

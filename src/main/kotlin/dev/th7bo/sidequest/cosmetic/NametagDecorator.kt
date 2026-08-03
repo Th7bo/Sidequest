@@ -45,14 +45,19 @@ public object NametagDecorator {
      */
     @JvmStatic
     public fun decorate(player: Player, original: Component): Component {
-        val platform = Sidequest.platformOrNull ?: return original
+        // The level's colour first, and independently: it is a property of the name Hypixel already drew,
+        // not something the mod is adding around it, so it applies to everybody rather than only to the
+        // people wearing something. Every path below returns this rather than `original` for that reason.
+        val base = LevelNametagColour.recolour(original)
+
+        val platform = Sidequest.platformOrNull ?: return base
         val resolution = runCatching { platform.cosmetics.resolve(PlayerId.of(player.uuid)) }
             // A failure here would be a crash in the render loop, once per frame, forever. Whatever went
             // wrong, the right answer on screen is the player's ordinary name.
-            .getOrElse { return original }
+            .getOrElse { return base }
 
-        if (resolution.shown.isEmpty()) return original
-        val parts = layout(resolution) ?: return original
+        if (resolution.shown.isEmpty()) return base
+        val parts = layout(resolution) ?: return base
 
         val built: MutableComponent = Component.empty()
         parts.title?.let {
@@ -61,7 +66,7 @@ public object NametagDecorator {
         parts.prefix?.let {
             built.append(coloured(it, colourOf(resolution, CosmeticSlot.NAMETAG_PREFIX))).append(SPACE)
         }
-        built.append(original)
+        built.append(base)
         parts.suffix?.let {
             built.append(SPACE).append(coloured(it, colourOf(resolution, CosmeticSlot.NAMETAG_SUFFIX)))
         }

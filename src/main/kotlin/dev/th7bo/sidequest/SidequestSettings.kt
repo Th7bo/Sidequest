@@ -3,6 +3,7 @@ package dev.th7bo.sidequest
 import dev.th7bo.sidequest.platform.audio.SoundGroup
 import dev.th7bo.sidequest.platform.chat.DropRarity
 import dev.th7bo.sidequest.platform.cinematic.CinematicSettings
+import dev.th7bo.sidequest.platform.core.skyblock.LevelPalette
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings
 import dev.th7bo.sidequest.platform.notification.NotificationSettings
 import dev.th7bo.sidequest.platform.skyblock.Island
@@ -115,6 +116,20 @@ public object SidequestSettings {
         public var ignoredItems: List<String> = emptyList()
 
         public var ignoredIslands: List<Island> = emptyList()
+    }
+
+    // -- SkyBlock levels -----------------------------------------------------
+
+    public object Levels {
+        public var isEnabled: Boolean = true
+
+        /**
+         * How a level is coloured.
+         *
+         * Tiered by default, because it is what the game does and a mod that silently rewrote a familiar
+         * signal would make everybody's level unreadable at a glance.
+         */
+        public var palette: LevelPalette = LevelPalette.TIERED
     }
 
     // -- title screen --------------------------------------------------------

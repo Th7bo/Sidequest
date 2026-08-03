@@ -95,8 +95,16 @@ fun Component.toLegacyFormatting(): String = buildString {
 }
 
 /** This component and its siblings, depth first, each carrying its own style. */
-private fun Component.flatten(): List<Component> =
+internal fun Component.flatten(): List<Component> =
     listOf(this) + siblings.flatMap { it.flatten() }
+
+/**
+ * The styled runs this component is made of, in reading order.
+ *
+ * The same walk [flatten] does, named for what callers outside this file want it for: anything rebuilding a
+ * component while changing one piece of it needs the runs, not the flattened string.
+ */
+internal fun Component.runs(): List<Component> = flatten()
 
 /**
  * This component's own text, without its siblings' contributions.
@@ -105,7 +113,7 @@ private fun Component.flatten(): List<Component> =
  * off the end. Keeping the run boundaries is the point of both conversions: flattening would
  * throw away the styling that separates a drop message from somebody quoting one.
  */
-private fun Component.plainContent(): String {
+internal fun Component.plainContent(): String {
     val full = string
     val childText = siblings.joinToString("") { it.string }
     return if (childText.isNotEmpty() && full.endsWith(childText)) full.dropLast(childText.length) else full

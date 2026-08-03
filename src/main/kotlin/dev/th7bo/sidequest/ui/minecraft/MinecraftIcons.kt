@@ -79,10 +79,14 @@ public object MinecraftIcons {
     /** The title screen's nebula. A nether star is the closest the game has to one. */
     public val titleScreen: Icon = item("nether_star")
 
+    /** SkyBlock levels, which are drawn on a nametag. */
+    public val levels: Icon = item("name_tag")
+
     /** Every icon here, for the registration below and for a gallery. */
     public val all: List<Icon> = listOf(
         settings, features, network, tools,
-        appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics, playtime, titleScreen,
+        appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics,
+        playtime, titleScreen, levels,
     )
 }
 
