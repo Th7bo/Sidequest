@@ -150,7 +150,10 @@ class DebtTracker(
     private fun handle(arguments: List<String>) {
         val rest = arguments.drop(1)
         when (arguments.firstOrNull()?.lowercase()) {
-            null, "", "list" -> list()
+            // No verb opens the screen, matching /sqwp and /sqfriend. `list` stays for the times
+            // somebody wants the answer without a screen covering the game.
+            null, "" -> openLedger()
+            "list" -> list()
             // Two verbs rather than one with a direction flag, because "who owes whom" is the single thing
             // this feature must never get backwards and a flag is exactly how that gets typed wrong.
             "owe" -> record(rest.firstOrNull(), rest.getOrNull(1), rest.drop(2).joinToString(" "), iOwe = true)
@@ -330,13 +333,9 @@ class DebtTracker(
                             order = DEBT_ORDER,
                         ),
                     ) {
-                        say(
-                            "With ${target.player.displayName}",
-                            ledger.involving(target.player.id)
-                                .filterNot { it.isSettled }
-                                .joinToString(" · ") { describe(it, me) }
-                                .take(SUBTITLE_LIMIT),
-                        )
+                        // The screen, not a notification. A debt has an id you would otherwise have to
+                        // read off a toast and type back — which is the whole reason the screen exists.
+                        openLedger()
                     },
                 )
             },
@@ -347,6 +346,38 @@ class DebtTracker(
 
     /** The ledger, for a screen that draws it. */
     fun ledger(): DebtLedger = ledger
+
+    /** Opens the ledger screen. Set by the mod, which owns screens. */
+    var openLedger: () -> Unit = {}
+
+    /**
+     * What has been typed into each debt's payment box.
+     *
+     * Held here rather than on the screen because the screen is rebuilt on every reopen — and recording a
+     * payment reopens it — so a draft living there would be lost by the act of using it.
+     */
+    private val drafts = mutableMapOf<String, String>()
+
+    fun draft(id: String): String = drafts[id].orEmpty()
+
+    fun setDraft(id: String, text: String) {
+        drafts[id] = text
+    }
+
+    /** Applies whatever is in a debt's payment box. */
+    fun applyDraft(id: String) {
+        val typed = drafts[id].orEmpty()
+        paid(id, typed)
+        // Cleared only on success, so a rejected amount stays in the box for somebody to correct rather
+        // than vanishing and leaving them to guess what they typed wrong.
+        if (Coins.parse(typed) != null) drafts.remove(id)
+    }
+
+    /** Agrees to a debt, for the screen. */
+    fun agreeTo(id: String) = agree(id)
+
+    /** Writes a debt off, for the screen. */
+    fun forgiveDebt(id: String) = forgive(id)
 
     /**
      * Records a debt that arrived from the group.

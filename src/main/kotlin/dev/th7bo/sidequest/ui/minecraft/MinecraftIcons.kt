@@ -101,11 +101,17 @@ public object MinecraftIcons {
     /** A friend who is online. Lime, because green reads as "on" without needing a label. */
     public val online: Icon = item("lime_dye")
 
+    /** Debts. A gold ingot, which is what SkyBlock's coins look like everywhere else in the game. */
+    public val debts: Icon = item("gold_ingot")
+
+    /** A debt that is done with. A written book: the record is kept, not torn up. */
+    public val settled: Icon = item("written_book")
+
     /** Every icon here, for the registration below and for a gallery. */
     public val all: List<Icon> = listOf(
         settings, features, network, tools,
         appearance, quiet, notifications, sound, cinematics, rareDrop, cosmetics,
-        playtime, titleScreen, levels, garden, waypoints, friends, online,
+        playtime, titleScreen, levels, garden, waypoints, friends, online, debts, settled,
     )
 }
 

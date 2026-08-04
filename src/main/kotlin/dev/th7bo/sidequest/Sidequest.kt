@@ -13,6 +13,9 @@ import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.feature.ui.FriendActions
 import dev.th7bo.sidequest.feature.ui.FriendScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildFriendHubScreen
+import dev.th7bo.sidequest.feature.ui.DebtActions
+import dev.th7bo.sidequest.feature.ui.DebtScreenIcons
+import dev.th7bo.sidequest.feature.ui.buildDebtScreen
 import dev.th7bo.sidequest.feature.ui.buildPlayerActionScreen
 import dev.th7bo.sidequest.feature.ui.WaypointActions
 import dev.th7bo.sidequest.feature.ui.WaypointScreenIcons
@@ -546,6 +549,7 @@ object Sidequest : ClientModInitializer {
             publish = ::publishDebt,
             resolveAccount = { account -> platform.playersByAccount[account] },
         )
+        debts.openLedger = ::openDebtScreen
 
         waypoints = SharedWaypoints(
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
@@ -728,6 +732,40 @@ object Sidequest : ClientModInitializer {
             )
             opened = menu
             client.setScreenAndShow(menu)
+        }
+    }
+
+    /**
+     * Opens the debt ledger.
+     *
+     * Deferred with `schedule` like every other screen the mod opens from a command, for the reason the
+     * waypoint manager spells out: chat closes itself after a command returns.
+     */
+    fun openDebtScreen() {
+        if (!::debts.isInitialized) return
+        val platform = platformOrNull ?: return
+        val me = platform.client.localPlayerId?.let { PlayerId.of(it) } ?: return
+        val client = Minecraft.getInstance()
+        client.schedule {
+            val actions = DebtActions(
+                current = debts::ledger,
+                me = me,
+                // The directory's name, so a nickname shows here too. It falls back to "somebody" rather
+                // than to a UUID, which would be unreadable in the one place the row has to name a person.
+                nameOf = { id -> platform.players.byId(id)?.displayName ?: "somebody" },
+                agree = debts::agreeTo,
+                forgive = debts::forgiveDebt,
+                draft = debts::draft,
+                setDraft = debts::setDraft,
+                pay = debts::applyDraft,
+                reopen = ::openDebtScreen,
+            )
+            client.setScreenAndShow(
+                SidequestConfigScreen(
+                    buildDebtScreen(debts.ledger(), actions, DEBT_ICONS),
+                    activeTheme(),
+                ),
+            )
         }
     }
 
@@ -1052,6 +1090,12 @@ object Sidequest : ClientModInitializer {
     private val WAYPOINT_ICONS = WaypointScreenIcons(
         waypoint = MinecraftIcons.waypoints,
         add = MinecraftIcons.features,
+    )
+
+    private val DEBT_ICONS = DebtScreenIcons(
+        owed = MinecraftIcons.debts,
+        owing = MinecraftIcons.debts,
+        settled = MinecraftIcons.settled,
     )
 
     private val FRIEND_ICONS = FriendScreenIcons(
