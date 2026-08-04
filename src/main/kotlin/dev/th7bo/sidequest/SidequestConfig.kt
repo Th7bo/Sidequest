@@ -4,7 +4,7 @@ import dev.th7bo.sidequest.platform.chat.DropRarity
 import dev.th7bo.sidequest.platform.core.skyblock.LevelPalette
 import dev.th7bo.sidequest.platform.skyblock.Island
 import dev.th7bo.sidequest.ui.binding.bind
-import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
+import dev.th7bo.sidequest.ui.components.GlyphIconIds
 import dev.th7bo.sidequest.ui.config.ConfigScreen
 import dev.th7bo.sidequest.ui.config.SettingSerializers
 import dev.th7bo.sidequest.ui.config.configScreen
@@ -45,8 +45,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     fun applied() = SidequestSettings.applyToPlatform()
 
     return configScreen(id("config"), "Sidequest", "Configure how Sidequest looks and behaves.") {
-        category(id("general"), "General", description = "Appearance and the master switches", icon = MinecraftIcons.settings) {
-            section("Appearance", description = "How every Sidequest screen looks", icon = MinecraftIcons.appearance, collapsible = true) {
+        category(id("general"), "General", description = "Appearance and the master switches", icon = GlyphIconIds.settings) {
+            section("Appearance", description = "How every Sidequest screen looks", icon = GlyphIconIds.appearance, collapsible = true) {
                 dropdown(
                     id = id("general.theme"),
                     title = "Theme",
@@ -83,7 +83,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 )
             }
 
-            section("Serious mode", description = "When you would rather it stayed out of the way", icon = MinecraftIcons.quiet, collapsible = true) {
+            section("Serious mode", description = "When you would rather it stayed out of the way", icon = GlyphIconIds.quiet, collapsible = true) {
                 toggle(
                     id = id("general.serious_mode"),
                     title = "Serious mode",
@@ -100,8 +100,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
             }
         }
 
-        category(id("features"), "Features", description = "What the mod does, and how loudly", icon = MinecraftIcons.features) {
-            section("Notifications", description = "Toasts and their timing", icon = MinecraftIcons.notifications, collapsible = true) {
+        category(id("features"), "Features", description = "What the mod does, and how loudly", icon = GlyphIconIds.features) {
+            section("Notifications", description = "Toasts and their timing", icon = GlyphIconIds.notifications, collapsible = true) {
                 toggle(
                     id = id("notifications.enabled"),
                     title = "Show notifications",
@@ -139,7 +139,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 }
             }
 
-            section("Sound", description = "Volumes, and who may make one", icon = MinecraftIcons.sound, collapsible = true, startsCollapsed = true) {
+            section("Sound", description = "Volumes, and who may make one", icon = GlyphIconIds.sound, collapsible = true, startsCollapsed = true) {
                 decimalSlider(
                     id = id("sound.master"),
                     title = "Master",
@@ -193,7 +193,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 )
             }
 
-            section("Cinematics", description = "The things worth stopping for", icon = MinecraftIcons.cinematics, collapsible = true, startsCollapsed = true) {
+            section("Cinematics", description = "The things worth stopping for", icon = GlyphIconIds.cinematics, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("cinematics.enabled"),
                     title = "Play cinematics",
@@ -253,7 +253,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 }
             }
 
-            section("Rare drops", description = "What is worth interrupting you for", icon = MinecraftIcons.rareDrop, collapsible = true, startsCollapsed = true) {
+            section("Rare drops", description = "What is worth interrupting you for", icon = GlyphIconIds.rareDrop, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("drops.enabled"),
                     title = "Announce rare drops",
@@ -366,7 +366,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 }
             }
 
-            section("Garden", description = "While you are farming", icon = MinecraftIcons.garden, collapsible = true, startsCollapsed = true) {
+            section("Garden", description = "While you are farming", icon = GlyphIconIds.garden, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("garden.view_bobbing"),
                     title = "Turn off view bobbing",
@@ -381,7 +381,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 }
             }
 
-            section("SkyBlock levels", description = "How the level above a player's head is coloured", icon = MinecraftIcons.levels, collapsible = true, startsCollapsed = true) {
+            section("SkyBlock levels", description = "How the level above a player's head is coloured", icon = GlyphIconIds.levels, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("levels.enabled"),
                     title = "Colour the level",
@@ -433,7 +433,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 }
             }
 
-            section("Title screen", description = "The nebula behind the main menu", icon = MinecraftIcons.titleScreen, collapsible = true, startsCollapsed = true) {
+            section("Title screen", description = "The nebula behind the main menu", icon = GlyphIconIds.titleScreen, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("title.enabled"),
                     title = "Replace the panorama",
@@ -495,7 +495,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 }
             }
 
-            section("Playtime", description = "How long you spend in SkyBlock", icon = MinecraftIcons.playtime, collapsible = true, startsCollapsed = true) {
+            section("Playtime", description = "How long you spend in SkyBlock", icon = GlyphIconIds.playtime, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("playtime.enabled"),
                     title = "Track playtime",
@@ -523,7 +523,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 }
             }
 
-            section("Cosmetics", description = "What you are willing to look at. These beat what other people chose.", icon = MinecraftIcons.cosmetics, collapsible = true, startsCollapsed = true) {
+            section("Cosmetics", description = "What you are willing to look at. These beat what other people chose.", icon = GlyphIconIds.cosmetics, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("cosmetics.enabled"),
                     title = "Show cosmetics",
@@ -584,8 +584,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
             }
         }
 
-        category(id("network"), "Network", description = "The group's backend", icon = MinecraftIcons.network) {
-            section("Server", description = "Where Sidequest syncs to", icon = MinecraftIcons.network, collapsible = true) {
+        category(id("network"), "Network", description = "The group's backend", icon = GlyphIconIds.network) {
+            section("Server", description = "Where Sidequest syncs to", icon = GlyphIconIds.network, collapsible = true) {
                 textField(
                     id = id("network.url"),
                     title = "Server address",
@@ -628,8 +628,8 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
             }
         }
 
-        category(id("advanced"), "Advanced", icon = MinecraftIcons.tools) {
-            section("Diagnostics", description = "Developer tools and troubleshooting", icon = MinecraftIcons.tools, collapsible = true) {
+        category(id("advanced"), "Advanced", icon = GlyphIconIds.tools) {
+            section("Diagnostics", description = "Developer tools and troubleshooting", icon = GlyphIconIds.tools, collapsible = true) {
                 warning(
                     id = id("advanced.notice"),
                     title = "These settings are for debugging",

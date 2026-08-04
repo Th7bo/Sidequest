@@ -652,7 +652,7 @@ object Sidequest : ClientModInitializer {
             )
             client.setScreenAndShow(
                 SidequestConfigScreen(
-                    buildWaypointScreen(waypoints.book(), actions, WAYPOINT_ICONS),
+                    buildWaypointScreen(waypoints.book(), actions),
                     activeTheme(),
                 ),
             )
@@ -715,7 +715,7 @@ object Sidequest : ClientModInitializer {
             )
             client.setScreenAndShow(
                 SidequestConfigScreen(
-                    buildFriendHubScreen(friends.roster(), actions, FRIEND_ICONS),
+                    buildFriendHubScreen(friends.roster(), actions),
                     activeTheme(),
                 ),
             )
@@ -796,7 +796,7 @@ object Sidequest : ClientModInitializer {
             )
             client.setScreenAndShow(
                 SidequestConfigScreen(
-                    buildDebtScreen(debts.ledger(), actions, DEBT_ICONS),
+                    buildDebtScreen(debts.ledger(), actions),
                     activeTheme(),
                 ),
             )
@@ -1114,29 +1114,8 @@ object Sidequest : ClientModInitializer {
         }.onFailure { logger.warn("Could not save the configuration", it) }
     }
 
-    /**
-     * The waypoint screen's art.
-     *
-     * The one thing that screen takes from the mod. Everything else about it lives in `:feature-ui`, which
-     * has no Minecraft on its classpath and therefore has tests — which is the whole reason the icons are
-     * handed over rather than reached for.
-     */
-    private val WAYPOINT_ICONS = WaypointScreenIcons(
-        waypoint = MinecraftIcons.waypoints,
-        add = MinecraftIcons.features,
-    )
 
-    private val DEBT_ICONS = DebtScreenIcons(
-        owed = MinecraftIcons.debts,
-        owing = MinecraftIcons.debts,
-        settled = MinecraftIcons.settled,
-    )
 
-    private val FRIEND_ICONS = FriendScreenIcons(
-        friend = MinecraftIcons.friends,
-        online = MinecraftIcons.online,
-        add = MinecraftIcons.features,
-    )
 
     /** Schema version of the on-disk configuration. Bump alongside a new migration. */
     const val CONFIG_SCHEMA_VERSION: Int = 1

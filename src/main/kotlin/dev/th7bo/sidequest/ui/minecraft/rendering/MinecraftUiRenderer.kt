@@ -216,7 +216,7 @@ public class MinecraftUiRenderer(
         val inner = if (innerBounds.isEmpty) {
             emptyMap()
         } else {
-            RoundedRectRaster.rows(innerBounds, corners.inset(thickness)).associateBy { it.top }
+            RoundedRectRaster.rows(innerBounds, corners.inset(thickness)).let(RoundedRectRaster::byScanline)
         }
 
         for (row in outer) {

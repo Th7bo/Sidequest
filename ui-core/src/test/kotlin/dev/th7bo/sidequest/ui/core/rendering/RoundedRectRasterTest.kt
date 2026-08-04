@@ -143,6 +143,38 @@ class RoundedRectRasterTest {
         assertEquals(11, rows.single().solidLeft, "the solid part starts at the first whole pixel inside")
     }
 
+    // -- looking a shape up by height -----------------------------------------
+
+    /**
+     * Every scanline finds a row, including the ones inside the tall middle.
+     *
+     * The bug this exists for: keying rows by their own `top` is the obvious thing, and it silently loses
+     * the entire middle of the shape, because that is returned as one tall row on purpose. An outline built
+     * on such a lookup fills solid all the way down and stops being an outline — which is what shipped, and
+     * what a rendered preview caught in about a second.
+     */
+    @Test
+    fun `every scanline of the shape can be looked up`() {
+        val rows = rows(height = 40f, radius = 6f)
+
+        val byY = RoundedRectRaster.byScanline(rows)
+
+        for (y in 0 until 40) {
+            assertTrue(byY.containsKey(y), "no row covers scanline $y")
+        }
+        assertEquals(40, byY.size)
+    }
+
+    /** A scanline inside the middle band resolves to that band, not to nothing. */
+    @Test
+    fun `the middle band is found from anywhere inside it`() {
+        val byY = RoundedRectRaster.byScanline(rows(height = 40f, radius = 6f))
+
+        val middle = byY.getValue(20)
+        assertTrue(middle.bottom - middle.top > 1, "expected the tall middle row, got $middle")
+        assertEquals(middle, byY.getValue(21), "adjacent scanlines share the band")
+    }
+
     // -- the awkward shapes ---------------------------------------------------
 
     /**

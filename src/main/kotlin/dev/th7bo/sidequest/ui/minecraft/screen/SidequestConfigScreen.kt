@@ -2,6 +2,7 @@ package dev.th7bo.sidequest.ui.minecraft.screen
 
 import dev.th7bo.sidequest.ui.components.ConfigScreenController
 import dev.th7bo.sidequest.ui.components.registerStandardIcons
+import dev.th7bo.sidequest.ui.components.registerGlyphIcons
 import dev.th7bo.sidequest.ui.minecraft.registerMinecraftIcons
 import dev.th7bo.sidequest.ui.core.icon.IconRegistry
 import dev.th7bo.sidequest.ui.components.ConfigScreenLayoutNode
@@ -59,6 +60,9 @@ public open class SidequestConfigScreen(
         // Minecraft's own item textures alongside the mod's flat glyphs, so a screen can
         // use whichever reads better in place.
         icons.registerMinecraftIcons(registrationScope)
+        // The mod's own chrome draws from shapes rather than sprites — see `GlyphIcons`. The Minecraft set
+        // stays registered because content that really is an item still draws as one.
+        icons.registerGlyphIcons(registrationScope)
     }
 
     override fun buildTree(runtime: UiRuntime, measurer: TextMeasurer): UiNode {

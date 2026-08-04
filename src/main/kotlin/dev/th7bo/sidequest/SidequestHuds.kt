@@ -3,6 +3,7 @@ package dev.th7bo.sidequest
 import dev.th7bo.sidequest.ui.components.Icons
 import dev.th7bo.sidequest.ui.components.hud.ProgressHudNode
 import dev.th7bo.sidequest.ui.components.registerStandardIcons
+import dev.th7bo.sidequest.ui.components.registerGlyphIcons
 import dev.th7bo.sidequest.ui.minecraft.registerMinecraftIcons
 import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.hud.HudElementNode
@@ -60,6 +61,7 @@ public object SidequestHuds {
         // Minecraft's own item textures alongside the mod's flat glyphs, so a screen can use whichever reads
         // better in place.
         SidequestHudLayer.icons.registerMinecraftIcons(iconScope)
+        SidequestHudLayer.icons.registerGlyphIcons(iconScope)
         SidequestHudLayer.onPopulate = { layer, context -> populate(layer, context) }
         SidequestHudLayer.register { Sidequest.activeTheme() }
     }

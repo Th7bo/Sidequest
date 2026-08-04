@@ -114,6 +114,21 @@ public object RoundedRectRaster {
         return rows
     }
 
+    /**
+     * The rows indexed by every scanline they cover.
+     *
+     * For anything that has to ask "what is the shape doing at height *y*" — an outline, which is one shape
+     * minus another. Keying rows by their own `top` is the obvious thing and it is wrong: the straight middle
+     * is deliberately returned as a *single tall row*, so a lookup by `top` finds it at one y and misses it
+     * at every other. An outline built that way fills solid down its whole middle and stops being an
+     * outline, which is exactly what happened.
+     */
+    public fun byScanline(rows: List<Row>): Map<Int, Row> {
+        val byY = HashMap<Int, Row>()
+        for (row in rows) for (y in row.top until row.bottom) byY[y] = row
+        return byY
+    }
+
     private fun curvedRow(top: Int, left: Float, right: Float, leftInset: Float, rightInset: Float): Row {
         val boundaryLeft = left + leftInset
         val boundaryRight = right - rightInset
