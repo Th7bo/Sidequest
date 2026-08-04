@@ -4,6 +4,7 @@ import dev.th7bo.sidequest.platform.core.friend.FriendEntry
 import dev.th7bo.sidequest.platform.core.friend.FriendRoster
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.player.PlayerIdentity
+import dev.th7bo.sidequest.platform.player.PlayerPresence
 import dev.th7bo.sidequest.platform.skyblock.Activity
 import dev.th7bo.sidequest.platform.skyblock.Island
 import dev.th7bo.sidequest.ui.binding.bind
@@ -11,6 +12,9 @@ import dev.th7bo.sidequest.ui.config.ConfigScreen
 import dev.th7bo.sidequest.ui.config.configScreen
 import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.rendering.Icon
+import dev.th7bo.sidequest.ui.state.UiState
+import dev.th7bo.sidequest.ui.state.constantState
+import dev.th7bo.sidequest.ui.state.derivedStateOf
 
 /** The icons the friend hub draws. Defaulted to the framework's own; the host may supply better. */
 public data class FriendScreenIcons(
@@ -37,6 +41,14 @@ public class FriendActions(
      * be wrong within a minute and wrong forever after a crash.
      */
     public val identity: (PlayerId) -> PlayerIdentity?,
+    /**
+     * Somebody's presence, as something the row can watch.
+     *
+     * The difference between a friend list that is right when it opens and one that stays right. Defaulted
+     * to a constant, so a host without a presence bridge still gets a working hub — it simply does not
+     * update while open, which is where this screen was before.
+     */
+    public val presenceOf: (PlayerId) -> UiState<PlayerPresence> = { constantState(PlayerPresence.Unknown) },
     public val edit: (id: PlayerId, change: (FriendEntry) -> FriendEntry) -> Unit,
     public val remove: (id: PlayerId) -> Unit,
     /** Rebuilds and reopens. For the edits that change the screen's own shape. */
@@ -61,16 +73,20 @@ public class FriendActions(
  * asking. A purely alphabetical list makes finding the two people currently playing a scan through forty
  * names.
  *
- * **What a row *says* is a snapshot; what a row *edits* is live.** The two halves are not the same and the
- * difference is worth knowing. Every editable value reads through [FriendActions.current] on each read, so
- * typing sticks. Descriptions do not: the config DSL takes a plain string and freezes it, so "Online" is
- * true as of the moment the screen opened and is not updated while it stays open.
+ * **The rows stay right while the screen is open.** Every editable value reads through
+ * [FriendActions.current], so typing sticks; and the line under each name is a derivation over
+ * [FriendActions.presenceOf], so somebody logging out while you are looking at the list stops being
+ * described as online.
  *
- * That is a real limitation rather than a decision, and it is written down instead of papered over. Fixing
- * it properly means presence becoming reactive state — driven by `PlayerPresenceChangedEvent` — because a
- * state that recomputed on read but never notified would leave the text node holding whatever it cached,
- * which is the same staleness with more machinery and less honesty about it. Reopening the screen is
- * accurate, and the screen is cheap to rebuild.
+ * That second half was a real limitation for two commits, documented rather than papered over, because the
+ * obvious fix is not one: a description that recomputed on read but never notified would leave the text node
+ * holding whatever it had cached — the same staleness with more machinery in the way. What makes it work is
+ * that presence is now a *source* state something writes to, so the derivation has a dependency that can
+ * actually invalidate. See `PresenceStates`.
+ *
+ * The screen's *shape* is still a snapshot: who is in which category, and the order, are fixed when it
+ * opens. That is deliberate — rows appearing and reordering under a cursor is worse than a list that is one
+ * reopen out of date about its own ordering.
  */
 public fun buildFriendHubScreen(
     roster: FriendRoster,
@@ -154,7 +170,9 @@ private fun dev.th7bo.sidequest.ui.config.CategoryBuilder.friendSection(
         // Keyed on the friend rather than on the title, because a section's id derives from its title by
         // default and two friends nicknamed the same thing would throw the screen away before it drew.
         id = id(prefix),
-        description = describe(friend, actions),
+        // A derivation, so the line under a name follows them logging in and out while the screen is open.
+        // Reading the presence state inside is what registers the dependency; nothing else has to.
+        descriptionState = derivedStateOf("friend.$key.description") { describe(friend, actions) },
         icon = if (actions.isOnline(friend.id)) icons.online else icons.friend,
         collapsible = true,
         startsCollapsed = true,
@@ -229,12 +247,12 @@ private fun live(actions: FriendActions, friend: FriendEntry): FriendEntry =
 /**
  * The line under a friend's name.
  *
- * Evaluated once, when the screen is built — see the note on [buildFriendHubScreen]. Accurate on open and
- * not updated while it stays open.
+ * Reads presence through [FriendActions.presenceOf] rather than off the identity, which is the whole of what
+ * makes it live: reading a state inside a derivation is what registers the dependency that later invalidates
+ * this text.
  */
 private fun describe(friend: FriendEntry, actions: FriendActions): String {
-    val identity = actions.identity(friend.id)
-    val presence = identity?.presence
+    val presence = actions.presenceOf(friend.id).value
 
     return buildString {
         // Their real name, when a nickname is covering it. Otherwise somebody renamed to "Cee" in the list
@@ -242,7 +260,7 @@ private fun describe(friend: FriendEntry, actions: FriendActions): String {
         if (friend.nickname != null && friend.username.isNotBlank()) append(friend.username).append(" · ")
 
         when {
-            presence?.isOnline != true -> append("Offline")
+            presence.isOnline != true -> append("Offline")
             else -> {
                 append("Online")
                 // Only what they have agreed to share, and nothing is invented to fill a gap. "Not shared"

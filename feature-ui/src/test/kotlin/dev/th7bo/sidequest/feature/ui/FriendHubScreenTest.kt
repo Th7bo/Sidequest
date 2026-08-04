@@ -33,9 +33,25 @@ class FriendHubScreenTest {
     /** Who the directory says is around. The screen reads through this, never from the roster. */
     private var identities = mapOf<PlayerId, PlayerIdentity>()
 
+    private val presence = PresenceStates(
+        object : dev.th7bo.sidequest.platform.player.PlayerDirectory {
+            override fun byId(id: PlayerId) = identities[id]
+            override fun resolveUsername(username: String) = null
+            override fun all() = identities.values
+            override fun customFriends() = emptyList<PlayerIdentity>()
+            override fun remember(id: PlayerId, username: String, skinTexture: String?) = error("unused")
+            override fun setNickname(id: PlayerId, nickname: String?) = null
+            override fun updatePresence(id: PlayerId, presence: PlayerPresence) = null
+            override fun setCustomFriend(id: PlayerId, isFriend: Boolean) = null
+            override fun onChange(listener: (PlayerIdentity) -> Unit) =
+                dev.th7bo.sidequest.platform.lifecycle.Registration { }
+        },
+    )
+
     private val actions = FriendActions(
         current = { roster },
         identity = { identities[it] },
+        presenceOf = presence::of,
         edit = { id, change -> roster = roster.edit(id, change) },
         remove = { id -> roster = roster.without(id) },
         reopen = { },
@@ -50,13 +66,15 @@ class FriendHubScreenTest {
         activity: Activity = Activity.UNKNOWN,
         island: Island = Island.NONE,
     ) {
-        identities = identities + (
-            id to PlayerIdentity(
-                id = id,
-                username = name,
-                presence = PlayerPresence(state = PresenceState.ONLINE, activity = activity, island = island),
-            )
-            )
+        val now = PlayerPresence(state = PresenceState.ONLINE, activity = activity, island = island)
+        identities = identities + (id to PlayerIdentity(id = id, username = name, presence = now))
+        presence.onChanged(id, now)
+    }
+
+    /** Somebody going offline, announced the way the mod announces it. */
+    private fun offline(id: PlayerId) {
+        identities = identities - id
+        presence.onChanged(id, PlayerPresence(state = PresenceState.OFFLINE))
     }
 
     private fun build(): ConfigScreen = buildFriendHubScreen(roster, actions)
@@ -171,33 +189,25 @@ class FriendHubScreenTest {
     // -- what it says --------------------------------------------------------
 
     /**
-     * A description is a snapshot, and reopening is what refreshes it.
+     * A friend who logs off stops being described as online, without reopening.
      *
-     * Pinned as the *actual* behaviour rather than the one I first assumed. The config DSL takes a plain
-     * string for a description and freezes it, so a row that said "Online" keeps saying so while the screen
-     * stays open. Writing this down is what stops the next person — me — from documenting the opposite and
-     * believing it.
-     *
-     * If presence ever becomes reactive state, this test is the one that should start failing.
+     * This test used to assert the opposite, and said so: the description was frozen at build time and the
+     * honest thing was to pin that rather than claim otherwise. It notes that if presence ever became
+     * reactive state this is the test that should start failing. It did, and this is the other side of it.
      */
     @Test
-    fun `presence is captured when the screen is built and refreshed by reopening`() {
+    fun `a friend who logs off stops being described as online`() {
         roster = roster.with(friend(alice, "Alice"))
         online(alice, "Alice")
 
         val section = build().categories.first().sections.first { it.title.peek() == "Alice" }
         assertTrue(section.description?.peek()?.contains("Online") == true)
 
-        identities = emptyMap()
+        offline(alice)
 
         assertTrue(
-            section.description?.peek()?.contains("Online") == true,
-            "the old screen is a snapshot; it should not have changed under itself",
-        )
-        val reopened = build().categories.first().sections.first { it.title.peek() == "Alice" }
-        assertTrue(
-            reopened.description?.peek()?.contains("Offline") == true,
-            "reopening should show them offline, was ${reopened.description?.peek()}",
+            section.description?.peek()?.contains("Offline") == true,
+            "still said ${section.description?.peek()} after they logged off",
         )
     }
 

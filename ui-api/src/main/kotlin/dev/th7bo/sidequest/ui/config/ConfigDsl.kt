@@ -128,6 +128,20 @@ public class CategoryBuilder internal constructor(
         collapsible: Boolean = false,
         startsCollapsed: Boolean = false,
         visibleWhen: UiState<Boolean> = constantState(true),
+        /**
+         * A description that changes while the screen is open.
+         *
+         * Wins over [description] when both are given, and exists because a plain string is *frozen at
+         * build time* — which is fine for "Applies to every waypoint" and quietly wrong for anything
+         * describing live state. A friend list that said "Online" when the screen opened and kept saying
+         * it afterwards is the case that prompted this: a screen confidently wrong about who is playing is
+         * worse than one that says nothing.
+         *
+         * Only pass a state that actually notifies. A derivation over a value nothing writes back to
+         * recomputes on read and never invalidates the text node, which is the same staleness with more
+         * machinery in the way.
+         */
+        descriptionState: UiState<String>? = null,
         configure: SectionBuilder.() -> Unit,
     ) {
         val categoryTitle = this.title.peek()
@@ -145,7 +159,7 @@ public class CategoryBuilder internal constructor(
             Section(
                 id = id,
                 title = constantState(title),
-                description = description?.let(::constantState),
+                description = descriptionState ?: description?.let(::constantState),
                 icon = icon,
                 isCollapsible = collapsible,
                 startsCollapsed = startsCollapsed,

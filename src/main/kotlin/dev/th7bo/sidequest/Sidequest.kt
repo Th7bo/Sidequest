@@ -14,6 +14,7 @@ import dev.th7bo.sidequest.feature.ui.FriendActions
 import dev.th7bo.sidequest.feature.ui.FriendScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildFriendHubScreen
 import dev.th7bo.sidequest.feature.ui.DebtActions
+import dev.th7bo.sidequest.feature.ui.PresenceStates
 import dev.th7bo.sidequest.feature.ui.DebtScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildDebtScreen
 import dev.th7bo.sidequest.feature.ui.buildPlayerActionScreen
@@ -665,8 +666,40 @@ object Sidequest : ClientModInitializer {
      * `execute`: a command runs inside chat's key handling and chat closes itself afterwards, so a screen
      * opened inline shows for one frame and is then replaced by null.
      */
+    /**
+     * Presence, as something a screen can watch.
+     *
+     * Built once and kept, because a state observed by an open screen has to be the same object the next
+     * change is written to — a fresh set per screen would leave every open one watching states nothing
+     * updates.
+     */
+    private var presenceStates: PresenceStates? = null
+
+    /**
+     * Wires the directory's presence events into the reactive graph.
+     *
+     * Marshalled onto the client thread rather than written where the event lands: the graph is UI-thread
+     * only, and presence arrives from a backend coroutine. Registered once, against the platform's own
+     * owner, so it goes when the platform does.
+     */
+    private fun attachPresenceStates(platform: SidequestPlatform): PresenceStates {
+        presenceStates?.let { return it }
+
+        val states = PresenceStates(platform.players)
+        presenceStates = states
+        platform.events.subscribe(
+            dev.th7bo.sidequest.platform.player.PlayerPresenceChangedEvent::class,
+            dev.th7bo.sidequest.platform.id.OwnerId.PLATFORM,
+        ) { event ->
+            clientScheduler.submit { states.onChanged(event.player.id, event.player.presence) }
+        }
+        return states
+    }
+
     fun openFriendHub() {
         if (!::friends.isInitialized) return
+        val platform = platformOrNull ?: return
+        val presence = attachPresenceStates(platform)
         val client = Minecraft.getInstance()
         client.schedule {
             val actions = FriendActions(
@@ -674,6 +707,7 @@ object Sidequest : ClientModInitializer {
                 // Straight from the directory, which is the only thing that knows who is online. The roster
                 // deliberately does not store it — see `FriendRoster`.
                 identity = { id -> platformOrNull?.players?.byId(id) },
+                presenceOf = presence::of,
                 edit = friends::editFriend,
                 remove = friends::removeFriend,
                 reopen = ::openFriendHub,
