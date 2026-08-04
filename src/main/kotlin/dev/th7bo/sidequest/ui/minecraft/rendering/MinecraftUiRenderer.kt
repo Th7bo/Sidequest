@@ -91,19 +91,65 @@ public class MinecraftUiRenderer(
     /**
      * A rounded rectangle with smooth corners.
      *
-     * Two things together, and it took both — the first on its own was not enough. [RoundedRectRaster] works
-     * out how much of each edge pixel the curve actually covers so the boundary can be drawn at partial
-     * alpha; and [inPhysicalPixels] makes those pixels *display* pixels rather than GUI ones.
+     * Three attempts, and the first two are worth recording because each looked finished.
      *
-     * Alpha alone left it looking stepped, which is worth recording because it was not obvious: at a GUI
-     * scale of 3 a "pixel" is a three-by-three block, so grading the staircase changed the colour of the
-     * steps without changing their size. The eye reads the size.
+     * Anti-aliasing the edge pixels was not enough on its own: `fill` takes *GUI* pixels, and at a GUI scale
+     * of 3 one of those is a three-by-three block, so grading the staircase changed the colour of the steps
+     * without changing their size. The eye reads the size. Drawing in display pixels through
+     * [inPhysicalPixels] fixed the look and cost eighteen frames a second, because a curve was being
+     * rasterised from scratch every frame — about two hundred and fifty quads for one panel.
+     *
+     * So the arc is baked once per radius into an alpha mask and blitted. A curve that does not change
+     * between frames has no business being recomputed in one, and the shape is now eleven pieces: four
+     * corners and the rectangles between them.
      */
     override fun roundedRect(bounds: Rect, corners: Corners, color: Color) {
         if (color.isTransparent || bounds.isEmpty) return
         inPhysicalPixels(bounds, corners) { scaledBounds, scaledCorners ->
-            fillRows(scaledBounds, scaledCorners, color)
+            // The baked masks first, and the rasteriser only when they cannot serve — a radius past the
+            // ceiling, or a texture that failed to build. One is eleven quads and the other is hundreds, but
+            // the slow one is never *wrong*, so it is the right thing to fall back to.
+            if (!blitCorners(scaledBounds, scaledCorners, color)) {
+                fillRows(scaledBounds, scaledCorners, color)
+            }
         }
+    }
+
+    /**
+     * A rounded rectangle as baked corner arcs and the rectangles between them.
+     *
+     * The geometry comes from [RoundedRectRaster.decompose], which is tested to tile the shape exactly — a
+     * gap there is a visible seam and an overlap is a dark line wherever the fill is translucent, and this
+     * class cannot be tested at all. What is left here is the drawing.
+     *
+     * @return false when a corner has no mask available, having drawn nothing, so the caller can fall back.
+     *   Every mask is resolved before the first draw for exactly that reason: half a shape must never reach
+     *   the screen.
+     */
+    private fun blitCorners(bounds: Rect, corners: Corners, color: Color): Boolean {
+        val decomposition = RoundedRectRaster.decompose(bounds, corners)
+        val masks = decomposition.arcs.map { CornerMasks.forRadius(it.radius) ?: return false }
+
+        val packed = resolve(color)
+        for (piece in decomposition.fills) {
+            graphics.fill(piece.left, piece.top, piece.right, piece.bottom, packed)
+        }
+        decomposition.arcs.forEachIndexed { index, arc ->
+            graphics.blit(
+                net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+                masks[index],
+                arc.left,
+                arc.top,
+                (arc.quadrantX * arc.radius).toFloat(),
+                (arc.quadrantY * arc.radius).toFloat(),
+                arc.radius,
+                arc.radius,
+                arc.radius * 2,
+                arc.radius * 2,
+                packed,
+            )
+        }
+        return true
     }
 
     /**

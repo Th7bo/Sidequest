@@ -4,6 +4,7 @@ import dev.th7bo.sidequest.ui.geometry.Rect
 import dev.th7bo.sidequest.ui.rendering.Corners
 import kotlin.math.ceil
 import kotlin.math.floor
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -114,6 +115,79 @@ public object RoundedRectRaster {
         return rows
     }
 
+    /** A plain rectangle to fill, in whole pixels. */
+    public data class Piece(val left: Int, val top: Int, val right: Int, val bottom: Int) {
+        public val isEmpty: Boolean get() = right <= left || bottom <= top
+    }
+
+    /** One corner's arc: where it goes, how big, and which quadrant of the disc it is. */
+    public data class Arc(
+        val left: Int,
+        val top: Int,
+        val radius: Int,
+        /** 0 for the left half of the disc, 1 for the right. */
+        val quadrantX: Int,
+        /** 0 for the top half, 1 for the bottom. */
+        val quadrantY: Int,
+    )
+
+    /** A rounded rectangle as flat rectangles plus corner arcs. */
+    public data class Decomposition(val fills: List<Piece>, val arcs: List<Arc>)
+
+    /**
+     * Cuts a rounded rectangle into pieces a renderer can draw in one call each.
+     *
+     * The fast path. [rows] is honest and costs a quad per display pixel of curve, which measured at about
+     * two hundred and fifty for one panel and cost the frame rate; this is at most eleven pieces, because a
+     * curve that does not change between frames has no business being recomputed in one.
+     *
+     * The rectangles and the arc squares **tile the shape exactly** — no gap, no overlap. That is the whole
+     * risk of decomposing a shape by hand: a one-pixel gap is a visible seam and an overlap is a darker line
+     * wherever the fill is translucent, and both are the sort of thing that survives code review.
+     */
+    public fun decompose(bounds: Rect, corners: Corners): Decomposition {
+        if (bounds.isEmpty) return Decomposition(emptyList(), emptyList())
+
+        val left = bounds.left.roundToInt()
+        val top = bounds.top.roundToInt()
+        val right = bounds.right.roundToInt()
+        val bottom = bounds.bottom.roundToInt()
+
+        val limit = min(bounds.width, bounds.height) / 2f
+        val topLeft = whole(corners.topLeft.value, limit)
+        val topRight = whole(corners.topRight.value, limit)
+        val bottomLeft = whole(corners.bottomLeft.value, limit)
+        val bottomRight = whole(corners.bottomRight.value, limit)
+
+        val topBand = max(topLeft, topRight)
+        val bottomBand = max(bottomLeft, bottomRight)
+
+        val fills = ArrayList<Piece>(PIECE_CAPACITY)
+
+        // The middle, full width, whatever the height.
+        fills += Piece(left, top + topBand, right, bottom - bottomBand)
+
+        // Each band is the strip between its two corners, plus whatever sits below a corner shorter than the
+        // band. Two different radii on one edge is not unusual — it is every card that rounds only its top.
+        fills += Piece(left + topLeft, top, right - topRight, top + topBand)
+        fills += Piece(left, top + topLeft, left + topLeft, top + topBand)
+        fills += Piece(right - topRight, top + topRight, right, top + topBand)
+
+        fills += Piece(left + bottomLeft, bottom - bottomBand, right - bottomRight, bottom)
+        fills += Piece(left, bottom - bottomBand, left + bottomLeft, bottom - bottomLeft)
+        fills += Piece(right - bottomRight, bottom - bottomBand, right, bottom - bottomRight)
+
+        val arcs = ArrayList<Arc>(CORNERS)
+        if (topLeft > 0) arcs += Arc(left, top, topLeft, 0, 0)
+        if (topRight > 0) arcs += Arc(right - topRight, top, topRight, 1, 0)
+        if (bottomLeft > 0) arcs += Arc(left, bottom - bottomLeft, bottomLeft, 0, 1)
+        if (bottomRight > 0) arcs += Arc(right - bottomRight, bottom - bottomRight, bottomRight, 1, 1)
+
+        return Decomposition(fills.filterNot { it.isEmpty }, arcs)
+    }
+
+    private fun whole(radius: Float, limit: Float): Int = min(radius, limit).coerceAtLeast(0f).roundToInt()
+
     /**
      * The rows indexed by every scanline they cover.
      *
@@ -166,5 +240,10 @@ public object RoundedRectRaster {
     private fun clamp(radius: Float, limit: Float): Float = min(radius, limit).coerceAtLeast(0f)
 
     private const val HALF = 0.5f
+
+    /** One middle, three across the top, three across the bottom. */
+    private const val PIECE_CAPACITY = 7
+
+    private const val CORNERS = 4
 
 }

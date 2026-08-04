@@ -161,6 +161,78 @@ class RoundedRectRasterTest {
         assertEquals(short.size, tall.size, "a taller shape produced more rows")
     }
 
+    // -- the cheap decomposition ----------------------------------------------
+
+    /**
+     * The pieces cover the shape exactly: no pixel twice, no pixel missed.
+     *
+     * The whole risk of cutting a shape up by hand. A gap is a visible seam; an overlap is a darker line
+     * wherever the fill is translucent, which every panel here is. Both survive code review easily, and both
+     * are obvious the moment something counts the pixels — so this counts them.
+     */
+    @Test
+    fun `the pieces tile the shape with no gap and no overlap`() {
+        for (corners in listOf(
+            Corners.all(9.dp),
+            Corners.top(14.dp),
+            Corners.bottom(14.dp),
+            Corners(topLeft = 12.dp, topRight = 4.dp, bottomRight = 0.dp, bottomLeft = 8.dp),
+            Corners.None,
+        )) {
+            val bounds = rect(64f, 48f)
+            val decomposition = RoundedRectRaster.decompose(bounds, corners)
+
+            val painted = Array(48) { IntArray(64) }
+            for (piece in decomposition.fills) {
+                for (y in piece.top until piece.bottom) for (x in piece.left until piece.right) painted[y][x]++
+            }
+            for (arc in decomposition.arcs) {
+                for (y in arc.top until arc.top + arc.radius) {
+                    for (x in arc.left until arc.left + arc.radius) painted[y][x]++
+                }
+            }
+
+            for (y in 0 until 48) {
+                for (x in 0 until 64) {
+                    assertEquals(1, painted[y][x], "pixel ($x,$y) painted ${painted[y][x]} times for $corners")
+                }
+            }
+        }
+    }
+
+    /** Every corner with a radius gets exactly one arc, and a square corner gets none. */
+    @Test
+    fun `each rounded corner produces one arc`() {
+        val decomposition = RoundedRectRaster.decompose(
+            rect(64f, 48f),
+            Corners(topLeft = 10.dp, topRight = 0.dp, bottomRight = 6.dp, bottomLeft = 0.dp),
+        )
+
+        assertEquals(2, decomposition.arcs.size)
+        assertEquals(setOf(10, 6), decomposition.arcs.map { it.radius }.toSet())
+        // The quadrant says which part of the disc to sample; getting it wrong mirrors a corner.
+        val topLeftArc = decomposition.arcs.single { it.radius == 10 }
+        assertEquals(0, topLeftArc.quadrantX)
+        assertEquals(0, topLeftArc.quadrantY)
+    }
+
+    /** A square rectangle needs no arcs at all, and should not pay for any. */
+    @Test
+    fun `a square rectangle decomposes to one piece`() {
+        val decomposition = RoundedRectRaster.decompose(rect(64f, 48f), Corners.None)
+
+        assertTrue(decomposition.arcs.isEmpty())
+        assertEquals(1, decomposition.fills.size)
+    }
+
+    /** The piece count stays small, which is the entire reason this path exists. */
+    @Test
+    fun `a rounded rectangle is a handful of pieces`() {
+        val decomposition = RoundedRectRaster.decompose(rect(300f, 900f), Corners.all(42.dp))
+
+        assertTrue(decomposition.fills.size + decomposition.arcs.size <= 11, "too many pieces: $decomposition")
+    }
+
     // -- looking a shape up by height -----------------------------------------
 
     /**
