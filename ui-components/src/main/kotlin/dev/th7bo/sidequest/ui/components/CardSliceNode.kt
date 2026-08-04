@@ -292,19 +292,29 @@ public class SectionCardHeaderNode(
         val centreY = bounds.y + bounds.height / 2f
         val step = size / CHEVRON_STEPS
 
-        // A triangle stacked out of shrinking bars. The renderer has no polygon primitive, and a staircase is
-        // both cheaper than adding one and closer to how the game draws everything else — the first attempt
-        // used two crossed bars and rendered as a "T", which is what the screenshot caught.
+        // A triangle stacked out of shrinking bars, but *rounded* ones: each step is a capsule rather than a
+        // square, so the outline reads as a taper instead of a staircase. Rounded rectangles are also the
+        // one shape the renderer anti-aliases per display pixel, which a plain fill is not — so this is both
+        // the softer shape and the only one that gets smoothed.
+        val radius = dev.th7bo.sidequest.ui.geometry.Dp(step / 2f)
         for (index in 0 until CHEVRON_STEPS) {
             val inset = index * step
             if (pointsDown) {
                 val width = size - inset * 2f
                 if (width <= 0f) break
-                renderer.fillRect(Rect(centreX - width / 2f, centreY - size / 2f + inset, width, step), colour)
+                renderer.roundedRect(
+                    Rect(centreX - width / 2f, centreY - size / 2f + inset, width, step),
+                    radius,
+                    colour,
+                )
             } else {
                 val height = size - inset * 2f
                 if (height <= 0f) break
-                renderer.fillRect(Rect(centreX - size / 2f + inset, centreY - height / 2f, step, height), colour)
+                renderer.roundedRect(
+                    Rect(centreX - size / 2f + inset, centreY - height / 2f, step, height),
+                    radius,
+                    colour,
+                )
             }
         }
     }
@@ -319,6 +329,6 @@ public class SectionCardHeaderNode(
         const val CHEVRON_SIZE = 8f
 
         /** How many bars the triangle is stacked from. Four reads as a chevron at every GUI scale. */
-        const val CHEVRON_STEPS = 4
+        const val CHEVRON_STEPS = 8
     }
 }
