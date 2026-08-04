@@ -14,6 +14,7 @@ import dev.th7bo.sidequest.ui.rendering.TextLayout
 import dev.th7bo.sidequest.ui.rendering.TextMeasurer
 import dev.th7bo.sidequest.ui.rendering.TextureRef
 import dev.th7bo.sidequest.ui.rendering.Transform
+import dev.th7bo.sidequest.ui.core.rendering.RoundedRectRaster
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
 import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphicsExtractor
@@ -83,109 +84,138 @@ public class MinecraftUiRenderer(
         )
     }
 
-    /**
-     * A rounded rectangle, approximated by horizontal spans.
-     *
-     * Minecraft's GUI renderer has no rounded-rect primitive and no shader hook that is
-     * stable across versions, so the corners are cut with per-row spans: the body is one
-     * fill, and each corner row is a narrower fill. At the radii the design language uses
-     * (4–10 units) that is a handful of extra quads and is visually indistinguishable
-     * from a real rounded rect at GUI scale.
-     */
     override fun roundedRect(bounds: Rect, radius: Dp, color: Color) {
         roundedRect(bounds, Corners.all(radius), color)
     }
 
+    /**
+     * A rounded rectangle with anti-aliased corners.
+     *
+     * The corners used to be cut with whole-pixel spans, which is a staircase — and at the radii an
+     * interface actually uses, the steps are big enough to be the reason a panel reads as pixel art rather
+     * than as a rounded panel. Since `fill` only takes whole coordinates, the smoothness cannot come from
+     * finer geometry; it comes from *alpha*. [RoundedRectRaster] works out how much of each edge pixel the
+     * shape really covers, and that fraction is multiplied into the colour.
+     *
+     * Roughly three fills per corner row and one for the whole straight middle, so a panel costs tens of
+     * quads rather than hundreds.
+     */
     override fun roundedRect(bounds: Rect, corners: Corners, color: Color) {
         if (color.isTransparent || bounds.isEmpty) return
 
         val packed = resolve(color)
-        val left = bounds.left.roundToInt()
-        val top = bounds.top.roundToInt()
-        val right = bounds.right.roundToInt()
-        val bottom = bounds.bottom.roundToInt()
 
-        val limit = min(bounds.width, bounds.height) / 2f
-        val topLeft = clampCorner(corners.topLeft, limit)
-        val topRight = clampCorner(corners.topRight, limit)
-        val bottomLeft = clampCorner(corners.bottomLeft, limit)
-        val bottomRight = clampCorner(corners.bottomRight, limit)
+        for (row in RoundedRectRaster.rows(bounds, corners)) {
+            if (row.hasSolid) graphics.fill(row.solidLeft, row.top, row.solidRight, row.bottom, packed)
 
-        val topBand = max(topLeft, topRight)
-        val bottomBand = max(bottomLeft, bottomRight)
+            // The two pixels the curve passes through, drawn at the fraction of themselves that is inside.
+            // `scaleAlpha` rather than `withAlpha`, so coverage multiplies the colour's own transparency —
+            // and `resolve` is left to apply the opacity stack once, as it does for every other fill.
+            // Below a fortieth of a pixel there is nothing to see and the quad is not worth submitting.
+            if (row.leftCoverage > MIN_COVERAGE) {
+                graphics.fill(
+                    row.solidLeft - 1,
+                    row.top,
+                    row.solidLeft,
+                    row.bottom,
+                    resolve(color.scaleAlpha(row.leftCoverage)),
+                )
+            }
+            if (row.rightCoverage > MIN_COVERAGE) {
+                graphics.fill(
+                    row.solidRight,
+                    row.top,
+                    row.solidRight + 1,
+                    row.bottom,
+                    resolve(color.scaleAlpha(row.rightCoverage)),
+                )
+            }
+        }
+    }
 
-        if (topBand == 0 && bottomBand == 0) {
-            graphics.fill(left, top, right, bottom, packed)
+    /**
+     * An outline, with the same anti-aliasing as a filled shape.
+     *
+     * Drawn as the *difference* between two rounded rectangles rather than as four edges plus four arcs.
+     * The old version stepped its arcs on whole pixels, which put a visible staircase on the one part of a
+     * panel the eye follows most — and it could not soften the outer edge at all, since a one-pixel span
+     * has nowhere to put a fraction.
+     *
+     * Row by row: everything the outer shape covers and the inner one does not. The inner shape's own edge
+     * coverage becomes the *inverse* on the border, which is what makes the inside of the stroke as smooth
+     * as the outside.
+     */
+    override fun border(bounds: Rect, radius: Dp, width: Dp, color: Color) {
+        border(bounds, Corners.all(radius), width, color)
+    }
+
+    override fun border(bounds: Rect, corners: Corners, width: Dp, color: Color) {
+        if (color.isTransparent || bounds.isEmpty) return
+
+        val thickness = max(1f, width.value)
+        val packed = resolve(color)
+
+        val outer = RoundedRectRaster.rows(bounds, corners)
+        // Inset by the stroke on every side, and the radii shrink with it — an inner curve that kept the
+        // outer radius would leave the stroke thicker on the diagonals than on the flats.
+        val innerBounds = bounds.inset(
+            dev.th7bo.sidequest.ui.geometry.Insets(thickness, thickness, thickness, thickness),
+        )
+        val inner = if (innerBounds.isEmpty) {
+            emptyMap()
+        } else {
+            RoundedRectRaster.rows(innerBounds, corners.inset(thickness)).associateBy { it.top }
+        }
+
+        for (row in outer) {
+            // The middle of the shape is one tall row; the border there is only its two vertical edges, so
+            // it is walked a pixel at a time rather than being treated as a single band.
+            for (y in row.top until row.bottom) {
+                val hole = inner[y]
+                paintBorderRow(row, hole, y, thickness, color, packed)
+            }
+        }
+    }
+
+    /** One scanline of an outline: what the outer shape covers, minus what the inner one does. */
+    private fun paintBorderRow(
+        row: RoundedRectRaster.Row,
+        hole: RoundedRectRaster.Row?,
+        y: Int,
+        thickness: Float,
+        color: Color,
+        packed: Int,
+    ) {
+        // Outside the inner shape entirely — a row in the very top or bottom of the stroke, which is solid
+        // all the way across.
+        if (hole == null || !hole.hasSolid) {
+            if (row.hasSolid) graphics.fill(row.solidLeft, y, row.solidRight, y + 1, packed)
+            softEdges(row, y, color)
             return
         }
 
-        // Middle band, full width.
-        graphics.fill(left, top + topBand, right, bottom - bottomBand, packed)
+        val stroke = max(1, thickness.roundToInt())
+        graphics.fill(row.solidLeft, y, min(hole.solidLeft, row.solidLeft + stroke), y + 1, packed)
+        graphics.fill(max(hole.solidRight, row.solidRight - stroke), y, row.solidRight, y + 1, packed)
+        softEdges(row, y, color)
 
-        // Corner rows, each inset by its own circular profile.
-        for (row in 0 until topBand) {
-            graphics.fill(
-                left + cornerInset(topLeft, row),
-                top + row,
-                right - cornerInset(topRight, row),
-                top + row + 1,
-                packed,
-            )
+        // The inner curve's partial pixels belong to the stroke in inverse: whatever of that pixel the
+        // hole does not cover is border.
+        if (hole.leftCoverage > MIN_COVERAGE) {
+            graphics.fill(hole.solidLeft - 1, y, hole.solidLeft, y + 1, resolve(color.scaleAlpha(1f - hole.leftCoverage)))
         }
-        for (row in 0 until bottomBand) {
-            graphics.fill(
-                left + cornerInset(bottomLeft, row),
-                bottom - row - 1,
-                right - cornerInset(bottomRight, row),
-                bottom - row,
-                packed,
-            )
+        if (hole.rightCoverage > MIN_COVERAGE) {
+            graphics.fill(hole.solidRight, y, hole.solidRight + 1, y + 1, resolve(color.scaleAlpha(1f - hole.rightCoverage)))
         }
     }
 
-    /** A radius cannot exceed half the shorter side, or the corners would invert. */
-    private fun clampCorner(radius: Dp, limit: Float): Int =
-        min(radius.value, limit).coerceAtLeast(0f).roundToInt()
-
-    /**
-     * How far in from the edge row [rowFromEdge] of a [radius]-sized corner starts.
-     *
-     * Rows past the corner are flush with the edge, which is what lets two different
-     * radii share one band.
-     */
-    private fun cornerInset(radius: Int, rowFromEdge: Int): Int {
-        if (rowFromEdge >= radius) return 0
-        val opposite = radius - rowFromEdge - 1
-        return radius - sqrt((radius * radius - opposite * opposite).toFloat()).roundToInt()
-    }
-
-    override fun border(bounds: Rect, radius: Dp, width: Dp, color: Color) {
-        if (color.isTransparent || bounds.isEmpty) return
-
-        val packed = resolve(color)
-        val thickness = max(1, width.value.roundToInt())
-        val left = bounds.left.roundToInt()
-        val top = bounds.top.roundToInt()
-        val right = bounds.right.roundToInt()
-        val bottom = bounds.bottom.roundToInt()
-        val corner = min(radius.value, min(bounds.width, bounds.height) / 2f).roundToInt()
-
-        // Horizontal edges, shortened by the corner radius so they do not overhang.
-        graphics.fill(left + corner, top, right - corner, top + thickness, packed)
-        graphics.fill(left + corner, bottom - thickness, right - corner, bottom, packed)
-        // Vertical edges.
-        graphics.fill(left, top + corner, left + thickness, bottom - corner, packed)
-        graphics.fill(right - thickness, top + corner, right, bottom - corner, packed)
-
-        if (corner <= 0) return
-        // Corner arcs, one span per row.
-        for (row in 0 until corner) {
-            val inset = corner - sqrt((corner * corner - (corner - row - 1) * (corner - row - 1)).toFloat())
-                .roundToInt()
-            graphics.fill(left + inset, top + row, left + inset + thickness, top + row + 1, packed)
-            graphics.fill(right - inset - thickness, top + row, right - inset, top + row + 1, packed)
-            graphics.fill(left + inset, bottom - row - 1, left + inset + thickness, bottom - row, packed)
-            graphics.fill(right - inset - thickness, bottom - row - 1, right - inset, bottom - row, packed)
+    /** The outer edge's two partially covered pixels. */
+    private fun softEdges(row: RoundedRectRaster.Row, y: Int, color: Color) {
+        if (row.leftCoverage > MIN_COVERAGE) {
+            graphics.fill(row.solidLeft - 1, y, row.solidLeft, y + 1, resolve(color.scaleAlpha(row.leftCoverage)))
+        }
+        if (row.rightCoverage > MIN_COVERAGE) {
+            graphics.fill(row.solidRight, y, row.solidRight + 1, y + 1, resolve(color.scaleAlpha(row.rightCoverage)))
         }
     }
 
@@ -470,6 +500,14 @@ public class MinecraftUiRenderer(
     private companion object {
         const val DEFAULT_STACK_DEPTH = 8
         const val MAX_SHADOW_STEPS = 6
+
+        /**
+         * How much of a pixel has to be covered before it is worth drawing.
+         *
+         * A fortieth. Below that the blend is invisible at any GUI scale, and skipping it keeps a curve
+         * from submitting a quad per row for a contribution nobody can see.
+         */
+        const val MIN_COVERAGE = 0.025f
 
         /** The one size Minecraft draws an item at. Everything else is a scale around it. */
         const val SLOT_SIZE = 16f

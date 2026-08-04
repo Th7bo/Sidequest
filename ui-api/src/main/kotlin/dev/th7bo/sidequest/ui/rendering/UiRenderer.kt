@@ -139,6 +139,21 @@ public data class Corners(
 
     public val isSquare: Boolean get() = largest.value <= 0f
 
+    /**
+     * The radii of a shape sitting [amount] inside this one.
+     *
+     * Every radius shrinks by the same amount, which is what keeps a stroke an even thickness: an inner
+     * curve that kept the outer radius would be too far from it on the diagonals and the outline would look
+     * fatter at the corners than along the flats. A radius cannot go below zero — inside a tight corner the
+     * inner shape simply squares off, which is what actually happens to a real stroke.
+     */
+    public fun inset(amount: Float): Corners = Corners(
+        topLeft = Dp((topLeft.value - amount).coerceAtLeast(0f)),
+        topRight = Dp((topRight.value - amount).coerceAtLeast(0f)),
+        bottomRight = Dp((bottomRight.value - amount).coerceAtLeast(0f)),
+        bottomLeft = Dp((bottomLeft.value - amount).coerceAtLeast(0f)),
+    )
+
     public companion object {
         public val None: Corners = Corners()
 
