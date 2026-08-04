@@ -163,7 +163,7 @@ public class CardSliceNode(
 }
 
 /**
- * A section's card header: an accent-tinted icon block, the title, and a subtitle.
+ * A section's card header: a small accent glyph, the title, and a subtitle.
  *
  * Matches the reference design, where every card announces itself rather than relying
  * on a bare line of text above a group of rows.
@@ -262,28 +262,21 @@ public class SectionCardHeaderNode(
 
         val icon = section.icon ?: return
 
+        // The glyph alone, with no tile behind it.
+        //
+        // This used to draw an accent-tinted rounded square with its own border and put the icon inside.
+        // Two problems, and they compound: a chip of solid colour on every heading is a lot of visual weight
+        // for decoration, and the thing inside it is a Minecraft item texture — so the one element drawing
+        // the eye was also the most pixel-art element on the screen. Modern panels label a section with
+        // words and use an icon as a quiet marker beside them, if at all.
         val block = Rect(
             bounds.x + horizontalPadding,
             bounds.y + (bounds.height - iconBlock) / 2f,
             iconBlock,
             iconBlock,
         )
-        renderer.roundedRect(block, Corners.all(tokens.radii.small), palette.accent.withAlpha(ICON_TINT))
-        renderer.border(
-            block,
-            Corners.all(tokens.radii.small),
-            tokens.metrics.borderWidth,
-            palette.accent.withAlpha(ICON_BORDER_TINT),
-        )
-
-        val inset = iconBlock * ICON_GLYPH_INSET
-        componentContext.icons.draw(
-            renderer,
-            icon,
-            Rect(block.x + inset, block.y + inset, block.width - inset * 2, block.height - inset * 2),
-            palette.accent,
-        )
-        context.diagnostics.drawCalls += 3
+        componentContext.icons.draw(renderer, icon, block, palette.accent)
+        context.diagnostics.drawCalls += 1
     }
 
     /**
@@ -322,10 +315,7 @@ public class SectionCardHeaderNode(
 
     private companion object {
         const val FALLBACK_WIDTH = 320f
-        const val ICON_BLOCK_SIZE = 20f
-        const val ICON_TINT = 0.18f
-        const val ICON_BORDER_TINT = 0.45f
-        const val ICON_GLYPH_INSET = 0.2f
+        const val ICON_BLOCK_SIZE = 12f
         const val CHEVRON_SIZE = 8f
 
         /** How many bars the triangle is stacked from. Four reads as a chevron at every GUI scale. */

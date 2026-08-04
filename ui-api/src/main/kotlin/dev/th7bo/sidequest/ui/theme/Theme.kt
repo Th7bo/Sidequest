@@ -78,32 +78,58 @@ public data class ColorTokens(
     val scrim: Color,
 )
 
+/**
+ * Corner radii.
+ *
+ * Generous, and they were not always allowed to be: the corners used to be cut on whole pixels, so a large
+ * radius meant a large staircase and the values were held down to hide it. With the corners anti-aliased
+ * that constraint is gone, and a bigger radius is most of what separates a soft modern panel from a box.
+ */
 public data class RadiusTokens(
     val none: Dp = Dp.Zero,
-    val small: Dp = 4.dp,
-    val medium: Dp = 6.dp,
-    val large: Dp = 10.dp,
+    val small: Dp = 6.dp,
+    val medium: Dp = 9.dp,
+    val large: Dp = 14.dp,
     val pill: Dp = 999.dp,
 )
 
-/** A 4-unit spacing scale. Components use these, never raw numbers. */
+/**
+ * The spacing rhythm.
+ *
+ * Tighter than it was. The interfaces this is aiming at are *dense* — rows close together inside a panel,
+ * with the breathing room spent on the gap between panels instead. Padding everything evenly is what made
+ * one settings page fill a screen and read as sprawling rather than as composed.
+ */
 public data class SpacingScale(
     val none: Dp = Dp.Zero,
     val xs: Dp = 2.dp,
     val small: Dp = 4.dp,
-    val medium: Dp = 8.dp,
-    val large: Dp = 12.dp,
-    val xl: Dp = 16.dp,
-    val xxl: Dp = 24.dp,
+    val medium: Dp = 6.dp,
+    val large: Dp = 10.dp,
+    val xl: Dp = 14.dp,
+    val xxl: Dp = 20.dp,
 )
 
+/**
+ * The type scale — deliberately not a scale at all.
+ *
+ * **Every role is drawn at 1×, and hierarchy comes from weight and colour.** The renderer applies a style's
+ * scale through the pose stack, and the font underneath is a *bitmap*: a title at 1.15× and a caption at
+ * 0.85× are a grid of pixels resampled onto a grid that does not line up, so every glyph comes out soft and
+ * jagged at the edges. Since text is most of what a screen is, that one factor did more to make the
+ * interface look like pixel art than every corner in it.
+ *
+ * A bitmap font has exactly one crisp size and its integer multiples, and 2× is far too large for a section
+ * title. So the sizes collapse to one, which is what the interfaces this design is aiming at do anyway —
+ * they separate a heading from a row with weight and colour, not with points.
+ */
 public data class TypographyScale(
-    val title: TextStyle = TextStyle(scale = 1.15f, bold = true),
+    val title: TextStyle = TextStyle(scale = 1f, bold = true),
     val label: TextStyle = TextStyle(scale = 1f),
     val body: TextStyle = TextStyle(scale = 1f),
     val secondary: TextStyle = TextStyle(scale = 1f),
-    val caption: TextStyle = TextStyle(scale = 0.85f),
-    val mono: TextStyle = TextStyle(scale = 0.9f),
+    val caption: TextStyle = TextStyle(scale = 1f),
+    val mono: TextStyle = TextStyle(scale = 1f),
 )
 
 /** Animation durations in seconds. All motion is delta-time driven, never frame counted. */
@@ -115,10 +141,16 @@ public data class MotionTokens(
     val deliberate: Float = 0.4f,
 )
 
-/** Fixed sizes that keep controls consistent across screens. */
+/**
+ * Fixed sizes that keep controls consistent across screens.
+ *
+ * The control heights are tight against the font's own line height on purpose. A row that is twice as tall
+ * as the text in it reads as a form; one that hugs its label reads as a list, which is what the references
+ * are.
+ */
 public data class MetricTokens(
-    val controlHeight: Dp = 22.dp,
-    val compactControlHeight: Dp = 18.dp,
+    val controlHeight: Dp = 18.dp,
+    val compactControlHeight: Dp = 15.dp,
     val borderWidth: Dp = 1.dp,
     val focusRingWidth: Dp = 1.dp,
     val sidebarWidth: Dp = 148.dp,
@@ -127,11 +159,18 @@ public data class MetricTokens(
     val iconSize: Dp = 12.dp,
 )
 
+/**
+ * Depth.
+ *
+ * Separation comes from *layering* — a shadow under a panel and blur behind it — rather than from drawing a
+ * line around everything. A visible border on every surface is what makes an interface read as a stack of
+ * boxes; a panel that simply floats above what is behind it reads as one thing.
+ */
 public data class EffectTokens(
-    val panelShadow: Shadow = Shadow(Color(0x40000000), blurRadius = 10f),
-    val overlayShadow: Shadow = Shadow(Color(0x59000000), blurRadius = 18f),
+    val panelShadow: Shadow = Shadow(Color(0x66000000), blurRadius = 14f),
+    val overlayShadow: Shadow = Shadow(Color(0x80000000.toInt()), blurRadius = 22f),
     /** `0` disables blur entirely, which is the correct setting on weak hardware. */
-    val blurStrength: Float = 0.35f,
+    val blurStrength: Float = 0.6f,
 )
 
 /**

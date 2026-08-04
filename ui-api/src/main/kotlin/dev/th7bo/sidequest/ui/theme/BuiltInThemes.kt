@@ -13,30 +13,37 @@ import dev.th7bo.sidequest.ui.rendering.Color
 public object DarkTheme : TokenTheme(UiId.of("sidequest", "theme.dark"), "Dark") {
 
     /** The accent the design language is built around. */
-    public val ACCENT: Color = Color.parse("#8B5CF6")
+    public val ACCENT: Color = Color.parse("#A855F7")
 
     override val tokens: ThemeTokens = ThemeTokens(
         colors = ColorTokens(
-            windowBackground = Color.parse("#E60B0D14"),
-            panelBackground = Color.parse("#F211141F"),
-            elevatedPanelBackground = Color.parse("#F5171B29"),
-            hoverBackground = Color.parse("#14FFFFFF"),
-            pressedBackground = Color.parse("#1FFFFFFF"),
-            selectedBackground = Color.parse("#2E8B5CF6"),
-            border = Color.parse("#332A2F42"),
-            borderStrong = Color.parse("#663A4059"),
+            // Near-black with a violet cast rather than a neutral grey, so the accent looks like it belongs
+            // to the surface instead of sitting on top of it.
+            windowBackground = Color.parse("#F00A0912"),
+            // The two panel levels are close together on purpose. A card that is obviously lighter than its
+            // container turns a page into a stack of boxes; a card that is *barely* lighter reads as one
+            // surface with depth, which is what the references do.
+            panelBackground = Color.parse("#D9121020"),
+            elevatedPanelBackground = Color.parse("#B31A1730"),
+            hoverBackground = Color.parse("#12FFFFFF"),
+            pressedBackground = Color.parse("#1AFFFFFF"),
+            selectedBackground = Color.parse("#33A855F7"),
+            // Barely there. Depth is the shadow's job — see `EffectTokens` — and a line around every
+            // surface is exactly what a modern interface leaves out.
+            border = Color.parse("#1AFFFFFF"),
+            borderStrong = Color.parse("#38FFFFFF"),
             focusRing = ACCENT,
             accent = ACCENT,
-            accentHover = Color.parse("#9D74F8"),
-            accentPressed = Color.parse("#7A47E0"),
+            accentHover = Color.parse("#C084FC"),
+            accentPressed = Color.parse("#9333EA"),
             onAccent = Color.parse("#FFFFFF"),
-            success = Color.parse("#34D399"),
+            success = Color.parse("#4ADE80"),
             warning = Color.parse("#FBBF24"),
-            error = Color.parse("#F87171"),
-            textPrimary = Color.parse("#E8EAF2"),
-            textSecondary = Color.parse("#9AA1B8"),
-            textDisabled = Color.parse("#5A6076"),
-            scrim = Color.parse("#99000000"),
+            error = Color.parse("#FB7185"),
+            textPrimary = Color.parse("#F2EEFA"),
+            textSecondary = Color.parse("#8B85A8"),
+            textDisabled = Color.parse("#544E6C"),
+            scrim = Color.parse("#A6000000"),
         ),
     )
 }
