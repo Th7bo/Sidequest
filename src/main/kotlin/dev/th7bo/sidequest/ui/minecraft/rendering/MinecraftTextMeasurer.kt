@@ -52,7 +52,36 @@ public class MinecraftTextMeasurer(
     /** Entries currently held. Exposed for the diagnostics overlay. */
     public val cacheSize: Int get() = cache.size
 
-    override fun lineHeight(style: TextStyle): Float = font.lineHeight * style.scale * style.lineHeight
+    override fun lineHeight(style: TextStyle): Float =
+        SidequestFont.LINE_HEIGHT * style.scale * style.lineHeight
+
+    /**
+     * How wide [text] is in the mod's own typeface.
+     *
+     * Every measurement goes through here rather than `font.width(String)`, which measures the *default*
+     * font. A string measured in one face and drawn in another overflows whatever laid it out — and it does
+     * so silently, as a label that runs under the control beside it.
+     */
+    private fun widthOf(text: String, bold: Boolean): Float =
+        font.width(SidequestFont.text(text, bold)).toFloat()
+
+    /**
+     * The longest prefix of [content] that fits.
+     *
+     * A binary search, because the game's own `plainSubstrByWidth` measures the default font and there is no
+     * styled equivalent that returns a plain string. Logarithmic in the length and only on the truncation
+     * path, which the layout cache above then remembers.
+     */
+    private fun fitting(content: String, availableWidth: Float, bold: Boolean): String {
+        if (availableWidth <= 0f) return ""
+        var low = 0
+        var high = content.length
+        while (low < high) {
+            val mid = (low + high + 1) / 2
+            if (widthOf(content.substring(0, mid), bold) <= availableWidth) low = mid else high = mid - 1
+        }
+        return content.substring(0, low)
+    }
 
     override fun measure(
         text: String,
@@ -102,7 +131,7 @@ public class MinecraftTextMeasurer(
         // first line and silently swallow the rest.
         val available = if (maxWidth == null) Float.POSITIVE_INFINITY else maxWidth / style.scale
         val broken = if (overflow == TextOverflow.WRAP && maxWidth != null) {
-            wrap(text, available)
+            wrap(text, available, style.bold)
         } else {
             text.split('\n')
         }
@@ -114,8 +143,8 @@ public class MinecraftTextMeasurer(
         // hard line in place.
         if (maxWidth != null && overflow != TextOverflow.WRAP) {
             for (index in kept.indices) {
-                if (font.width(kept[index]) * style.scale <= maxWidth) continue
-                kept[index] = shorten(kept[index], available, overflow)
+                if (widthOf(kept[index], style.bold) * style.scale <= maxWidth) continue
+                kept[index] = shorten(kept[index], available, overflow, style.bold)
                 truncated = true
             }
         }
@@ -123,7 +152,7 @@ public class MinecraftTextMeasurer(
         val lines = kept.mapIndexed { index, content ->
             TextLayout.Line(
                 content = content,
-                width = font.width(content) * style.scale,
+                width = widthOf(content, style.bold) * style.scale,
                 baselineOffset = lineHeight * index + lineHeight * BASELINE_FRACTION,
             )
         }
@@ -145,11 +174,11 @@ public class MinecraftTextMeasurer(
     ): TextLayout {
         var content = text.substringBefore('\n')
         var truncated = content.length != text.length
-        var width = font.width(content) * style.scale
+        var width = widthOf(content, style.bold) * style.scale
 
         if (maxWidth != null && width > maxWidth) {
-            content = shorten(content, maxWidth / style.scale, overflow)
-            width = font.width(content) * style.scale
+            content = shorten(content, maxWidth / style.scale, overflow, style.bold)
+            width = widthOf(content, style.bold) * style.scale
             truncated = true
         }
 
@@ -163,17 +192,17 @@ public class MinecraftTextMeasurer(
     }
 
     /** Cuts [content] down to [availableWidth] unscaled units, honouring [overflow]. */
-    private fun shorten(content: String, availableWidth: Float, overflow: TextOverflow): String =
+    private fun shorten(content: String, availableWidth: Float, overflow: TextOverflow, bold: Boolean): String =
         when (overflow) {
             TextOverflow.ELLIPSIS -> {
-                val room = availableWidth - font.width(ELLIPSIS)
-                if (room <= 0f) ELLIPSIS else font.plainSubstrByWidth(content, room.toInt()) + ELLIPSIS
+                val room = availableWidth - widthOf(ELLIPSIS, bold)
+                if (room <= 0f) ELLIPSIS else fitting(content, room, bold) + ELLIPSIS
             }
-            else -> font.plainSubstrByWidth(content, availableWidth.toInt())
+            else -> fitting(content, availableWidth, bold)
         }
 
     /** Greedy word wrap. Words longer than a line are hard-split rather than overflowing. */
-    private fun wrap(text: String, availableWidth: Float): List<String> {
+    private fun wrap(text: String, availableWidth: Float, bold: Boolean): List<String> {
         val result = ArrayList<String>()
         for (paragraph in text.split('\n')) {
             if (paragraph.isEmpty()) {
@@ -184,7 +213,7 @@ public class MinecraftTextMeasurer(
             for (word in paragraph.split(' ')) {
                 val candidate = if (line.isEmpty()) word else "$line $word"
                 when {
-                    font.width(candidate) <= availableWidth -> {
+                    widthOf(candidate, bold) <= availableWidth -> {
                         line.setLength(0)
                         line.append(candidate)
                     }
@@ -192,8 +221,8 @@ public class MinecraftTextMeasurer(
                         // A single word too wide for the line: split it rather than
                         // letting it run past the edge.
                         var remaining = word
-                        while (remaining.isNotEmpty() && font.width(remaining) > availableWidth) {
-                            val head = font.plainSubstrByWidth(remaining, availableWidth.toInt())
+                        while (remaining.isNotEmpty() && widthOf(remaining, bold) > availableWidth) {
+                            val head = fitting(remaining, availableWidth, bold)
                             if (head.isEmpty()) break
                             result.add(head)
                             remaining = remaining.substring(head.length)

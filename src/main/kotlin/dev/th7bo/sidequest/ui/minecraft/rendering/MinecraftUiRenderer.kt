@@ -472,7 +472,7 @@ public class MinecraftUiRenderer(
     override fun text(layout: TextLayout, position: Vec2, color: Color) {
         val packed = resolve(color)
         val scale = layout.style.scale
-        val lineHeight = font.lineHeight * layout.style.lineHeight
+        val lineHeight = SidequestFont.LINE_HEIGHT * layout.style.lineHeight
 
         if (scale == 1f) {
             drawLines(layout, position.x, position.y, lineHeight, packed)
@@ -486,7 +486,7 @@ public class MinecraftUiRenderer(
             pose.scale(scale, scale)
             // Inside the scaled space the origin is the text's own top-left, and the
             // line height is the font's unscaled one.
-            drawLines(layout, 0f, 0f, font.lineHeight * layout.style.lineHeight, packed)
+            drawLines(layout, 0f, 0f, SidequestFont.LINE_HEIGHT * layout.style.lineHeight, packed)
         } finally {
             pose.popMatrix()
         }
@@ -501,9 +501,12 @@ public class MinecraftUiRenderer(
     ) {
         for ((index, line) in layout.lines.withIndex()) {
             if (line.content.isEmpty()) continue
+            // The mod's own face, carried on the string's style — see `SidequestFont`. The measurer uses
+            // the same one, and they have to: text drawn in a face it was not measured in overruns whatever
+            // laid it out.
             graphics.text(
                 font,
-                line.content,
+                SidequestFont.text(line.content, layout.style.bold),
                 originX.roundToInt(),
                 (originY + lineHeight * index).roundToInt(),
                 packed,
