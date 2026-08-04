@@ -63,7 +63,7 @@ public class MinecraftTextMeasurer(
      * so silently, as a label that runs under the control beside it.
      */
     private fun widthOf(text: String, bold: Boolean): Float =
-        font.width(SidequestFont.text(text, bold)).toFloat()
+        font.width(SidequestFont.text(text, bold)).toFloat() * SidequestFont.RENDER_SCALE
 
     /**
      * The longest prefix of [content] that fits.

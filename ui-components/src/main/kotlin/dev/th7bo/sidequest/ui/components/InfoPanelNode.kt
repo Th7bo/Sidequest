@@ -135,32 +135,36 @@ public class InfoPanelNode(
                 componentContext = componentContext,
                 title = constantState(aboutTitle),
                 body = constantState(aboutBody),
-                icon = Icons.eye,
-                extras = buildList {
-                    tipBody?.let {
-                        add(
-                            InfoCardNode(
-                                id = id.child("tip"),
-                                componentContext = componentContext,
-                                title = constantState("Tip"),
-                                body = constantState(it),
-                            ),
-                        )
-                    }
-                },
+                icon = GlyphIconIds.tools,
             ),
         )
 
-        column.addChild(
-            InfoCardNode(
-                id = id.child("profile"),
-                componentContext = componentContext,
-                title = constantState("Profile"),
-                body = profileName,
-                icon = Icons.gear,
-                extras = profileActions,
-            ),
-        )
+        tipBody?.let {
+            column.addChild(
+                InfoCardNode(
+                    id = id.child("tip"),
+                    componentContext = componentContext,
+                    title = constantState("Quick tip"),
+                    body = constantState(it),
+                    icon = GlyphIconIds.notifications,
+                ),
+            )
+        }
+
+        // A profile card without any profile actions is dead chrome. Consumers that actually support
+        // profiles still get the card; the standard config screen spends that space on useful guidance.
+        if (profileActions.isNotEmpty()) {
+            column.addChild(
+                InfoCardNode(
+                    id = id.child("profile"),
+                    componentContext = componentContext,
+                    title = constantState("Profile"),
+                    body = profileName,
+                    icon = Icons.gear,
+                    extras = profileActions,
+                ),
+            )
+        }
 
         addChild(
             PaddingNode(id.child("padding"), Insets.all(tokens.spacing.large)).apply {

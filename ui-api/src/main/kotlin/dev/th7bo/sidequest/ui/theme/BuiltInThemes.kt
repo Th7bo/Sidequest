@@ -4,8 +4,9 @@ import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.rendering.Color
 
 /**
- * The default dark theme: near-black navy surfaces, slightly lighter elevated cards,
- * thin soft-gray borders and a restrained purple accent.
+ * The default dark theme: an opaque ink-blue shell, quiet elevated cards and a warm
+ * rose accent. The palette is deliberately low-noise so content, not chrome, carries
+ * the hierarchy.
  *
  * These values are the framework's design language expressed as tokens. Nothing else
  * in the codebase hard-codes a colour.
@@ -13,37 +14,37 @@ import dev.th7bo.sidequest.ui.rendering.Color
 public object DarkTheme : TokenTheme(UiId.of("sidequest", "theme.dark"), "Dark") {
 
     /** The accent the design language is built around. */
-    public val ACCENT: Color = Color.parse("#A855F7")
+    public val ACCENT: Color = Color.parse("#F07FB2")
 
     override val tokens: ThemeTokens = ThemeTokens(
         colors = ColorTokens(
-            // Near-black with a violet cast rather than a neutral grey, so the accent looks like it belongs
-            // to the surface instead of sitting on top of it.
-            windowBackground = Color.parse("#F00A0912"),
-            // The two panel levels are close together on purpose. A card that is obviously lighter than its
-            // container turns a page into a stack of boxes; a card that is *barely* lighter reads as one
-            // surface with depth, which is what the references do.
-            panelBackground = Color.parse("#D9121020"),
-            elevatedPanelBackground = Color.parse("#66211D3A"),
-            hoverBackground = Color.parse("#12FFFFFF"),
-            pressedBackground = Color.parse("#1AFFFFFF"),
-            selectedBackground = Color.parse("#33A855F7"),
-            // Barely there. Depth is the shadow's job — see `EffectTokens` — and a line around every
-            // surface is exactly what a modern interface leaves out.
-            border = Color.parse("#0FFFFFFF"),
-            borderStrong = Color.parse("#2BFFFFFF"),
+            // Opaque surfaces keep the interface stable over bright skies, inventories and particle-heavy
+            // scenes. A faint blue cast prevents the black from feeling flat or muddy.
+            windowBackground = Color.parse("#FC080B12"),
+            panelBackground = Color.parse("#FF0C111C"),
+            elevatedPanelBackground = Color.parse("#FF141C2B"),
+            hoverBackground = Color.parse("#0FFFFFFF"),
+            pressedBackground = Color.parse("#18FFFFFF"),
+            selectedBackground = Color.parse("#26F07FB2"),
+            border = Color.parse("#14C8D2E8"),
+            borderStrong = Color.parse("#30C8D2E8"),
             focusRing = ACCENT,
             accent = ACCENT,
-            accentHover = Color.parse("#C084FC"),
-            accentPressed = Color.parse("#9333EA"),
-            onAccent = Color.parse("#FFFFFF"),
-            success = Color.parse("#4ADE80"),
-            warning = Color.parse("#FBBF24"),
-            error = Color.parse("#FB7185"),
-            textPrimary = Color.parse("#F2EEFA"),
-            textSecondary = Color.parse("#736D8C"),
-            textDisabled = Color.parse("#544E6C"),
-            scrim = Color.parse("#A6000000"),
+            accentHover = Color.parse("#F59AC2"),
+            accentPressed = Color.parse("#D9689B"),
+            onAccent = Color.parse("#FFFBFD"),
+            success = Color.parse("#45D483"),
+            warning = Color.parse("#F4C15D"),
+            error = Color.parse("#F06C75"),
+            textPrimary = Color.parse("#F4F6FB"),
+            textSecondary = Color.parse("#98A2B8"),
+            textDisabled = Color.parse("#586176"),
+            scrim = Color.parse("#B3000000"),
+        ),
+        effects = EffectTokens(
+            panelShadow = dev.th7bo.sidequest.ui.rendering.Shadow(Color.parse("#8A000000"), blurRadius = 18f),
+            overlayShadow = dev.th7bo.sidequest.ui.rendering.Shadow(Color.parse("#B3000000"), blurRadius = 26f),
+            blurStrength = 0.35f,
         ),
     )
 }
@@ -58,13 +59,13 @@ public object LightTheme : TokenTheme(UiId.of("sidequest", "theme.light"), "Ligh
             elevatedPanelBackground = Color.parse("#FFFAFBFF"),
             hoverBackground = Color.parse("#0F000000"),
             pressedBackground = Color.parse("#1A000000"),
-            selectedBackground = Color.parse("#248B5CF6"),
+            selectedBackground = Color.parse("#24F07FB2"),
             border = Color.parse("#33202538"),
             borderStrong = Color.parse("#59202538"),
             focusRing = DarkTheme.ACCENT,
-            accent = Color.parse("#7C3AED"),
-            accentHover = Color.parse("#8B5CF6"),
-            accentPressed = Color.parse("#6D28D9"),
+            accent = Color.parse("#DE679D"),
+            accentHover = Color.parse("#EA7FB0"),
+            accentPressed = Color.parse("#C65389"),
             onAccent = Color.parse("#FFFFFF"),
             success = Color.parse("#059669"),
             warning = Color.parse("#B45309"),

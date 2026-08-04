@@ -471,14 +471,10 @@ public class MinecraftUiRenderer(
      */
     override fun text(layout: TextLayout, position: Vec2, color: Color) {
         val packed = resolve(color)
-        val scale = layout.style.scale
-        val lineHeight = SidequestFont.LINE_HEIGHT * layout.style.lineHeight
-
-        if (scale == 1f) {
-            drawLines(layout, position.x, position.y, lineHeight, packed)
-            return
-        }
-
+        // Keep the provider's native scale independent from the semantic style scale.
+        // Raster quality is supplied by the font provider's oversampling; this matrix
+        // only expresses actual UI sizing and therefore keeps glyph advances honest.
+        val scale = layout.style.scale * SidequestFont.RENDER_SCALE
         val pose = graphics.pose()
         pose.pushMatrix()
         try {
@@ -486,7 +482,13 @@ public class MinecraftUiRenderer(
             pose.scale(scale, scale)
             // Inside the scaled space the origin is the text's own top-left, and the
             // line height is the font's unscaled one.
-            drawLines(layout, 0f, 0f, SidequestFont.LINE_HEIGHT * layout.style.lineHeight, packed)
+            drawLines(
+                layout,
+                0f,
+                SidequestFont.NATIVE_BASELINE_OFFSET,
+                SidequestFont.NATIVE_LINE_HEIGHT * layout.style.lineHeight,
+                packed,
+            )
         } finally {
             pose.popMatrix()
         }

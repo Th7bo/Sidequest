@@ -87,9 +87,9 @@ public data class ColorTokens(
  */
 public data class RadiusTokens(
     val none: Dp = Dp.Zero,
-    val small: Dp = 6.dp,
-    val medium: Dp = 9.dp,
-    val large: Dp = 14.dp,
+    val small: Dp = 5.dp,
+    val medium: Dp = 8.dp,
+    val large: Dp = 12.dp,
     val pill: Dp = 999.dp,
 )
 
@@ -111,25 +111,19 @@ public data class SpacingScale(
 )
 
 /**
- * The type scale — deliberately not a scale at all.
+ * A compact type scale for the bundled Inter face.
  *
- * **Every role is drawn at 1×, and hierarchy comes from weight and colour.** The renderer applies a style's
- * scale through the pose stack, and the font underneath is a *bitmap*: a title at 1.15× and a caption at
- * 0.85× are a grid of pixels resampled onto a grid that does not line up, so every glyph comes out soft and
- * jagged at the edges. Since text is most of what a screen is, that one factor did more to make the
- * interface look like pixel art than every corner in it.
- *
- * A bitmap font has exactly one crisp size and its integer multiples, and 2× is far too large for a section
- * title. So the sizes collapse to one, which is what the interfaces this design is aiming at do anyway —
- * they separate a heading from a row with weight and colour, not with points.
+ * Titles get just enough size and weight to anchor a region; secondary copy steps down slightly so dense
+ * setting lists remain easy to scan. The shipped font is oversampled, so these restrained fractional sizes
+ * remain smooth in Minecraft rather than degrading into rescaled bitmap glyphs.
  */
 public data class TypographyScale(
-    val title: TextStyle = TextStyle(scale = 1f, bold = true),
+    val title: TextStyle = TextStyle(scale = 1.15f, bold = true),
     val label: TextStyle = TextStyle(scale = 1f),
     val body: TextStyle = TextStyle(scale = 1f),
-    val secondary: TextStyle = TextStyle(scale = 1f),
-    val caption: TextStyle = TextStyle(scale = 1f),
-    val mono: TextStyle = TextStyle(scale = 1f),
+    val secondary: TextStyle = TextStyle(scale = 0.92f),
+    val caption: TextStyle = TextStyle(scale = 0.86f),
+    val mono: TextStyle = TextStyle(scale = 0.92f),
 )
 
 /** Animation durations in seconds. All motion is delta-time driven, never frame counted. */
@@ -149,12 +143,12 @@ public data class MotionTokens(
  * are.
  */
 public data class MetricTokens(
-    val controlHeight: Dp = 18.dp,
-    val compactControlHeight: Dp = 15.dp,
+    val controlHeight: Dp = 22.dp,
+    val compactControlHeight: Dp = 17.dp,
     val borderWidth: Dp = 1.dp,
     val focusRingWidth: Dp = 1.dp,
-    val sidebarWidth: Dp = 148.dp,
-    val inspectorWidth: Dp = 190.dp,
+    val sidebarWidth: Dp = 142.dp,
+    val inspectorWidth: Dp = 182.dp,
     val scrollbarWidth: Dp = 4.dp,
     val iconSize: Dp = 12.dp,
 )

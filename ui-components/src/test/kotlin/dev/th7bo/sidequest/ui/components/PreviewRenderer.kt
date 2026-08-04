@@ -252,8 +252,8 @@ internal class PreviewRenderer(
         /** Matches `SidequestFont.LINE_HEIGHT`, which is what the shipped renderer lays out with. */
         const val LINE_HEIGHT = 10f
 
-        /** Matches the size in `assets/sidequest/font/ui.json`. */
-        const val FONT_SIZE = 9.5f
+        /** Matches the native displayed size in `assets/sidequest/font/ui.json`. */
+        const val FONT_SIZE = 10f
 
         val FONT_PATHS = listOf(
             "../src/main/resources/assets/sidequest/font/inter_regular.ttf",

@@ -25,6 +25,15 @@ import net.minecraft.resources.Identifier
  */
 internal object SidequestFont {
 
+    /**
+     * The displayed face uses native ten-pixel metrics. Smoothness comes from the TTF
+     * provider's 16× raster oversampling, not from a second pose-stack downscale.
+     * Keeping this at one is important: Minecraft advances glyphs before an external
+     * matrix transform, and compact counters can otherwise draw characters into one
+     * another even when their measured box is wide enough.
+     */
+    const val RENDER_SCALE: Float = 1f
+
     // 26.x wraps a font id in a `FontDescription`, since a style can now also point at a sprite rather
     // than a resource. `Resource` is the plain "this file" case and exists on both supported versions, so
     // this needs no conditional.
@@ -55,6 +64,16 @@ internal object SidequestFont {
      * be spacing Inter as though it were the bitmap font.
      */
     const val LINE_HEIGHT: Float = 10f
+
+    /** Line height in the font provider's native coordinate space. */
+    const val NATIVE_LINE_HEIGHT: Float = LINE_HEIGHT / RENDER_SCALE
+
+    /**
+     * Kept derived so the renderer remains correct if native superscaling is ever
+     * reintroduced. At the current native scale Minecraft's seven-pixel baseline needs
+     * no compensation.
+     */
+    const val NATIVE_BASELINE_OFFSET: Float = 7f * (1f / RENDER_SCALE - 1f)
 
     private const val NAMESPACE = "sidequest"
 }

@@ -35,7 +35,7 @@ import dev.th7bo.sidequest.ui.state.constantState
 import dev.th7bo.sidequest.ui.state.derivedStateOf
 
 /**
- * The compact progress card from the design reference: an icon block on the left, a
+ * A compact progress card: an icon block on the left, a
  * title with a level chip, the current and required values on the right, and a thin
  * accent progress bar underneath.
  *
@@ -81,7 +81,7 @@ public class ProgressHudNode(
         val iconSlot = FixedSizeNode(id.child("icon_slot"), width = ICON_BLOCK.dp, height = ICON_BLOCK.dp)
 
         // Split into two runs so the current value can carry the accent, as in the
-        // reference: the number that changes is the one worth the colour.
+        // composition: the number that changes is the one worth the colour.
         val currentLabel = TextNode(
             id.child("current"),
             derivedStateOf("${id.value}.current") { format(current.value) },
@@ -153,12 +153,19 @@ public class ProgressHudNode(
         val palette = context.theme.tokens.colors
         val corners = Corners.all(tokens.radii.large)
 
+        renderer.shadow(bounds, tokens.radii.large, tokens.effects.overlayShadow)
         renderer.roundedRect(bounds, corners, palette.elevatedPanelBackground)
         renderer.border(bounds, corners, tokens.metrics.borderWidth, palette.border)
-        context.diagnostics.drawCalls += 2
+        // A short accent rail makes the card recognisable in peripheral vision without outlining the
+        // entire surface in a saturated colour.
+        renderer.roundedRect(
+            Rect(bounds.x, bounds.y + tokens.spacing.large.value, 2f, bounds.height - tokens.spacing.large.value * 2),
+            tokens.radii.pill,
+            palette.accent,
+        )
+        context.diagnostics.drawCalls += 4
 
-        // The icon block: an accent-tinted rounded square with the glyph inside, as in
-        // the reference.
+        // The icon block: an accent-tinted rounded square with the glyph inside.
         val block = Rect(
             bounds.x + tokens.spacing.large.value,
             bounds.y + (bounds.height - ICON_BLOCK) / 2f,
@@ -187,11 +194,11 @@ public class ProgressHudNode(
     }
 
     public companion object {
-        public const val TRACK_WIDTH: Float = 120f
-        private const val ICON_BLOCK = 22f
-        private const val ICON_TINT = 0.18f
-        private const val ICON_BORDER_TINT = 0.5f
-        private const val ICON_GLYPH_INSET = 0.22f
+        public const val TRACK_WIDTH: Float = 174f
+        private const val ICON_BLOCK = 26f
+        private const val ICON_TINT = 0.16f
+        private const val ICON_BORDER_TINT = 0.34f
+        private const val ICON_GLYPH_INSET = 0.27f
     }
 }
 

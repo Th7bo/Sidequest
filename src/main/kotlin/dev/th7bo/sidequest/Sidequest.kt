@@ -213,7 +213,7 @@ object Sidequest : ClientModInitializer {
     private const val ALPHA_OPAQUE = 0xFF000000.toInt()
 
     /** The theme's own accent. Choosing this means "leave the theme alone" rather than "override with this". */
-    private val DEFAULT_ACCENT = Color.parse("#8B5CF6")
+    private val DEFAULT_ACCENT = Color.parse("#F07FB2")
 
     /** Creates the configuration screen, ready to hand to `Minecraft.setScreen`. */
     fun createConfigScreen(): SidequestConfigScreen {

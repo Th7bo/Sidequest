@@ -108,10 +108,14 @@ public class ColorControlNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
 
-        renderer.roundedRect(bounds, Corners.all(tokens.radii.small), palette.panelBackground)
+        renderer.roundedRect(
+            bounds,
+            Corners.all(tokens.radii.medium),
+            if (isHovered && isEnabled) palette.pressedBackground else palette.panelBackground,
+        )
         renderer.border(
             bounds,
-            Corners.all(tokens.radii.small),
+            Corners.all(tokens.radii.medium),
             tokens.metrics.borderWidth,
             if (isFocused || isOpen) palette.accent else palette.border,
         )

@@ -100,7 +100,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
             }
         }
 
-        category(id("features"), "Features", description = "What the mod does, and how loudly", icon = GlyphIconIds.features) {
+        category(id("alerts"), "Alerts", description = "Notifications, sound and moments worth interrupting you for", icon = GlyphIconIds.notifications) {
             section("Notifications", description = "Toasts and their timing", icon = GlyphIconIds.notifications, collapsible = true) {
                 toggle(
                     id = id("notifications.enabled"),
@@ -365,7 +365,9 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     visibleWhen = dropsOn
                 }
             }
+        }
 
+        category(id("gameplay"), "Gameplay", description = "Small improvements while you play SkyBlock", icon = GlyphIconIds.garden) {
             section("Garden", description = "While you are farming", icon = GlyphIconIds.garden, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("garden.view_bobbing"),
@@ -432,7 +434,9 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     keywords("nametag", "colour", "color", "level")
                 }
             }
+        }
 
+        category(id("personal"), "Personal", description = "Your client appearance, history and cosmetics", icon = GlyphIconIds.appearance) {
             section("Title screen", description = "The nebula behind the main menu", icon = GlyphIconIds.titleScreen, collapsible = true, startsCollapsed = true) {
                 toggle(
                     id = id("title.enabled"),
@@ -673,8 +677,8 @@ private val ISLAND_OPTIONS = Island.entries
 private val ISLAND_SERIALIZER = SettingSerializers.option { ISLAND_OPTIONS }
 
 private val ACCENT_PRESETS = listOf(
+    Color.parse("#F07FB2"),
     Color.parse("#8B5CF6"),
-    Color.parse("#A855F7"),
     Color.parse("#34D399"),
     Color.parse("#FBBF24"),
     Color.parse("#F87171"),

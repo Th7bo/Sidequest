@@ -54,6 +54,18 @@ class RoundedRectRasterTest {
         }
     }
 
+    /** A pill with an odd pixel height must leave one centre row rather than painting it twice. */
+    @Test
+    fun `odd height pill rows do not overlap at the centre`() {
+        val rows = RoundedRectRaster.rows(rect(40f, 15f), Corners.all(999.dp))
+
+        assertEquals(0, rows.first().top)
+        assertEquals(15, rows.last().bottom)
+        for (index in 1 until rows.size) {
+            assertEquals(rows[index - 1].bottom, rows[index].top, "gap or overlap before row $index")
+        }
+    }
+
     /** The straight middle is one tall row, not one per pixel — nothing there needs softening. */
     @Test
     fun `the middle is a single row`() {
@@ -197,6 +209,26 @@ class RoundedRectRasterTest {
                     assertEquals(1, painted[y][x], "pixel ($x,$y) painted ${painted[y][x]} times for $corners")
                 }
             }
+        }
+    }
+
+    /** Regression for the dark horizontal seam through translucent count pills. */
+    @Test
+    fun `odd height pill decomposition owns every pixel once`() {
+        val decomposition = RoundedRectRaster.decompose(rect(40f, 15f), Corners.all(999.dp))
+        val painted = Array(15) { IntArray(40) }
+
+        for (piece in decomposition.fills) {
+            for (y in piece.top until piece.bottom) for (x in piece.left until piece.right) painted[y][x]++
+        }
+        for (arc in decomposition.arcs) {
+            for (y in arc.top until arc.top + arc.radius) {
+                for (x in arc.left until arc.left + arc.radius) painted[y][x]++
+            }
+        }
+
+        for (y in 0 until 15) for (x in 0 until 40) {
+            assertEquals(1, painted[y][x], "pixel ($x,$y) painted ${painted[y][x]} times")
         }
     }
 

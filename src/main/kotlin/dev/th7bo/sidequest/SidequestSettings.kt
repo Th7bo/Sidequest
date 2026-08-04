@@ -29,7 +29,7 @@ public object SidequestSettings {
     // -- appearance ----------------------------------------------------------
 
     public var theme: String = "dark"
-    public var accentColor: Color = Color.parse("#8B5CF6")
+    public var accentColor: Color = Color.parse("#F07FB2")
     public var compactMode: Boolean = false
     public var hudScale: Float = 1.0f
 

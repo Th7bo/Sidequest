@@ -21,6 +21,7 @@ import dev.th7bo.sidequest.ui.core.tree.LayoutContext
 import dev.th7bo.sidequest.ui.core.tree.RenderContext
 import dev.th7bo.sidequest.ui.core.tree.UiNode
 import dev.th7bo.sidequest.ui.geometry.Constraints
+import dev.th7bo.sidequest.ui.geometry.Dp
 import dev.th7bo.sidequest.ui.geometry.Rect
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.geometry.Vec2
@@ -123,6 +124,15 @@ public abstract class ControlNode<T>(
         if (isEnabled) base else tokens.colors.textDisabled
 }
 
+/** A resolution-independent down indicator shared by dropdown-like controls. */
+private fun paintDownIndicator(renderer: UiRenderer, bounds: Rect, color: Color, radius: Dp) {
+    val right = bounds.right - 7f
+    val top = bounds.y + bounds.height / 2f - 2f
+    renderer.roundedRect(Rect(right - 3f, top, 6f, 1f), radius, color)
+    renderer.roundedRect(Rect(right - 2f, top + 1f, 4f, 1f), radius, color)
+    renderer.roundedRect(Rect(right - 1f, top + 2f, 2f, 1f), radius, color)
+}
+
 /**
  * An on/off switch.
  *
@@ -166,12 +176,22 @@ public class ToggleControlNode(
         val on = toggleSetting.value
 
         val trackColor = when {
-            !isEnabled -> palette.border
+            !isEnabled -> palette.panelBackground
             on -> palette.accent
-            else -> palette.borderStrong
+            else -> palette.panelBackground
         }
         renderer.roundedRect(bounds, tokens.radii.pill, trackColor)
-        context.diagnostics.drawCalls++
+        renderer.border(
+            bounds,
+            tokens.radii.pill,
+            tokens.metrics.borderWidth,
+            when {
+                !isEnabled -> palette.border
+                on -> palette.accentHover
+                else -> palette.borderStrong
+            },
+        )
+        context.diagnostics.drawCalls += 2
 
         val travel = bounds.width - KNOB_DIAMETER - KNOB_INSET * 2
         val knobBounds = Rect(
@@ -191,8 +211,8 @@ public class ToggleControlNode(
     }
 
     public companion object {
-        public const val TRACK_WIDTH: Float = 26f
-        public const val TRACK_HEIGHT: Float = 14f
+        public const val TRACK_WIDTH: Float = 30f
+        public const val TRACK_HEIGHT: Float = 16f
         private const val KNOB_INSET = 2f
         private const val KNOB_DIAMETER = TRACK_HEIGHT - KNOB_INSET * 2
     }
@@ -301,8 +321,14 @@ public class ButtonControlNode(
             isHovered -> palette.accentHover
             else -> palette.accent
         }
-        renderer.roundedRect(bounds, tokens.radii.small, background)
-        context.diagnostics.drawCalls++
+        renderer.roundedRect(bounds, tokens.radii.medium, background)
+        renderer.border(
+            bounds,
+            tokens.radii.medium,
+            tokens.metrics.borderWidth,
+            if (buttonSetting.isDestructive) palette.error.withAlpha(0.45f) else background,
+        )
+        context.diagnostics.drawCalls += 2
 
         label.colorOverride = contentColor(
             if (buttonSetting.isDestructive) palette.error else palette.onAccent,
@@ -458,8 +484,9 @@ public abstract class SliderControlNode<T>(
         val centreY = bounds.y + bounds.height / 2f
         val trackBounds = Rect(bounds.x, centreY - TRACK_THICKNESS / 2f, TRACK_WIDTH, TRACK_THICKNESS)
 
-        renderer.roundedRect(trackBounds, tokens.radii.pill, palette.border)
-        context.diagnostics.drawCalls++
+        renderer.roundedRect(trackBounds, tokens.radii.pill, palette.panelBackground)
+        renderer.border(trackBounds, tokens.radii.pill, tokens.metrics.borderWidth, palette.border)
+        context.diagnostics.drawCalls += 2
 
         val filled = (TRACK_WIDTH - KNOB_DIAMETER) * currentFraction() + KNOB_DIAMETER / 2f
         renderer.roundedRect(
@@ -473,17 +500,23 @@ public abstract class SliderControlNode<T>(
         renderer.roundedRect(
             Rect(knobX, centreY - KNOB_DIAMETER / 2f, KNOB_DIAMETER, KNOB_DIAMETER),
             tokens.radii.pill,
-            if (isEnabled) palette.onAccent else palette.textDisabled,
+            if (isEnabled) palette.accent else palette.textDisabled,
         )
-        context.diagnostics.drawCalls++
+        renderer.border(
+            Rect(knobX, centreY - KNOB_DIAMETER / 2f, KNOB_DIAMETER, KNOB_DIAMETER),
+            tokens.radii.pill,
+            tokens.metrics.borderWidth,
+            if (isEnabled) palette.accentHover else palette.border,
+        )
+        context.diagnostics.drawCalls += 2
 
         paintFocusRing(renderer, trackBounds, context)
     }
 
     public companion object {
         public const val TRACK_WIDTH: Float = 90f
-        internal const val TRACK_THICKNESS = 3f
-        internal const val KNOB_DIAMETER = 9f
+        internal const val TRACK_THICKNESS = 4f
+        internal const val KNOB_DIAMETER = 10f
     }
 }
 
@@ -674,23 +707,25 @@ public class MultiSelectControlNode<T>(
         val palette = context.theme.tokens.colors
         renderer.roundedRect(
             bounds,
-            tokens.radii.small,
+            tokens.radii.medium,
             if (isHovered && isEnabled) palette.hoverBackground else palette.panelBackground,
         )
         renderer.border(
             bounds,
-            tokens.radii.small,
+            tokens.radii.medium,
             tokens.metrics.borderWidth,
             if (isOpen) palette.accent else palette.border,
         )
         context.diagnostics.drawCalls += 2
         label.colorOverride = contentColor(palette.textPrimary)
+        paintDownIndicator(renderer, bounds, contentColor(palette.textSecondary), tokens.radii.pill)
+        context.diagnostics.drawCalls += 3
         paintFocusRing(renderer, bounds, context)
     }
 
     private companion object {
         const val MULTI_MAX_LABEL_WIDTH = 160f
-        const val MULTI_MIN_WIDTH = 96f
+        const val MULTI_MIN_WIDTH = 122f
         const val MULTI_CARET_WIDTH = 10f
 
         /** A stand-in for the widest summary, so the reserved width covers every count. */
@@ -844,12 +879,12 @@ public class DropdownControlNode<T>(
 
         renderer.roundedRect(
             bounds,
-            tokens.radii.small,
+            tokens.radii.medium,
             if (isHovered && isEnabled) palette.hoverBackground else palette.panelBackground,
         )
         renderer.border(
             bounds,
-            tokens.radii.small,
+            tokens.radii.medium,
             tokens.metrics.borderWidth,
             if (isOpen) palette.accent else palette.border,
         )
@@ -857,22 +892,14 @@ public class DropdownControlNode<T>(
 
         label.colorOverride = contentColor(palette.textPrimary)
 
-        // A small filled wedge stands in for a caret glyph, so the affordance does not
-        // depend on the host font having one.
-        val caretSize = 4f
-        val caretX = bounds.right - tokens.spacing.medium.value - caretSize
-        val caretY = bounds.y + bounds.height / 2f - caretSize / 2f
-        renderer.fillRect(
-            Rect(caretX, caretY, caretSize, caretSize),
-            contentColor(palette.textSecondary),
-        )
-        context.diagnostics.drawCalls++
+        paintDownIndicator(renderer, bounds, contentColor(palette.textSecondary), tokens.radii.pill)
+        context.diagnostics.drawCalls += 3
 
         paintFocusRing(renderer, bounds, context)
     }
 
     private companion object {
-        const val MIN_WIDTH = 96f
+        const val MIN_WIDTH = 122f
         const val MAX_LABEL_WIDTH = 140f
         const val CARET_WIDTH = 10f
     }
@@ -1032,10 +1059,14 @@ public class TextFieldControlNode(
         val palette = context.theme.tokens.colors
         val hasError = field.validation.peek().errors.isNotEmpty()
 
-        renderer.roundedRect(bounds, tokens.radii.small, palette.panelBackground)
+        renderer.roundedRect(
+            bounds,
+            tokens.radii.medium,
+            if (isHovered && isEnabled) palette.pressedBackground else palette.panelBackground,
+        )
         renderer.border(
             bounds,
-            tokens.radii.small,
+            tokens.radii.medium,
             tokens.metrics.borderWidth,
             when {
                 hasError -> palette.error
@@ -1068,7 +1099,7 @@ public class TextFieldControlNode(
     }
 
     private companion object {
-        const val FIELD_WIDTH = 140f
+        const val FIELD_WIDTH = 148f
     }
 }
 
@@ -1160,10 +1191,10 @@ public class KeybindControlNode(
 
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
-        renderer.roundedRect(bounds, tokens.radii.small, palette.panelBackground)
+        renderer.roundedRect(bounds, tokens.radii.medium, palette.panelBackground)
         renderer.border(
             bounds,
-            tokens.radii.small,
+            tokens.radii.medium,
             tokens.metrics.borderWidth,
             if (isCapturing) palette.accent else palette.border,
         )
@@ -1173,7 +1204,7 @@ public class KeybindControlNode(
     }
 
     private companion object {
-        const val BINDING_WIDTH = 110f
+        const val BINDING_WIDTH = 122f
     }
 }
 
@@ -1197,16 +1228,22 @@ public class ProgressBarNode(
         val palette = context.theme.tokens.colors
         val radii = context.theme.tokens.radii
 
-        renderer.roundedRect(bounds, radii.pill, palette.border)
+        renderer.roundedRect(bounds, radii.pill, palette.panelBackground)
         val filled = bounds.width * progress.peek().coerceIn(0f, 1f)
         if (filled > 0f) {
             renderer.roundedRect(Rect(bounds.x, bounds.y, filled, bounds.height), radii.pill, palette.accent)
+            // A very soft top edge gives the fill depth without turning it into a glossy game bar.
+            renderer.roundedRect(
+                Rect(bounds.x, bounds.y, filled, (bounds.height * 0.42f).coerceAtLeast(1f)),
+                radii.pill,
+                palette.accentHover.withAlpha(0.55f),
+            )
         }
-        context.diagnostics.drawCalls += 2
+        context.diagnostics.drawCalls += 3
     }
 
     public companion object {
         public const val DEFAULT_WIDTH: Float = 120f
-        public const val HEIGHT: Float = 3f
+        public const val HEIGHT: Float = 4f
     }
 }

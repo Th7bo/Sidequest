@@ -4,8 +4,8 @@
       "type": "ttf",
       "file": "sidequest:inter_semibold.ttf",
       "shift": [0.0, 1.0],
-      "size": 9.5,
-      "oversample": 4.0
+      "size": 10.0,
+      "oversample": 16.0
     }
   ]
 }

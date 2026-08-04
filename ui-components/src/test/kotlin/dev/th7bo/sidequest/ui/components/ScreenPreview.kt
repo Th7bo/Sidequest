@@ -54,6 +54,13 @@ class ScreenPreview {
         // Without these the registry draws its missing-icon placeholder, which is a hollow square — and a
         // preview showing placeholders instead of art is a preview of the wrong screen.
         harness.context.icons.registerGlyphIcons(harness.registrationScope)
+        harness.runtime.root = ConfigScreenLayoutNode(
+            id("preview.layout"),
+            harness.controller,
+            harness.context,
+            onSaveAndClose = {},
+            onClose = {},
+        )
         harness.frames(FRAMES)
 
         val file = File(target!!)

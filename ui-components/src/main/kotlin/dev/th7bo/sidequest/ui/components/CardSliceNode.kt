@@ -22,6 +22,7 @@ import dev.th7bo.sidequest.ui.rendering.Corners
 import dev.th7bo.sidequest.ui.rendering.Edges
 import dev.th7bo.sidequest.ui.rendering.TextRole
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
+import dev.th7bo.sidequest.ui.state.derivedStateOf
 
 /**
  * Which part of a card a row draws.
@@ -83,17 +84,14 @@ public class CardSliceNode(
     private val radius get() = tokens.radii.large
 
     /**
-     * How far in from the edge the card starts.
+     * One shared content gutter for headers, overview cards and setting sections.
      *
-     * Derived rather than fixed, because a settings list stretched to the full width of a wide screen puts a
-     * label at one edge and its control at the other — a row you have to track across with your eyes, which
-     * no modern interface asks of anybody. The card is capped at a readable column and centred in whatever
-     * space there is.
+     * The previous readable-width cap centred section cards independently. On wider
+     * windows that made every card start on a different vertical guide from the header
+     * and overview above it, leaving a conspicuous strip of accidental whitespace.
      */
-    private fun marginFor(available: Float): Float {
-        val card = minOf(available - tokens.spacing.large.value * 2, MAX_CARD_WIDTH)
-        return ((available - card) / 2f).coerceAtLeast(0f)
-    }
+    private fun marginFor(available: Float): Float =
+        minOf(tokens.spacing.xl.value, available / 2f).coerceAtLeast(0f)
 
     /** What a row is short by, against the padding a header gives itself. Zero for anything else. */
     private val bottomInset: Float
@@ -153,18 +151,20 @@ public class CardSliceNode(
         // of it, which is how the interfaces this is aiming at do it.
         renderer.roundedRect(card, corners, palette.elevatedPanelBackground)
         context.diagnostics.drawCalls++
+
+        if (showDivider) {
+            val inset = tokens.spacing.large.value
+            renderer.fillRect(
+                Rect(card.x + inset, card.y, (card.width - inset * 2f).coerceAtLeast(0f), 1f),
+                palette.border,
+            )
+            context.diagnostics.drawCalls++
+        }
     }
 
     private companion object {
         const val FALLBACK_WIDTH = 320f
 
-        /**
-         * The widest a card is allowed to be.
-         *
-         * A readable column. Past this a row's label and its control drift so far apart that pairing them
-         * becomes work, which is the single thing that made the old screen feel like a spreadsheet.
-         */
-        const val MAX_CARD_WIDTH = 460f
     }
 }
 
@@ -193,6 +193,14 @@ public class SectionCardHeaderNode(
     private val subtitle = section.description?.let {
         TextNode(section.id.child("card_subtitle"), it, TextRole.SECONDARY)
     }
+    private val count: TextNode = TextNode(
+        section.id.child("card_count"),
+        derivedStateOf("${section.id.value}.visible_count") {
+            val visible = section.settings.count { it.isVisible.value }
+            "$visible ${if (visible == 1) "SETTING" else "SETTINGS"}"
+        },
+        TextRole.CAPTION,
+    )
 
     private val textColumn = ColumnNode(section.id.child("card_header_text"), spacing = tokens.spacing.xs)
 
@@ -200,6 +208,7 @@ public class SectionCardHeaderNode(
         textColumn.addChild(title)
         subtitle?.let(textColumn::addChild)
         addChild(textColumn)
+        addChild(count)
         // Only a folding header takes clicks. `interactive` defaults to false and the hit test consults it,
         // so without this the header drew a chevron nothing could press — which is exactly what shipped.
         interactive = isCollapsed != null
@@ -207,14 +216,18 @@ public class SectionCardHeaderNode(
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
         val available = if (constraints.hasBoundedWidth) constraints.maxWidth else FALLBACK_WIDTH
-        val textWidth = (available - horizontalPadding * 2 - iconBlock - tokens.spacing.large.value)
+        val countSize = count.measure(constraints.loosen(), context)
+        val foldSpace = if (isCollapsed != null) CHEVRON_SIZE + tokens.spacing.large.value else 0f
+        val textWidth = (
+            available - horizontalPadding * 2 - countSize.width - tokens.spacing.xl.value - foldSpace
+            )
             .coerceAtLeast(0f)
 
         val textSize = textColumn.measure(
             Constraints(maxWidth = textWidth),
             context,
         )
-        return Size(available, maxOf(textSize.height, iconBlock) + verticalPadding * 2)
+        return Size(available, maxOf(textSize.height, ACCENT_HEIGHT) + verticalPadding * 2)
     }
 
     override fun arrangeChildren(context: LayoutContext) {
@@ -222,10 +235,21 @@ public class SectionCardHeaderNode(
         textColumn.arrange(
             Rect.of(
                 Vec2(
-                    horizontalPadding + iconBlock + tokens.spacing.large.value,
+                    horizontalPadding,
                     (measuredSize.height - textSize.height) / 2f,
                 ),
                 textSize,
+            ),
+            context,
+        )
+        val foldSpace = if (isCollapsed != null) CHEVRON_SIZE + tokens.spacing.large.value else 0f
+        count.arrange(
+            Rect.of(
+                Vec2(
+                    measuredSize.width - horizontalPadding - foldSpace - count.measuredSize.width,
+                    (measuredSize.height - count.measuredSize.height) / 2f,
+                ),
+                count.measuredSize,
             ),
             context,
         )
@@ -255,10 +279,27 @@ public class SectionCardHeaderNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
 
-        // The space is reserved either way, so headers with and without an icon keep
-        // their titles on the same left edge. The *block* is only drawn when there is a
-        // glyph to put in it: an empty tinted square reads as a missing icon rather than
-        // as a deliberate absence.
+        val countBounds = count.absoluteBounds()
+        val countPill = Rect(
+            countBounds.x - COUNT_HORIZONTAL_PADDING,
+            countBounds.y - COUNT_VERTICAL_PADDING,
+            countBounds.width + COUNT_HORIZONTAL_PADDING * 2f,
+            countBounds.height + COUNT_VERTICAL_PADDING * 2f,
+        )
+        renderer.roundedRect(
+            countPill,
+            tokens.radii.pill,
+            palette.panelBackground,
+        )
+        renderer.border(
+            countPill,
+            tokens.radii.pill,
+            tokens.metrics.borderWidth,
+            palette.border,
+        )
+        count.colorOverride = palette.textSecondary
+        context.diagnostics.drawCalls += 2
+
         // The fold indicator, on the right. Drawn before the early return below, because a collapsible
         // section with no icon still has to say it can be folded.
         isCollapsed?.let { collapsed ->
@@ -266,23 +307,18 @@ public class SectionCardHeaderNode(
             context.diagnostics.drawCalls += 2
         }
 
-        val icon = section.icon ?: return
-
-        // The glyph alone, with no tile behind it.
-        //
-        // This used to draw an accent-tinted rounded square with its own border and put the icon inside.
-        // Two problems, and they compound: a chip of solid colour on every heading is a lot of visual weight
-        // for decoration, and the thing inside it is a Minecraft item texture — so the one element drawing
-        // the eye was also the most pixel-art element on the screen. Modern panels label a section with
-        // words and use an icon as a quiet marker beside them, if at all.
-        val block = Rect(
-            bounds.x + horizontalPadding,
-            bounds.y + (bounds.height - iconBlock) / 2f,
-            iconBlock,
-            iconBlock,
-        )
-        componentContext.icons.draw(renderer, icon, block, palette.accent)
-        context.diagnostics.drawCalls += 1
+        // A section icon is represented as an edge marker rather than a reserved text
+        // column. This keeps every heading and setting label on the same vertical guide.
+        // The category sidebar already carries the pictorial navigation language; the
+        // card only needs a quiet accent to retain the section's visual identity.
+        if (section.icon != null) {
+            renderer.roundedRect(
+                Rect(bounds.x, bounds.y + (bounds.height - ACCENT_HEIGHT) / 2f, ACCENT_WIDTH, ACCENT_HEIGHT),
+                tokens.radii.pill,
+                palette.accent,
+            )
+            context.diagnostics.drawCalls++
+        }
     }
 
     /**
@@ -327,12 +363,14 @@ public class SectionCardHeaderNode(
 
     private val horizontalPadding: Float get() = tokens.spacing.large.value
     private val verticalPadding: Float get() = tokens.spacing.large.value
-    private val iconBlock: Float get() = ICON_BLOCK_SIZE
 
     private companion object {
         const val FALLBACK_WIDTH = 320f
-        const val ICON_BLOCK_SIZE = 12f
+        const val ACCENT_WIDTH = 2f
+        const val ACCENT_HEIGHT = 12f
         const val CHEVRON_SIZE = 8f
+        const val COUNT_HORIZONTAL_PADDING = 7f
+        const val COUNT_VERTICAL_PADDING = 3f
 
         /** How many bars the triangle is stacked from. Four reads as a chevron at every GUI scale. */
         const val CHEVRON_STEPS = 8

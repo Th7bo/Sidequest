@@ -63,7 +63,13 @@ public object RoundedRectRaster {
 
         // A radius cannot exceed half the shorter side, or opposite corners would cross and the shape would
         // turn inside out.
-        val limit = min(bounds.width, bounds.height) / 2f
+        // Clamp against the *rasterised* size and round the limit down. With an odd
+        // physical height, rounding both half-height corner bands up makes them share
+        // the centre scanline. A translucent pill then paints that line twice — the
+        // seam that visibly ran through compact counters and rare-drop chips.
+        val pixelWidth = (bounds.right.roundToInt() - bounds.left.roundToInt()).coerceAtLeast(0)
+        val pixelHeight = (bottom - top).coerceAtLeast(0)
+        val limit = floor(min(pixelWidth, pixelHeight) / 2f)
         val topLeft = clamp(corners.topLeft.value, limit)
         val topRight = clamp(corners.topRight.value, limit)
         val bottomLeft = clamp(corners.bottomLeft.value, limit)
@@ -153,7 +159,7 @@ public object RoundedRectRaster {
         val right = bounds.right.roundToInt()
         val bottom = bounds.bottom.roundToInt()
 
-        val limit = min(bounds.width, bounds.height) / 2f
+        val limit = floor(min(right - left, bottom - top) / 2f)
         val topLeft = whole(corners.topLeft.value, limit)
         val topRight = whole(corners.topRight.value, limit)
         val bottomLeft = whole(corners.bottomLeft.value, limit)
@@ -206,7 +212,7 @@ public object RoundedRectRaster {
         val right = bounds.right.roundToInt()
         val bottom = bounds.bottom.roundToInt()
 
-        val limit = min(bounds.width, bounds.height) / 2f
+        val limit = floor(min(right - left, bottom - top) / 2f)
         val topLeft = whole(corners.topLeft.value, limit)
         val topRight = whole(corners.topRight.value, limit)
         val bottomLeft = whole(corners.bottomLeft.value, limit)

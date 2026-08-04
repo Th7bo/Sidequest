@@ -5,6 +5,7 @@ import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.content.SurfaceNode
 import dev.th7bo.sidequest.ui.core.content.TextNode
 import dev.th7bo.sidequest.ui.core.layout.ColumnNode
+import dev.th7bo.sidequest.ui.core.layout.FixedSizeNode
 import dev.th7bo.sidequest.ui.core.layout.PaddingNode
 import dev.th7bo.sidequest.ui.core.layout.RowNode
 import dev.th7bo.sidequest.ui.core.layout.SpacerNode
@@ -16,6 +17,7 @@ import dev.th7bo.sidequest.ui.geometry.Insets
 import dev.th7bo.sidequest.ui.geometry.Rect
 import dev.th7bo.sidequest.ui.geometry.Size
 import dev.th7bo.sidequest.ui.geometry.Vec2
+import dev.th7bo.sidequest.ui.geometry.dp
 import dev.th7bo.sidequest.ui.ids.UiId
 import dev.th7bo.sidequest.ui.input.CharTypedEvent
 import dev.th7bo.sidequest.ui.input.EventPhase
@@ -24,6 +26,8 @@ import dev.th7bo.sidequest.ui.input.Key
 import dev.th7bo.sidequest.ui.input.KeyDownEvent
 import dev.th7bo.sidequest.ui.input.PointerDownEvent
 import dev.th7bo.sidequest.ui.rendering.Corners
+import dev.th7bo.sidequest.ui.rendering.Gradient
+import dev.th7bo.sidequest.ui.rendering.TextOverflow
 import dev.th7bo.sidequest.ui.rendering.TextRole
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
 import dev.th7bo.sidequest.ui.state.MutableUiState
@@ -42,16 +46,28 @@ public class CategoryButtonNode(
 
     private val tokens = componentContext.theme.tokens
     private val label = TextNode(category.id.child("sidebar_label"), category.title, TextRole.LABEL)
+    private val count = TextNode(
+        category.id.child("sidebar_count"),
+        derivedStateOf("${category.id.value}.visible_setting_count") {
+            category.settings.count { it.isVisible.value }.toString()
+        },
+        TextRole.CAPTION,
+    )
 
     init {
         interactive = true
         focusable = true
-        addChild(label)
+        addChildren(label, count)
         isActive.observe(scope) { invalidatePaint() }
     }
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
-        val labelSize = label.measure(constraints.loosen(), context)
+        count.measure(constraints.loosen(), context)
+        val reserved = countPillWidth + tokens.spacing.large.value
+        val labelSize = label.measure(
+            Constraints(maxWidth = (constraints.maxWidth - labelLeft - reserved).coerceAtLeast(0f)),
+            context,
+        )
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth else labelSize.width
         return Size(width, tokens.metrics.controlHeight.value)
     }
@@ -62,6 +78,17 @@ public class CategoryButtonNode(
             Rect.of(
                 Vec2(labelLeft, (measuredSize.height - labelSize.height) / 2f),
                 labelSize,
+            ),
+            context,
+        )
+        count.arrange(
+            Rect.of(
+                Vec2(
+                    measuredSize.width - tokens.spacing.medium.value - countPillWidth +
+                        (countPillWidth - count.measuredSize.width) / 2f,
+                    (measuredSize.height - count.measuredSize.height) / 2f,
+                ),
+                count.measuredSize,
             ),
             context,
         )
@@ -105,6 +132,19 @@ public class CategoryButtonNode(
         }
         val content = if (active) palette.textPrimary else palette.textSecondary
         label.colorOverride = content
+        val countPill = Rect(
+            bounds.right - tokens.spacing.medium.value - countPillWidth,
+            bounds.y + (bounds.height - countPillHeight) / 2f,
+            countPillWidth,
+            countPillHeight,
+        )
+        renderer.roundedRect(
+            countPill,
+            tokens.radii.pill,
+            if (active) palette.accent.withAlpha(0.16f) else palette.elevatedPanelBackground,
+        )
+        count.colorOverride = if (active) palette.accent else palette.textDisabled
+        context.diagnostics.drawCalls++
 
         category.icon?.let { icon ->
             componentContext.icons.draw(
@@ -129,6 +169,113 @@ public class CategoryButtonNode(
 
     private companion object {
         const val ICON_SIZE = 10f
+        const val COUNT_MIN_WIDTH = 20f
+        const val COUNT_MIN_HEIGHT = 15f
+        const val COUNT_HORIZONTAL_PADDING = 6f
+        const val COUNT_VERTICAL_PADDING = 3f
+    }
+
+    private val countPillWidth: Float
+        get() = maxOf(COUNT_MIN_WIDTH, count.measuredSize.width + COUNT_HORIZONTAL_PADDING * 2f)
+
+    private val countPillHeight: Float
+        get() = maxOf(COUNT_MIN_HEIGHT, count.measuredSize.height + COUNT_VERTICAL_PADDING * 2f)
+}
+
+/** Compact product lockup at the top of the navigation rail. */
+private class SidebarBrandNode(
+    id: UiId,
+    private val componentContext: ComponentContext,
+) : UiNode(id) {
+
+    private val tokens = componentContext.theme.tokens
+    private val name = TextNode(id.child("name"), constantState("SIDEQUEST"), TextRole.TITLE)
+    private val edition = TextNode(id.child("edition"), constantState("SKYBLOCK CLIENT"), TextRole.CAPTION)
+
+    init {
+        addChildren(name, edition)
+    }
+
+    override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        val available = if (constraints.hasBoundedWidth) constraints.maxWidth else 120f
+        val textWidth = (available - BRAND_MARK - tokens.spacing.large.value * 2).coerceAtLeast(0f)
+        name.measure(Constraints(maxWidth = textWidth), context)
+        edition.measure(Constraints(maxWidth = textWidth), context)
+        return Size(available, BRAND_HEIGHT)
+    }
+
+    override fun arrangeChildren(context: LayoutContext) {
+        val left = BRAND_MARK + tokens.spacing.large.value
+        val contentHeight = name.measuredSize.height + tokens.spacing.xs.value + edition.measuredSize.height
+        val top = (measuredSize.height - contentHeight) / 2f
+        name.arrange(Rect.of(Vec2(left, top), name.measuredSize), context)
+        edition.arrange(
+            Rect.of(Vec2(left, top + name.measuredSize.height + tokens.spacing.xs.value), edition.measuredSize),
+            context,
+        )
+    }
+
+    override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
+        val palette = context.theme.tokens.colors
+        val mark = Rect(bounds.x, bounds.y + (bounds.height - BRAND_MARK) / 2f, BRAND_MARK, BRAND_MARK)
+        renderer.roundedRect(mark, tokens.radii.medium, palette.accent)
+        renderer.border(mark, tokens.radii.medium, tokens.metrics.borderWidth, palette.accentHover)
+        val inset = 5f
+        renderer.border(
+            mark.inset(Insets(inset, inset, inset, inset)),
+            tokens.radii.small,
+            tokens.metrics.borderWidth,
+            palette.onAccent,
+        )
+        edition.colorOverride = palette.textDisabled
+        context.diagnostics.drawCalls += 3
+    }
+
+    private companion object {
+        const val BRAND_HEIGHT = 42f
+        const val BRAND_MARK = 24f
+    }
+}
+
+/** Quiet overline separating product identity from the navigation choices. */
+private class SidebarSectionLabelNode(id: UiId) : UiNode(id) {
+    private val label = TextNode(id.child("label"), constantState("CONFIGURATION"), TextRole.CAPTION)
+
+    init { addChild(label) }
+
+    override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        label.measure(constraints.loosen(), context)
+        return Size(constraints.maxWidth.takeIf { constraints.hasBoundedWidth } ?: 120f, 16f)
+    }
+
+    override fun arrangeChildren(context: LayoutContext) {
+        label.arrange(Rect.of(Vec2(4f, (measuredSize.height - label.measuredSize.height) / 2f), label.measuredSize), context)
+    }
+}
+
+/** Persistent reassurance that config edits are live and do not need a separate apply step. */
+private class SidebarStatusNode(
+    id: UiId,
+    private val componentContext: ComponentContext,
+) : UiNode(id) {
+    private val label = TextNode(id.child("label"), constantState("ALL CHANGES SAVED"), TextRole.CAPTION)
+
+    init { addChild(label) }
+
+    override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        label.measure(constraints.loosen(), context)
+        return Size(constraints.maxWidth.takeIf { constraints.hasBoundedWidth } ?: 120f, 18f)
+    }
+
+    override fun arrangeChildren(context: LayoutContext) {
+        label.arrange(Rect.of(Vec2(14f, (measuredSize.height - label.measuredSize.height) / 2f), label.measuredSize), context)
+    }
+
+    override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
+        val palette = context.theme.tokens.colors
+        renderer.roundedRect(Rect(bounds.x + 3f, bounds.y + (bounds.height - 5f) / 2f, 5f, 5f), componentContext.theme.tokens.radii.pill, palette.success)
+        label.colorOverride = palette.textDisabled
+        context.diagnostics.drawCalls++
     }
 }
 
@@ -153,6 +300,9 @@ public class SidebarNode(
     private val body = ColumnNode(id.child("body"), spacing = tokens.spacing.xs)
 
     init {
+        body.addChild(SidebarBrandNode(id.child("brand"), componentContext))
+        body.addChild(SpacerNode(id.child("brand_gap"), Size(0f, tokens.spacing.medium.value)))
+        body.addChild(SidebarSectionLabelNode(id.child("section_label")))
         for (category in categories) {
             val isActive = derivedStateOf("${category.id.value}.active") {
                 activeCategory.value == category.id
@@ -232,15 +382,20 @@ public class SearchBoxNode(
         TextRole.BODY,
     )
 
+    private val clearLabel = TextNode(id.child("clear"), constantState("×"), TextRole.LABEL)
+
     init {
         interactive = true
         focusable = true
         addChild(display)
+        addChild(clearLabel)
+        clearLabel.isVisible = false
 
         externalQuery?.observe(scope) { authoritative ->
             // Adopt without echoing back, or the two would notify each other forever.
             if (queryState.peek() != authoritative) {
                 queryState.value = authoritative
+                clearLabel.isVisible = authoritative.isNotEmpty()
                 invalidatePaint()
             }
         }
@@ -250,6 +405,7 @@ public class SearchBoxNode(
     public fun setQuery(value: String) {
         if (queryState.peek() == value) return
         queryState.value = value
+        clearLabel.isVisible = value.isNotEmpty()
         onQueryChanged(value)
         invalidatePaint()
     }
@@ -258,7 +414,12 @@ public class SearchBoxNode(
         if (event.phase != EventPhase.TARGET) return
 
         when {
-            event is PointerDownEvent -> event.consume()
+            event is PointerDownEvent -> {
+                if (queryState.peek().isNotEmpty() && event.position.x >= measuredSize.width - CLEAR_HIT_WIDTH) {
+                    setQuery("")
+                }
+                event.consume()
+            }
 
             event is CharTypedEvent -> {
                 setQuery(queryState.peek() + event.char)
@@ -283,9 +444,13 @@ public class SearchBoxNode(
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth else DEFAULT_WIDTH
         display.measure(
-            Constraints(maxWidth = width - tokens.spacing.large.value * 2),
+            Constraints(
+                maxWidth = width - SEARCH_TEXT_LEFT -
+                    if (queryState.peek().isEmpty()) tokens.spacing.medium.value else CLEAR_HIT_WIDTH,
+            ),
             context,
         )
+        clearLabel.measure(constraints.loosen(), context)
         return Size(width, tokens.metrics.controlHeight.value + tokens.spacing.small.value)
     }
 
@@ -293,8 +458,15 @@ public class SearchBoxNode(
         val textSize = display.measuredSize
         display.arrange(
             Rect.of(
-                Vec2(tokens.spacing.large.value, (measuredSize.height - textSize.height) / 2f),
+                Vec2(SEARCH_TEXT_LEFT, (measuredSize.height - textSize.height) / 2f),
                 textSize,
+            ),
+            context,
+        )
+        clearLabel.arrange(
+            Rect.of(
+                Vec2(measuredSize.width - tokens.spacing.large.value - clearLabel.measuredSize.width, (measuredSize.height - clearLabel.measuredSize.height) / 2f),
+                clearLabel.measuredSize,
             ),
             context,
         )
@@ -310,12 +482,200 @@ public class SearchBoxNode(
             if (isFocused) palette.accent else palette.border,
         )
         context.diagnostics.drawCalls += 2
+        val icon = Rect(
+            bounds.x + tokens.spacing.large.value,
+            bounds.y + (bounds.height - SEARCH_ICON) / 2f,
+            SEARCH_ICON - 2f,
+            SEARCH_ICON - 2f,
+        )
+        val iconColour = if (isFocused) palette.accent else palette.textDisabled
+        renderer.border(icon, tokens.radii.pill, tokens.metrics.borderWidth, iconColour)
+        // Two tiny rounded steps form a smooth diagonal handle without relying on a low-resolution sprite.
+        renderer.roundedRect(Rect(icon.right - 1f, icon.bottom - 1f, 2f, 2f), tokens.radii.pill, iconColour)
+        renderer.roundedRect(Rect(icon.right, icon.bottom, 2f, 2f), tokens.radii.pill, iconColour)
+        context.diagnostics.drawCalls += 3
         display.colorOverride =
             if (queryState.peek().isEmpty()) palette.textDisabled else palette.textPrimary
+        clearLabel.colorOverride = if (isHovered) palette.textPrimary else palette.textSecondary
     }
 
     private companion object {
         const val DEFAULT_WIDTH = 200f
+        const val SEARCH_ICON = 10f
+        const val SEARCH_TEXT_LEFT = 28f
+        const val CLEAR_HIT_WIDTH = 22f
+    }
+}
+
+/** Designed search-empty state rather than an unexplained blank settings column. */
+private class ConfigEmptyStateNode(
+    id: UiId,
+    private val componentContext: ComponentContext,
+    query: UiState<String>,
+) : UiNode(id) {
+    private val title = TextNode(
+        id.child("title"),
+        derivedStateOf("${id.value}.title") { "No settings match “${query.value}”" },
+        TextRole.TITLE,
+    )
+    private val hint = TextNode(
+        id.child("hint"),
+        constantState("Try a shorter search, choose another category, or press Esc to clear."),
+        TextRole.SECONDARY,
+    ).apply {
+        maxLines = 2
+        overflow = TextOverflow.WRAP
+    }
+
+    init { addChildren(title, hint) }
+
+    override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        val width = constraints.maxWidth.takeIf { constraints.hasBoundedWidth } ?: 320f
+        val height = constraints.maxHeight.takeIf { constraints.hasBoundedHeight } ?: 160f
+        val textWidth = minOf(width - 40f, EMPTY_TEXT_WIDTH).coerceAtLeast(0f)
+        title.measure(Constraints(maxWidth = textWidth), context)
+        hint.measure(Constraints(maxWidth = textWidth), context)
+        return Size(width, height)
+    }
+
+    override fun arrangeChildren(context: LayoutContext) {
+        val contentHeight = EMPTY_ICON_SPACE + title.measuredSize.height + 4f + hint.measuredSize.height
+        val top = ((measuredSize.height - contentHeight) / 2f).coerceAtLeast(12f)
+        title.arrange(
+            Rect.of(Vec2((measuredSize.width - title.measuredSize.width) / 2f, top + EMPTY_ICON_SPACE), title.measuredSize),
+            context,
+        )
+        hint.arrange(
+            Rect.of(
+                Vec2((measuredSize.width - hint.measuredSize.width) / 2f, top + EMPTY_ICON_SPACE + title.measuredSize.height + 4f),
+                hint.measuredSize,
+            ),
+            context,
+        )
+    }
+
+    override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
+        val palette = context.theme.tokens.colors
+        val titleBounds = title.absoluteBounds()
+        val ring = Rect(titleBounds.center.x - 10f, titleBounds.y - EMPTY_ICON_SPACE + 5f, 20f, 20f)
+        renderer.roundedRect(ring, componentContext.theme.tokens.radii.pill, palette.selectedBackground)
+        renderer.border(ring, componentContext.theme.tokens.radii.pill, componentContext.theme.tokens.metrics.borderWidth, palette.accent.withAlpha(0.55f))
+        renderer.roundedRect(Rect(ring.center.x - 3f, ring.center.y - 3f, 6f, 6f), componentContext.theme.tokens.radii.pill, palette.accent)
+        title.colorOverride = palette.textPrimary
+        hint.colorOverride = palette.textSecondary
+        context.diagnostics.drawCalls += 3
+    }
+
+    private companion object {
+        const val EMPTY_TEXT_WIDTH = 260f
+        const val EMPTY_ICON_SPACE = 34f
+    }
+}
+
+/** Compact live overview of the category currently being edited. */
+private class CategorySummaryNode(
+    id: UiId,
+    private val controller: ConfigScreenController,
+    private val componentContext: ComponentContext,
+) : UiNode(id) {
+    private data class Metric(val value: TextNode, val label: TextNode)
+
+    private fun activeCategory(): Category? =
+        controller.activeCategory.value?.let(controller.screen::category)
+
+    private val metrics = listOf(
+        Metric(
+            TextNode(
+                id.child("settings_value"),
+                derivedStateOf("${id.value}.settings") {
+                    activeCategory()?.settings?.count { it.isVisible.value }?.toString() ?: "0"
+                },
+                TextRole.TITLE,
+            ),
+            TextNode(id.child("settings_label"), constantState("AVAILABLE SETTINGS"), TextRole.CAPTION),
+        ),
+        Metric(
+            TextNode(
+                id.child("modified_value"),
+                derivedStateOf("${id.value}.modified") {
+                    activeCategory()?.settings?.count { it.isVisible.value && it.isModified.value }?.toString() ?: "0"
+                },
+                TextRole.TITLE,
+            ),
+            TextNode(id.child("modified_label"), constantState("CUSTOMIZED"), TextRole.CAPTION),
+        ),
+        Metric(
+            TextNode(
+                id.child("sections_value"),
+                derivedStateOf("${id.value}.sections") {
+                    activeCategory()?.sections?.count { section ->
+                        section.visibleWhen.value && section.settings.any { it.isVisible.value }
+                    }?.toString() ?: "0"
+                },
+                TextRole.TITLE,
+            ),
+            TextNode(id.child("sections_label"), constantState("SECTIONS"), TextRole.CAPTION),
+        ),
+    )
+
+    init { metrics.forEach { addChildren(it.value, it.label) } }
+
+    override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
+        metrics.forEach { metric ->
+            metric.value.measure(constraints.loosen(), context)
+            metric.label.measure(constraints.loosen(), context)
+        }
+        return Size(constraints.maxWidth.takeIf { constraints.hasBoundedWidth } ?: 480f, SUMMARY_HEIGHT)
+    }
+
+    override fun arrangeChildren(context: LayoutContext) {
+        val sideMargin = componentContext.theme.tokens.spacing.xl.value
+        val cardWidth = ((measuredSize.width - sideMargin * 2f - CARD_GAP * 2f) / 3f).coerceAtLeast(0f)
+        metrics.forEachIndexed { index, metric ->
+            val cardX = sideMargin + index * (cardWidth + CARD_GAP)
+            val contentX = cardX + 10f
+            val contentHeight = metric.value.measuredSize.height + 2f + metric.label.measuredSize.height
+            val top = (SUMMARY_HEIGHT - contentHeight) / 2f
+            metric.value.arrange(Rect.of(Vec2(contentX, top), metric.value.measuredSize), context)
+            metric.label.arrange(Rect.of(Vec2(contentX, top + metric.value.measuredSize.height + 2f), metric.label.measuredSize), context)
+        }
+    }
+
+    override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
+        val palette = context.theme.tokens.colors
+        val sideMargin = componentContext.theme.tokens.spacing.xl.value
+        val cardWidth = ((bounds.width - sideMargin * 2f - CARD_GAP * 2f) / 3f).coerceAtLeast(0f)
+        metrics.forEachIndexed { index, metric ->
+            val card = Rect(bounds.x + sideMargin + index * (cardWidth + CARD_GAP), bounds.y + 6f, cardWidth, bounds.height - 12f)
+            renderer.roundedRect(card, componentContext.theme.tokens.radii.medium, palette.elevatedPanelBackground)
+            renderer.border(card, componentContext.theme.tokens.radii.medium, componentContext.theme.tokens.metrics.borderWidth, palette.border)
+            renderer.roundedRect(Rect(card.x, card.y + 9f, 2f, card.height - 18f), componentContext.theme.tokens.radii.pill, if (index == 1) palette.accent else palette.borderStrong)
+            if (index == 1) {
+                val category = activeCategory()
+                val total = category?.settings?.count { it.isVisible.value } ?: 0
+                val modified = category?.settings?.count { it.isVisible.value && it.isModified.value } ?: 0
+                val progress = if (total == 0) 0f else modified.toFloat() / total
+                val track = Rect(card.x + 10f, card.bottom - 7f, card.width - 20f, 2f)
+                renderer.roundedRect(track, componentContext.theme.tokens.radii.pill, palette.border)
+                if (progress > 0f) {
+                    renderer.roundedRect(
+                        Rect(track.x, track.y, track.width * progress, track.height),
+                        componentContext.theme.tokens.radii.pill,
+                        palette.accent,
+                    )
+                    context.diagnostics.drawCalls++
+                }
+                context.diagnostics.drawCalls++
+            }
+            metric.value.colorOverride = if (index == 1) palette.accent else palette.textPrimary
+            metric.label.colorOverride = palette.textDisabled
+            context.diagnostics.drawCalls += 3
+        }
+    }
+
+    private companion object {
+        const val SUMMARY_HEIGHT = 56f
+        const val CARD_GAP = 7f
     }
 }
 
@@ -346,6 +706,21 @@ public class ConfigScreenLayoutNode(
         controller.search(query)
     }
 
+    /** Wide-layout search. It mirrors [searchBox] through the controller's authoritative query state. */
+    private val headerSearchBox: SearchBoxNode = SearchBoxNode(
+        id = id.child("header_search"),
+        componentContext = componentContext,
+        placeholder = "Search anything…",
+        externalQuery = controller.searchQuery,
+    ) { query ->
+        controller.search(query)
+    }
+
+    private val headerSearch = FixedSizeNode(
+        id.child("header_search_slot"),
+        width = HEADER_SEARCH_WIDTH.dp,
+    ).apply { addChild(headerSearchBox) }
+
     /** Restores every setting on the screen to its default. */
     public val resetButton: ChromeButtonNode = ChromeButtonNode(
         id = id.child("reset_all"),
@@ -363,24 +738,41 @@ public class ConfigScreenLayoutNode(
         activeCategory = controller.activeCategory,
         // Search and Reset sit at the bottom of the sidebar, as in the reference: the
         // top of the screen belongs to the title and the primary action.
-        footer = listOf(searchBox, resetButton),
+        footer = listOf(SidebarStatusNode(id.child("saved_status"), componentContext), searchBox, resetButton),
         onSelect = { categoryId -> controller.selectCategory(categoryId) },
     )
+
+    private val activeCategoryTitle: UiState<String> = derivedStateOf("${id.value}.active_category_title") {
+        controller.activeCategory.value
+            ?.let(controller.screen::category)
+            ?.title
+            ?.value
+            ?: controller.screen.title.value
+    }
+
+    private val activeCategoryDescription: UiState<String> =
+        derivedStateOf("${id.value}.active_category_description") {
+            controller.activeCategory.value
+                ?.let(controller.screen::category)
+                ?.description
+                ?.value
+                ?: controller.screen.description?.value
+                ?: "Configure Sidequest"
+        }
 
     private val header: ScreenHeaderNode = ScreenHeaderNode(
         id = id.child("header"),
         componentContext = componentContext,
-        title = controller.screen.title,
-        // From the screen definition. A hardcoded subtitle here made every screen
-        // claim to be the mod's own configuration, including the component gallery.
-        subtitle = controller.screen.description,
+        title = activeCategoryTitle,
+        subtitle = activeCategoryDescription,
         actions = buildList {
+            add(headerSearch)
             onSaveAndClose?.let { action ->
                 add(
                     ChromeButtonNode(
                         id.child("save"),
                         componentContext,
-                        "Save & Close",
+                        "Done",
                         ButtonTone.PRIMARY,
                         onActivate = action,
                     ),
@@ -391,7 +783,7 @@ public class ConfigScreenLayoutNode(
                     ChromeButtonNode(
                         id.child("close"),
                         componentContext,
-                        "X",
+                        "×",
                         ButtonTone.NEUTRAL,
                         fixedWidth = CLOSE_BUTTON_WIDTH,
                         onActivate = action,
@@ -401,26 +793,13 @@ public class ConfigScreenLayoutNode(
         },
     )
 
-    /**
-     * The right-hand column. Present in the tree always, hidden when the viewport is too
-     * narrow — building it once and toggling visibility keeps its state across resizes.
-     */
-    public val infoPanel: InfoPanelNode = InfoPanelNode(
-        id = id.child("info"),
-        componentContext = componentContext,
-        aboutTitle = "About",
-        aboutBody = "Enable only the features you need and tune everything to your liking.",
-        tipBody = "Hover any setting for more detail about what it does.",
-        profileActions = emptyList(),
-    )
+    private val categorySummary = CategorySummaryNode(id.child("category_summary"), controller, componentContext)
 
     /** Shown instead of the list when a search matches nothing. */
-    private val emptyState = TextNode(
+    private val emptyState = ConfigEmptyStateNode(
         id.child("empty"),
-        derivedStateOf("${id.value}.empty") {
-            "No settings match \"${controller.searchQuery.value}\""
-        },
-        TextRole.SECONDARY,
+        componentContext,
+        controller.searchQuery,
     )
 
     init {
@@ -429,13 +808,17 @@ public class ConfigScreenLayoutNode(
             addChild(controller.list.apply { layoutWeight = 1f })
             addChild(
                 PaddingNode(id.child("empty_padding"), Insets.all(tokens.spacing.xl))
-                    .apply { addChild(emptyState) },
+                    .apply {
+                        layoutWeight = 1f
+                        addChild(emptyState)
+                    },
             )
         }
 
         val content = ColumnNode(id.child("content")).apply {
             layoutWeight = 1f
             addChild(header)
+            addChild(categorySummary)
             addChild(listArea)
         }
 
@@ -443,7 +826,6 @@ public class ConfigScreenLayoutNode(
             RowNode(id.child("root_row")).apply {
                 addChild(sidebar)
                 addChild(content)
-                addChild(infoPanel)
             },
         )
 
@@ -469,13 +851,11 @@ public class ConfigScreenLayoutNode(
         val width = constraints.maxWidth.takeIf { constraints.hasBoundedWidth } ?: FALLBACK_SIZE
         val height = constraints.maxHeight.takeIf { constraints.hasBoundedHeight } ?: FALLBACK_SIZE
 
-        // Responsive columns: the info panel only appears when the settings list would
-        // still have room to breathe afterwards. Below that it is hidden rather than
-        // squeezed, because three unreadable columns are worse than two readable ones.
-        val panelWidth = tokens.metrics.inspectorWidth.value
-        val sidebarWidth = tokens.metrics.sidebarWidth.value
-        val listAfterPanel = width - outerMargin * 2 - sidebarWidth - panelWidth
-        infoPanel.isVisible = listAfterPanel >= MIN_LIST_WIDTH
+        // Search lives where the available space makes it easiest to reach. On wide screens it sits beside
+        // the page actions; on compact Minecraft GUI scales it returns to the bottom of the navigation rail.
+        val useHeaderSearch = width >= HEADER_SEARCH_MIN_VIEWPORT
+        headerSearch.isVisible = useHeaderSearch
+        searchBox.isVisible = !useHeaderSearch
 
         val inner = Constraints(
             minWidth = (width - outerMargin * 2).coerceAtLeast(0f),
@@ -497,21 +877,23 @@ public class ConfigScreenLayoutNode(
         val panel = bounds.inset(
             Insets(outerMargin, outerMargin, outerMargin, outerMargin),
         )
+        renderer.shadow(panel, tokens.radii.large, tokens.effects.panelShadow)
         renderer.roundedRect(panel, Corners.all(tokens.radii.large), palette.windowBackground)
+        renderer.gradient(
+            Rect(panel.x, panel.y, panel.width, minOf(panel.height, AMBIENT_HEIGHT)),
+            Gradient.linear(palette.accent.withAlpha(0.055f), palette.accent.withAlpha(0f)),
+            tokens.radii.large,
+        )
         renderer.border(panel, Corners.all(tokens.radii.large), tokens.metrics.borderWidth, palette.border)
-        context.diagnostics.drawCalls += 2
+        context.diagnostics.drawCalls += 4
     }
 
     private companion object {
         const val CLOSE_BUTTON_WIDTH = 26f
+        const val HEADER_SEARCH_WIDTH = 154f
+        const val HEADER_SEARCH_MIN_VIEWPORT = 620f
+        const val AMBIENT_HEIGHT = 92f
         const val FALLBACK_SIZE = 480f
 
-        /**
-         * Narrowest the settings list may get before the info panel is dropped.
-         *
-         * Roughly a label column plus a control; below this the descriptions start
-         * wrapping to three lines and every row doubles in height.
-         */
-        const val MIN_LIST_WIDTH = 300f
     }
 }
