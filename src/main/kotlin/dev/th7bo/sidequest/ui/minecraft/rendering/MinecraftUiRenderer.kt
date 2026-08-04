@@ -219,13 +219,43 @@ public class MinecraftUiRenderer(
             RoundedRectRaster.rows(innerBounds, corners.inset(thickness)).let(RoundedRectRaster::byScanline)
         }
 
+        val stroke = max(1, thickness.roundToInt())
         for (row in outer) {
-            // The middle of the shape is one tall row; the border there is only its two vertical edges, so
-            // it is walked a pixel at a time rather than being treated as a single band.
-            for (y in row.top until row.bottom) {
-                val hole = inner[y]
-                paintBorderRow(row, hole, y, thickness, color, packed)
+            // A tall row is the shape's straight middle, and an outline there is two vertical bars — four
+            // quads however tall it is.
+            //
+            // This used to walk it a scanline at a time, which made the cost of an outline proportional to
+            // the height of the thing it was around. A full-height panel at a GUI scale of 3 is over a
+            // thousand scanlines, each several draws, for one border. That was the frame rate.
+            if (row.bottom - row.top > 1) {
+                graphics.fill(row.solidLeft, row.top, row.solidLeft + stroke, row.bottom, packed)
+                graphics.fill(row.solidRight - stroke, row.top, row.solidRight, row.bottom, packed)
+                softEdgesTall(row, color)
+                continue
             }
+            paintBorderRow(row, inner[row.top], row.top, thickness, color, packed)
+        }
+    }
+
+    /** The straight middle's two partially covered edge columns, as one tall quad each. */
+    private fun softEdgesTall(row: RoundedRectRaster.Row, color: Color) {
+        if (row.leftCoverage > MIN_COVERAGE) {
+            graphics.fill(
+                row.solidLeft - 1,
+                row.top,
+                row.solidLeft,
+                row.bottom,
+                resolve(color.scaleAlpha(row.leftCoverage)),
+            )
+        }
+        if (row.rightCoverage > MIN_COVERAGE) {
+            graphics.fill(
+                row.solidRight,
+                row.top,
+                row.solidRight + 1,
+                row.bottom,
+                resolve(color.scaleAlpha(row.rightCoverage)),
+            )
         }
     }
 
@@ -332,7 +362,11 @@ public class MinecraftUiRenderer(
             val ring = base.outset(
                 dev.th7bo.sidequest.ui.geometry.Insets(spread, spread, spread, spread),
             )
-            roundedRect(ring, Dp(radius.value + spread), shadow.color.withAlpha(fade))
+            // Deliberately *not* through the physical-pixel path. A shadow is a stack of fading rings whose
+            // whole purpose is to be blurry, so smoothing each ring's corners buys nothing anybody can see —
+            // and it was buying it several times per panel, at the same cost as a real shape. Drawn in GUI
+            // pixels, a shadow is a handful of quads instead of a few thousand.
+            fillRows(ring, Corners.all(Dp(radius.value + spread)), shadow.color.withAlpha(fade))
         }
     }
 

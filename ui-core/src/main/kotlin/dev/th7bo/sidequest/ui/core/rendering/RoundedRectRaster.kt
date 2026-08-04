@@ -166,4 +166,5 @@ public object RoundedRectRaster {
     private fun clamp(radius: Float, limit: Float): Float = min(radius, limit).coerceAtLeast(0f)
 
     private const val HALF = 0.5f
+
 }

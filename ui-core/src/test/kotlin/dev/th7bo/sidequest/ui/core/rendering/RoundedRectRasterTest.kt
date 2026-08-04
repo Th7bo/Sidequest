@@ -143,6 +143,24 @@ class RoundedRectRasterTest {
         assertEquals(11, rows.single().solidLeft, "the solid part starts at the first whole pixel inside")
     }
 
+    // -- what it costs to draw ------------------------------------------------
+
+    /**
+     * A tall shape does not cost more than a short one.
+     *
+     * The property that the frame rate depends on. These rows are *display* pixels — three times as many as
+     * they look — so anything proportional to a panel's height becomes thousands of draws for one shape. A
+     * full-height panel and a small button must slice into the same number of rows, because the only thing
+     * that varies is the corners.
+     */
+    @Test
+    fun `row count follows the radius, not the height`() {
+        val short = RoundedRectRaster.rows(rect(200f, 30f), Corners.all(9.dp))
+        val tall = RoundedRectRaster.rows(rect(200f, 900f), Corners.all(9.dp))
+
+        assertEquals(short.size, tall.size, "a taller shape produced more rows")
+    }
+
     // -- looking a shape up by height -----------------------------------------
 
     /**
