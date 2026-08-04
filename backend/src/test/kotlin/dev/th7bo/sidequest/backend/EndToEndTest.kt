@@ -331,6 +331,62 @@ class EndToEndTest {
         assertEquals(setOf(OTHER), otherSees.single().recipients)
     }
 
+    /**
+     * A debt reaches the two people it is about and nobody else.
+     *
+     * The sharpest case of the addressing rule, and worth its own test rather than trusting the waypoint
+     * one: a debt event names who owes what, which is the single most private thing this mod puts on a
+     * wire. A third member of the group receiving it is not a cosmetic leak — it is somebody's finances
+     * shown to a room.
+     *
+     * Both permission-relevant sides are covered at once. `CREATE_DEBTS` is a capability, so a guest would
+     * be refused it anyway; here everybody is a member, which means the *only* thing keeping the debt away
+     * from the third client is the recipient list.
+     */
+    @Test
+    fun `a debt reaches only the two people it is about`() = testApplication {
+        val backend = SidequestBackend(
+            BackendConfig(statePath = root.resolve("state.json"), operatorToken = OPERATOR, ownerAccountId = OWNER),
+            now = { clock },
+        )
+        application { backend.install(this) }
+
+        val creditor = pairClient("creditor-device", OWNER, "Th7bo")
+        val debtor = pairClient("debtor-device", OTHER, "Friend")
+        val bystander = pairClient("bystander-device", THIRD, "Nosey")
+
+        backend.store.mutate { state ->
+            state.copy(
+                permissions = state.permissions.copy(
+                    roles = state.permissions.roles +
+                        (OWNER.value to GroupRole.OWNER) +
+                        (OTHER.value to GroupRole.MEMBER) +
+                        (THIRD.value to GroupRole.MEMBER),
+                ),
+            ) to Unit
+        }
+
+        val payload = RealtimePayload.DebtCreated(debtId = "d1", debtor = OTHER, coins = 5_000_000)
+        assertTrue(
+            creditor.submit(
+                RealtimeMessage(
+                    messageId = "d1",
+                    timestampMillis = clock,
+                    scope = payload.scope,
+                    recipients = setOf(OWNER, OTHER),
+                    payload = payload,
+                ),
+            ),
+        )
+
+        assertEquals(1, debtor.fetchEventsSince(0).valueOrNull()?.messages?.size, "the debtor must be told")
+        assertEquals(1, creditor.fetchEventsSince(0).valueOrNull()?.messages?.size, "so must the creditor")
+        assertTrue(
+            bystander.fetchEventsSince(0).valueOrNull()?.messages.orEmpty().isEmpty(),
+            "somebody else's finances reached a third client",
+        )
+    }
+
     /** Pairs one client end to end and hands it back, online. */
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.pairClient(
         outboxName: String,
@@ -380,5 +436,8 @@ class EndToEndTest {
 
         /** A second paired account, so "who receives it" is a question with two possible answers. */
         val OTHER = AccountId("other")
+
+        /** A third member, so "everybody entitled" and "the two involved" are different sets. */
+        val THIRD = AccountId("third")
     }
 }

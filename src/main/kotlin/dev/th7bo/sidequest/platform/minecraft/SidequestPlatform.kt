@@ -513,6 +513,9 @@ class SidequestPlatform(
      */
     val accountsByPlayer: Map<PlayerId, AccountId> get() = presencePublisher?.playerToAccount.orEmpty()
 
+    /** The same mapping read the other way, for attributing what arrives. */
+    val playersByAccount: Map<AccountId, PlayerId> get() = presencePublisher?.accountToPlayer.orEmpty()
+
     /**
      * The backend configuration.
      *

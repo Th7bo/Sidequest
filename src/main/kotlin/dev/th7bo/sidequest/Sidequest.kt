@@ -1,6 +1,7 @@
 package dev.th7bo.sidequest
 
 import dev.th7bo.sidequest.features.CustomFriends
+import dev.th7bo.sidequest.features.DebtTracker
 import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.PlaytimeTracker
@@ -540,6 +541,12 @@ object Sidequest : ClientModInitializer {
         friends.openHub = ::openFriendHub
         friends.openActions = ::openPlayerActions
 
+        debts = DebtTracker(
+            localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
+            publish = ::publishDebt,
+            resolveAccount = { account -> platform.playersByAccount[account] },
+        )
+
         waypoints = SharedWaypoints(
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
             standingAt = { platform.localPosition },
@@ -582,6 +589,8 @@ object Sidequest : ClientModInitializer {
             gardenBobbing,
             // Before the waypoints, which ask it who the friends are the moment they draw.
             friends,
+            // After the friends, whose list its command completes from.
+            debts,
             waypoints,
             pings,
             readyChecks,
@@ -598,6 +607,8 @@ object Sidequest : ClientModInitializer {
     private lateinit var waypoints: SharedWaypoints
 
     private lateinit var friends: CustomFriends
+
+    private lateinit var debts: DebtTracker
 
     /**
      * Opens the waypoint manager.
@@ -777,6 +788,65 @@ object Sidequest : ClientModInitializer {
         // true whenever a server *URL* was configured — which it is by default — so every caller was told
         // its message had gone out while it sat in an offline queue. A feature that says "shared" when
         // nothing was shared is worse than one that admits it is local.
+        return realtime.isConnected
+    }
+
+    /**
+     * Tells the two people involved about a debt, and nobody else.
+     *
+     * **Addressed, not broadcast.** A debt event names who owes what, and that is nobody else's business
+     * even inside a friend group. This is the first thing to use the recipient field for what it was added
+     * for — and if either account cannot be resolved the message is not sent at all, because an unresolved
+     * recipient set is empty and an empty one means everybody.
+     */
+    private fun publishDebt(debt: dev.th7bo.sidequest.platform.core.debt.Debt, isPayment: Boolean): Boolean {
+        val platform = platformOrNull ?: return false
+        val realtime = platform.realtime ?: return false
+
+        val accounts = platform.accountsByPlayer
+        val debtorAccount = accounts[debt.debtor]
+        val creditorAccount = accounts[debt.creditor]
+        if (debtorAccount == null || creditorAccount == null) {
+            logger.debug("Debt {} not sent: one of the two is not a known account", debt.id)
+            return false
+        }
+
+        val payload = if (isPayment) {
+            dev.th7bo.sidequest.protocol.RealtimePayload.PaymentConfirmed(
+                debtId = debt.id,
+                coins = debt.repayments.lastOrNull()?.coins ?: 0,
+                note = debt.repayments.lastOrNull()?.note,
+            )
+        } else {
+            dev.th7bo.sidequest.protocol.RealtimePayload.DebtCreated(
+                debtId = debt.id,
+                debtor = debtorAccount,
+                coins = (debt.amount as? dev.th7bo.sidequest.platform.core.debt.DebtAmount.Coins)?.amount ?: 0,
+                item = (debt.amount as? dev.th7bo.sidequest.platform.core.debt.DebtAmount.Item)?.item,
+                // The reason, not the note. A note is private to whoever wrote it, exactly as it is on a
+                // waypoint, and this is the second door out of that same house.
+                note = debt.reason.ifBlank { null },
+            )
+        }
+
+        ioScope.launch {
+            runCatching {
+                realtime.send(
+                    dev.th7bo.sidequest.protocol.RealtimeMessage(
+                        messageId = java.util.UUID.randomUUID().toString(),
+                        timestampMillis = platform.backend?.serverTime
+                            ?.toServer(System.currentTimeMillis())
+                            ?: System.currentTimeMillis(),
+                        scope = payload.scope,
+                        recipients = setOf(debtorAccount, creditorAccount),
+                        // Worth knowing it arrived, unlike presence and pings. A debt is the one thing here
+                        // that still matters an hour later, which is exactly what this flag is for.
+                        requiresAcknowledgement = true,
+                        payload = payload,
+                    ),
+                )
+            }.onFailure { logger.debug("Could not send a debt", it) }
+        }
         return realtime.isConnected
     }
 
