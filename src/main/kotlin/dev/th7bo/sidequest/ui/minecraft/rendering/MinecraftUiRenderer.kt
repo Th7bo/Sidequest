@@ -89,20 +89,62 @@ public class MinecraftUiRenderer(
     }
 
     /**
-     * A rounded rectangle with anti-aliased corners.
+     * A rounded rectangle with smooth corners.
      *
-     * The corners used to be cut with whole-pixel spans, which is a staircase — and at the radii an
-     * interface actually uses, the steps are big enough to be the reason a panel reads as pixel art rather
-     * than as a rounded panel. Since `fill` only takes whole coordinates, the smoothness cannot come from
-     * finer geometry; it comes from *alpha*. [RoundedRectRaster] works out how much of each edge pixel the
-     * shape really covers, and that fraction is multiplied into the colour.
+     * Two things together, and it took both — the first on its own was not enough. [RoundedRectRaster] works
+     * out how much of each edge pixel the curve actually covers so the boundary can be drawn at partial
+     * alpha; and [inPhysicalPixels] makes those pixels *display* pixels rather than GUI ones.
      *
-     * Roughly three fills per corner row and one for the whole straight middle, so a panel costs tens of
-     * quads rather than hundreds.
+     * Alpha alone left it looking stepped, which is worth recording because it was not obvious: at a GUI
+     * scale of 3 a "pixel" is a three-by-three block, so grading the staircase changed the colour of the
+     * steps without changing their size. The eye reads the size.
      */
     override fun roundedRect(bounds: Rect, corners: Corners, color: Color) {
         if (color.isTransparent || bounds.isEmpty) return
+        inPhysicalPixels(bounds, corners) { scaledBounds, scaledCorners ->
+            fillRows(scaledBounds, scaledCorners, color)
+        }
+    }
 
+    /**
+     * Runs [draw] in a coordinate space where one unit is one **physical** pixel.
+     *
+     * This is the difference between corners that are merely softened and corners that are smooth. `fill`
+     * takes whole numbers, and those numbers are *GUI* pixels — at a GUI scale of 3, which is ordinary, one
+     * of them covers a three-by-three block on the actual display. Anti-aliasing at that granularity grades
+     * the staircase without making the steps any smaller, which is why the first attempt still looked
+     * stepped: the steps were three real pixels tall whatever colour they were.
+     *
+     * Scaling the matrix down by the GUI scale and multiplying every coordinate up by it puts the shape back
+     * exactly where it was, but now addressable per display pixel. The corner bands cost that many more
+     * quads — the straight middle is still one — which is a fair price for the one thing the whole interface
+     * is judged on.
+     */
+    private inline fun inPhysicalPixels(bounds: Rect, corners: Corners, draw: (Rect, Corners) -> Unit) {
+        val scale = frame.guiScale
+        if (scale <= 1f + SCALE_EPSILON) {
+            draw(bounds, corners)
+            return
+        }
+
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        pose.scale(1f / scale, 1f / scale)
+        draw(bounds.scaledBy(scale), corners.scaledBy(scale))
+        pose.popMatrix()
+    }
+
+    private fun Rect.scaledBy(factor: Float): Rect =
+        Rect(left * factor, top * factor, width * factor, height * factor)
+
+    private fun Corners.scaledBy(factor: Float): Corners = Corners(
+        topLeft = Dp(topLeft.value * factor),
+        topRight = Dp(topRight.value * factor),
+        bottomRight = Dp(bottomRight.value * factor),
+        bottomLeft = Dp(bottomLeft.value * factor),
+    )
+
+    private fun fillRows(bounds: Rect, corners: Corners, color: Color) {
         val packed = resolve(color)
 
         for (row in RoundedRectRaster.rows(bounds, corners)) {
@@ -151,8 +193,18 @@ public class MinecraftUiRenderer(
 
     override fun border(bounds: Rect, corners: Corners, width: Dp, color: Color) {
         if (color.isTransparent || bounds.isEmpty) return
+        inPhysicalPixels(bounds, corners) { scaledBounds, scaledCorners ->
+            // The stroke scales with everything else, or a hairline would come out a full GUI pixel thick
+            // in a space where a pixel is now a third of one.
+            strokeRows(scaledBounds, scaledCorners, width.value * physicalScale(), color)
+        }
+    }
 
-        val thickness = max(1f, width.value)
+    /** How many physical pixels one logical unit currently covers. */
+    private fun physicalScale(): Float = frame.guiScale.coerceAtLeast(1f)
+
+    private fun strokeRows(bounds: Rect, corners: Corners, strokeWidth: Float, color: Color) {
+        val thickness = max(1f, strokeWidth)
         val packed = resolve(color)
 
         val outer = RoundedRectRaster.rows(bounds, corners)
@@ -508,6 +560,9 @@ public class MinecraftUiRenderer(
          * from submitting a quad per row for a contribution nobody can see.
          */
         const val MIN_COVERAGE = 0.025f
+
+        /** Below this, a GUI scale is 1 and there is nothing to gain from the finer coordinate space. */
+        const val SCALE_EPSILON = 0.01f
 
         /** The one size Minecraft draws an item at. Everything else is a scale around it. */
         const val SLOT_SIZE = 16f
