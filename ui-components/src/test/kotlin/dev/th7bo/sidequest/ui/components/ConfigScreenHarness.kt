@@ -22,10 +22,21 @@ class ConfigScreenHarness(
     screen: ConfigScreen,
     viewport: Size = Size(420f, 300f),
     theme: Theme = DarkTheme,
+    /**
+     * Where the frame goes.
+     *
+     * Defaulted to the recording renderer every assertion here uses. A preview passes one that draws into an
+     * image instead, which is the only way to *look* at what the real controller lays out.
+     */
+    private val target: dev.th7bo.sidequest.ui.rendering.UiRenderer? = null,
 ) {
 
     val textMeasurer: FakeTextMeasurer = FakeTextMeasurer()
-    val renderer: RecordingRenderer = RecordingRenderer(viewport, textMeasurer)
+    val renderer: dev.th7bo.sidequest.ui.rendering.UiRenderer =
+        target ?: RecordingRenderer(viewport, textMeasurer)
+
+    /** The recording renderer, for the assertions that read back what was drawn. */
+    val recorder: RecordingRenderer get() = renderer as RecordingRenderer
     val runtime: UiRuntime = UiRuntime(theme)
 
     val registrationScope: RegistrationScope = RegistrationScope(UiId.of("sidequest", "standard"))
@@ -52,9 +63,10 @@ class ConfigScreenHarness(
     val list get() = controller.list
 
     fun frame(deltaSeconds: Float = 1f / 60f): FrameMetrics {
-        renderer.beginFrame(deltaSeconds)
+        val recording = renderer as? RecordingRenderer
+        recording?.beginFrame(deltaSeconds)
         val metrics = runtime.frame(renderer, deltaSeconds)
-        renderer.endFrame()
+        recording?.endFrame()
         return metrics
     }
 
@@ -65,7 +77,7 @@ class ConfigScreenHarness(
     }
 
     /** Every text drawn this frame, in paint order. */
-    fun drawnText(): List<String> = renderer.commands
+    fun drawnText(): List<String> = (renderer as RecordingRenderer).commands
         .filterIsInstance<dev.th7bo.sidequest.ui.testkit.DrawCommand.Text>()
         .map { it.content }
 

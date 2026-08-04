@@ -80,8 +80,20 @@ public class CardSliceNode(
         addChild(content)
     }
 
-    private val horizontalMargin: Float get() = tokens.spacing.large.value
     private val radius get() = tokens.radii.large
+
+    /**
+     * How far in from the edge the card starts.
+     *
+     * Derived rather than fixed, because a settings list stretched to the full width of a wide screen puts a
+     * label at one edge and its control at the other — a row you have to track across with your eyes, which
+     * no modern interface asks of anybody. The card is capped at a readable column and centred in whatever
+     * space there is.
+     */
+    private fun marginFor(available: Float): Float {
+        val card = minOf(available - tokens.spacing.large.value * 2, MAX_CARD_WIDTH)
+        return ((available - card) / 2f).coerceAtLeast(0f)
+    }
 
     /** What a row is short by, against the padding a header gives itself. Zero for anything else. */
     private val bottomInset: Float
@@ -93,7 +105,8 @@ public class CardSliceNode(
 
     override fun measureSelf(constraints: Constraints, context: LayoutContext): Size {
         val available = if (constraints.hasBoundedWidth) constraints.maxWidth else FALLBACK_WIDTH
-        val contentWidth = (available - horizontalMargin * 2).coerceAtLeast(0f)
+        val margin = marginFor(available)
+        val contentWidth = (available - margin * 2).coerceAtLeast(0f)
 
         val child = children.firstOrNull { it.isVisible } ?: return Size(available, 0f)
         val childSize = child.measure(
@@ -108,17 +121,19 @@ public class CardSliceNode(
 
     override fun arrangeChildren(context: LayoutContext) {
         val child = children.firstOrNull { it.isVisible } ?: return
-        child.arrange(Rect.of(Vec2(horizontalMargin, 0f), child.measuredSize), context)
+        val margin = marginFor(measuredSize.width)
+        child.arrange(Rect.of(Vec2(margin, 0f), child.measuredSize), context)
     }
 
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
 
         val trailing = if (segment.roundsBottom) tokens.spacing.large.value else 0f
+        val margin = marginFor(bounds.width)
         val card = Rect(
-            bounds.x + horizontalMargin,
+            bounds.x + margin,
             bounds.y,
-            (bounds.width - horizontalMargin * 2).coerceAtLeast(0f),
+            (bounds.width - margin * 2).coerceAtLeast(0f),
             (bounds.height - trailing).coerceAtLeast(0f),
         )
         if (card.isEmpty) return
@@ -130,35 +145,26 @@ public class CardSliceNode(
             CardSegment.SINGLE -> Corners.all(radius)
         }
 
+        // The surface, and nothing around it.
+        //
+        // A card used to draw its own outline and a divider above every row. Both are what makes a settings
+        // page read as a stack of boxes: the eye follows the lines instead of the content, and a screen of
+        // them looks like a form from twenty years ago. The card is legible against the window without any
+        // of it, which is how the interfaces this is aiming at do it.
         renderer.roundedRect(card, corners, palette.elevatedPanelBackground)
         context.diagnostics.drawCalls++
-
-        // The horizontal edges belong to the card, not to every row — drawing them on a
-        // middle slice would put a line through the middle of the card.
-        if (segment == CardSegment.MIDDLE) {
-            renderer.edges(card, Edges.Sides, tokens.metrics.borderWidth, palette.border)
-        } else {
-            renderer.border(card, corners, tokens.metrics.borderWidth, palette.border)
-            if (segment == CardSegment.TOP) {
-                renderer.edges(card, Edges(left = true, right = true), tokens.metrics.borderWidth, palette.border)
-            }
-        }
-        context.diagnostics.drawCalls++
-
-        if (showDivider) {
-            // Inset from the border so the two do not visually merge into one thick line.
-            val inset = tokens.spacing.small.value
-            renderer.fillRect(
-                Rect(card.x + inset, card.y, (card.width - inset * 2).coerceAtLeast(0f), DIVIDER_THICKNESS),
-                palette.border,
-            )
-            context.diagnostics.drawCalls++
-        }
     }
 
     private companion object {
         const val FALLBACK_WIDTH = 320f
-        const val DIVIDER_THICKNESS = 1f
+
+        /**
+         * The widest a card is allowed to be.
+         *
+         * A readable column. Past this a row's label and its control drift so far apart that pairing them
+         * becomes work, which is the single thing that made the old screen feel like a spreadsheet.
+         */
+        const val MAX_CARD_WIDTH = 460f
     }
 }
 

@@ -570,7 +570,7 @@ class Phase2AcceptanceTest {
         val text = harness.drawnText()
         assertTrue(text.any { it.contains("Interface") }, "section header")
         assertTrue(text.any { it.contains("Notification Duration") }, "setting label")
-        assertTrue(harness.renderer.commands.isNotEmpty())
+        assertTrue(harness.recorder.commands.isNotEmpty())
     }
 
     @Test

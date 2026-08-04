@@ -209,7 +209,7 @@ class ScreenChromeTest {
     fun `the layout fills the viewport and draws its chrome`() {
         assertEquals(500f, layout.measuredSize.width)
         assertEquals(320f, layout.measuredSize.height)
-        assertNotNull(harness.renderer.commands.firstOrNull())
+        assertNotNull(harness.recorder.commands.firstOrNull())
         assertTrue(harness.drawnText().any { it == "General" }, "the sidebar must be drawn")
     }
 

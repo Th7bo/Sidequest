@@ -107,7 +107,7 @@ public data class SpacingScale(
     val medium: Dp = 6.dp,
     val large: Dp = 10.dp,
     val xl: Dp = 14.dp,
-    val xxl: Dp = 20.dp,
+    val xxl: Dp = 22.dp,
 )
 
 /**

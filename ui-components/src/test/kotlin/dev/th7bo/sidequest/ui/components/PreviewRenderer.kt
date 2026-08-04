@@ -17,7 +17,11 @@ import dev.th7bo.sidequest.ui.rendering.TextStyle
 import dev.th7bo.sidequest.ui.rendering.TextureRef
 import dev.th7bo.sidequest.ui.rendering.Transform
 import dev.th7bo.sidequest.ui.rendering.UiRenderer
+import java.awt.Color as AwtColor
+import java.awt.Font as AwtFont
+import java.awt.RenderingHints
 import java.awt.image.BufferedImage
+import java.io.File
 import kotlin.math.roundToInt
 
 /**
@@ -28,9 +32,9 @@ import kotlin.math.roundToInt
  * PNG and inspected.
  *
  * It rasterises through the same [RoundedRectRaster] the real renderer uses, at a supersampled resolution,
- * which is the point: what comes out is what the shape *is*, not a second opinion about it. Text is drawn as
- * a bar of the right size rather than as glyphs — the font belongs to the game, and pretending otherwise
- * would make the preview a picture of something that does not ship.
+ * and draws text in the *shipped* typeface loaded from the mod's own resources. Both matter: a preview that
+ * approximated either would be a picture of something that does not ship, which is worse than no preview at
+ * all because it invites confident conclusions.
  */
 internal class PreviewRenderer(
     private val image: BufferedImage,
@@ -45,6 +49,24 @@ internal class PreviewRenderer(
         guiScale = scale.toFloat(),
     )
 
+    /**
+     * The shipped typeface, loaded straight from the resources.
+     *
+     * The preview is only worth having if what it draws is what ships, and text is most of a screen. Falling
+     * back to a logical font when the file cannot be found keeps the harness usable from anywhere, at the
+     * cost of a preview whose metrics are approximate — which is said out loud rather than hidden.
+     */
+    private val awtFont: AwtFont = loadInter()
+
+    private val graphics = image.createGraphics().apply {
+        setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+        setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+        setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON)
+    }
+
+    private fun fontFor(style: TextStyle): AwtFont =
+        awtFont.deriveFont(if (style.bold) AwtFont.BOLD else AwtFont.PLAIN, FONT_SIZE * style.scale * scale)
+
     override val textMeasurer: TextMeasurer = object : TextMeasurer {
         override fun measure(
             text: String,
@@ -52,14 +74,37 @@ internal class PreviewRenderer(
             maxWidth: Float?,
             maxLines: Int,
             overflow: dev.th7bo.sidequest.ui.rendering.TextOverflow,
-        ): TextLayout = TextLayout(
-            text = text,
-            style = style,
-            lines = emptyList(),
-            size = dev.th7bo.sidequest.ui.geometry.Size(0f, lineHeight(style)),
-        )
+        ): TextLayout {
+            val height = lineHeight(style)
+            val lines = text.split('\n').take(maxLines).map { content ->
+                TextLayout.Line(content, widthOf(content, style), height)
+            }
+            return TextLayout(
+                text = text,
+                style = style,
+                lines = lines,
+                size = dev.th7bo.sidequest.ui.geometry.Size(
+                    lines.maxOfOrNull { it.width } ?: 0f,
+                    height * maxOf(1, lines.size),
+                ),
+            )
+        }
 
         override fun lineHeight(style: TextStyle): Float = LINE_HEIGHT * style.scale
+    }
+
+    /** Measured with the same face and size the drawing uses, or the two disagree and text overruns. */
+    private fun widthOf(text: String, style: TextStyle): Float =
+        graphics.getFontMetrics(fontFor(style)).stringWidth(text).toFloat() / scale
+
+    private fun loadInter(): AwtFont {
+        for (candidate in FONT_PATHS) {
+            val file = File(candidate)
+            if (file.exists()) {
+                runCatching { return AwtFont.createFont(AwtFont.TRUETYPE_FONT, file) }
+            }
+        }
+        return AwtFont(AwtFont.SANS_SERIF, AwtFont.PLAIN, 1)
     }
 
     fun clear(color: Color) {
@@ -137,8 +182,17 @@ internal class PreviewRenderer(
 
     override fun blur(bounds: Rect, radius: Dp, strength: Float) = Unit
 
-    /** A bar where the text would be. See the class comment: the font is the game's, not this harness's. */
-    override fun text(layout: TextLayout, position: Vec2, color: Color) = Unit
+    override fun text(layout: TextLayout, position: Vec2, color: Color) {
+        val font = fontFor(layout.style)
+        graphics.font = font
+        graphics.color = AwtColor(color.argb, true)
+        val metrics = graphics.getFontMetrics(font)
+        for ((index, line) in layout.lines.withIndex()) {
+            if (line.content.isEmpty()) continue
+            val y = (position.y + LINE_HEIGHT * layout.style.scale * index) * scale + metrics.ascent
+            graphics.drawString(line.content, position.x * scale, y)
+        }
+    }
 
     override fun icon(icon: Icon, bounds: Rect, tint: Color) = Unit
 
@@ -194,6 +248,16 @@ internal class PreviewRenderer(
 
     private companion object {
         const val MIN_COVERAGE = 0.02f
-        const val LINE_HEIGHT = 9f
+
+        /** Matches `SidequestFont.LINE_HEIGHT`, which is what the shipped renderer lays out with. */
+        const val LINE_HEIGHT = 10f
+
+        /** Matches the size in `assets/sidequest/font/ui.json`. */
+        const val FONT_SIZE = 9.5f
+
+        val FONT_PATHS = listOf(
+            "../src/main/resources/assets/sidequest/font/inter_regular.ttf",
+            "src/main/resources/assets/sidequest/font/inter_regular.ttf",
+        )
     }
 }

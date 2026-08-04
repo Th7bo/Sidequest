@@ -24,7 +24,7 @@ public object DarkTheme : TokenTheme(UiId.of("sidequest", "theme.dark"), "Dark")
             // container turns a page into a stack of boxes; a card that is *barely* lighter reads as one
             // surface with depth, which is what the references do.
             panelBackground = Color.parse("#D9121020"),
-            elevatedPanelBackground = Color.parse("#59201C38"),
+            elevatedPanelBackground = Color.parse("#66211D3A"),
             hoverBackground = Color.parse("#12FFFFFF"),
             pressedBackground = Color.parse("#1AFFFFFF"),
             selectedBackground = Color.parse("#33A855F7"),
@@ -41,7 +41,7 @@ public object DarkTheme : TokenTheme(UiId.of("sidequest", "theme.dark"), "Dark")
             warning = Color.parse("#FBBF24"),
             error = Color.parse("#FB7185"),
             textPrimary = Color.parse("#F2EEFA"),
-            textSecondary = Color.parse("#8B85A8"),
+            textSecondary = Color.parse("#736D8C"),
             textDisabled = Color.parse("#544E6C"),
             scrim = Color.parse("#A6000000"),
         ),
