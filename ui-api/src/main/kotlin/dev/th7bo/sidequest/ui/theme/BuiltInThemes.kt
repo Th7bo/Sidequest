@@ -24,14 +24,14 @@ public object DarkTheme : TokenTheme(UiId.of("sidequest", "theme.dark"), "Dark")
             // container turns a page into a stack of boxes; a card that is *barely* lighter reads as one
             // surface with depth, which is what the references do.
             panelBackground = Color.parse("#D9121020"),
-            elevatedPanelBackground = Color.parse("#B31A1730"),
+            elevatedPanelBackground = Color.parse("#59201C38"),
             hoverBackground = Color.parse("#12FFFFFF"),
             pressedBackground = Color.parse("#1AFFFFFF"),
             selectedBackground = Color.parse("#33A855F7"),
             // Barely there. Depth is the shadow's job — see `EffectTokens` — and a line around every
             // surface is exactly what a modern interface leaves out.
-            border = Color.parse("#1AFFFFFF"),
-            borderStrong = Color.parse("#38FFFFFF"),
+            border = Color.parse("#0FFFFFFF"),
+            borderStrong = Color.parse("#2BFFFFFF"),
             focusRing = ACCENT,
             accent = ACCENT,
             accentHover = Color.parse("#C084FC"),
