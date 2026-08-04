@@ -233,6 +233,62 @@ class RoundedRectRasterTest {
         assertTrue(decomposition.fills.size + decomposition.arcs.size <= 11, "too many pieces: $decomposition")
     }
 
+    /**
+     * An outline's bars never run under its corners.
+     *
+     * Overlap matters more on a stroke than on a fill. A border is translucent, so drawing a pixel twice is
+     * a visibly darker patch at each corner rather than a harmless double-paint — four little dark commas
+     * that look like a rendering fault and are hard to attribute to anything.
+     */
+    @Test
+    fun `an outline's bars stop where its corners begin`() {
+        for (corners in listOf(
+            Corners.all(9.dp),
+            Corners.top(14.dp),
+            Corners(topLeft = 12.dp, topRight = 4.dp, bottomRight = 0.dp, bottomLeft = 8.dp),
+        )) {
+            val decomposition = RoundedRectRaster.decomposeStroke(rect(64f, 48f), corners, 2f)
+
+            val painted = Array(48) { IntArray(64) }
+            for (piece in decomposition.fills) {
+                for (y in piece.top until piece.bottom) for (x in piece.left until piece.right) painted[y][x]++
+            }
+            for (arc in decomposition.arcs) {
+                for (y in arc.top until arc.top + arc.radius) {
+                    for (x in arc.left until arc.left + arc.radius) painted[y][x]++
+                }
+            }
+
+            assertTrue(painted.all { row -> row.all { it <= 1 } }, "something was drawn twice for $corners")
+        }
+    }
+
+    /** The whole perimeter is covered — a gap in a border is a broken-looking line. */
+    @Test
+    fun `an outline covers every edge`() {
+        val decomposition = RoundedRectRaster.decomposeStroke(rect(64f, 48f), Corners.all(9.dp), 2f)
+
+        val painted = Array(48) { BooleanArray(64) }
+        for (piece in decomposition.fills) {
+            for (y in piece.top until piece.bottom) for (x in piece.left until piece.right) painted[y][x] = true
+        }
+        for (arc in decomposition.arcs) {
+            for (y in arc.top until arc.top + arc.radius) {
+                for (x in arc.left until arc.left + arc.radius) painted[y][x] = true
+            }
+        }
+
+        // Every pixel along the outside edge belongs either to a bar or to a corner square.
+        for (x in 0 until 64) {
+            assertTrue(painted[0][x], "top edge open at $x")
+            assertTrue(painted[47][x], "bottom edge open at $x")
+        }
+        for (y in 0 until 48) {
+            assertTrue(painted[y][0], "left edge open at $y")
+            assertTrue(painted[y][63], "right edge open at $y")
+        }
+    }
+
     // -- looking a shape up by height -----------------------------------------
 
     /**

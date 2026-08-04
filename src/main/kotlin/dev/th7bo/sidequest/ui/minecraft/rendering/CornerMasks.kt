@@ -43,6 +43,54 @@ internal object CornerMasks {
         return cache.getOrPut(radius) { build(radius) }
     }
 
+    private val rings = HashMap<Long, Identifier?>()
+
+    /**
+     * The mask for an *outlined* corner — an arc of a ring rather than a filled quadrant.
+     *
+     * Borders were the last thing still rasterising a curve every frame, and they were the most expensive
+     * one left: a stroke's corner bands are several quads per display-pixel row, so an outline cost more
+     * than the panel it went around. Every glyph drawn as a ring or a frame paid it too.
+     */
+    fun forRing(radius: Int, thickness: Int): Identifier? {
+        if (radius <= 0 || radius > MAX_RADIUS || thickness <= 0) return null
+        val key = radius.toLong() shl KEY_SHIFT or thickness.toLong()
+        return rings.getOrPut(key) { buildRing(radius, thickness) }
+    }
+
+    private fun buildRing(radius: Int, thickness: Int): Identifier? = runCatching {
+        val size = radius * 2
+        val image = NativeImage(size, size, false)
+        val inner = (radius - thickness).coerceAtLeast(0).toFloat()
+        val centre = radius.toFloat()
+
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                val alpha = (ringCoverage(x, y, centre, radius.toFloat(), inner) * MAX_ALPHA)
+                    .toInt().coerceIn(0, MAX_ALPHA)
+                image.setPixel(x, y, (alpha shl ALPHA_SHIFT) or WHITE)
+            }
+        }
+
+        val identifier = Identifier.fromNamespaceAndPath(NAMESPACE, "ring_mask_${radius}_$thickness")
+        Minecraft.getInstance().textureManager.register(identifier, DynamicTexture({ "sidequest ring" }, image))
+        identifier
+    }.getOrNull()
+
+    /** How much of one pixel lies between the two radii. */
+    private fun ringCoverage(x: Int, y: Int, centre: Float, outer: Float, inner: Float): Float {
+        var covered = 0
+        for (sy in 0 until SAMPLES) {
+            for (sx in 0 until SAMPLES) {
+                val dx = x + (sx + HALF) / SAMPLES - centre
+                val dy = y + (sy + HALF) / SAMPLES - centre
+                val distance = sqrt(dx * dx + dy * dy)
+                if (distance <= outer && distance >= inner) covered++
+            }
+        }
+        return covered.toFloat() / (SAMPLES * SAMPLES)
+    }
+
     private fun build(radius: Int): Identifier? = runCatching {
         val size = radius * 2
         val image = NativeImage(size, size, false)
@@ -99,5 +147,8 @@ internal object CornerMasks {
     private const val HALF = 0.5f
     private const val MAX_ALPHA = 255
     private const val ALPHA_SHIFT = 24
+
+    /** Radius in the high bits, thickness in the low ones, so one map keys both. */
+    private const val KEY_SHIFT = 16
     private const val WHITE = 0x00FFFFFF
 }

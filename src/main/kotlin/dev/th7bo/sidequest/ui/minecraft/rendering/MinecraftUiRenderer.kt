@@ -134,21 +134,7 @@ public class MinecraftUiRenderer(
         for (piece in decomposition.fills) {
             graphics.fill(piece.left, piece.top, piece.right, piece.bottom, packed)
         }
-        decomposition.arcs.forEachIndexed { index, arc ->
-            graphics.blit(
-                net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
-                masks[index],
-                arc.left,
-                arc.top,
-                (arc.quadrantX * arc.radius).toFloat(),
-                (arc.quadrantY * arc.radius).toFloat(),
-                arc.radius,
-                arc.radius,
-                arc.radius * 2,
-                arc.radius * 2,
-                packed,
-            )
-        }
+        decomposition.arcs.forEachIndexed { index, arc -> blitArc(masks[index], arc, packed) }
         return true
     }
 
@@ -242,8 +228,50 @@ public class MinecraftUiRenderer(
         inPhysicalPixels(bounds, corners) { scaledBounds, scaledCorners ->
             // The stroke scales with everything else, or a hairline would come out a full GUI pixel thick
             // in a space where a pixel is now a third of one.
-            strokeRows(scaledBounds, scaledCorners, width.value * physicalScale(), color)
+            val thickness = width.value * physicalScale()
+            if (!blitStroke(scaledBounds, scaledCorners, thickness, color)) {
+                strokeRows(scaledBounds, scaledCorners, thickness, color)
+            }
         }
+    }
+
+    /**
+     * An outline as four bars and four baked ring arcs.
+     *
+     * Eight draws rather than several per display-pixel row of curve. This was the last shape still
+     * rasterising every frame, and it had become the most expensive one on the screen — an outline cost more
+     * than the panel it went around.
+     *
+     * @return false when a mask is unavailable, having drawn nothing.
+     */
+    private fun blitStroke(bounds: Rect, corners: Corners, thickness: Float, color: Color): Boolean {
+        val stroke = max(1, thickness.roundToInt())
+        val decomposition = RoundedRectRaster.decomposeStroke(bounds, corners, thickness)
+        val masks = decomposition.arcs.map { CornerMasks.forRing(it.radius, stroke) ?: return false }
+
+        val packed = resolve(color)
+        for (piece in decomposition.fills) {
+            graphics.fill(piece.left, piece.top, piece.right, piece.bottom, packed)
+        }
+        decomposition.arcs.forEachIndexed { index, arc -> blitArc(masks[index], arc, packed) }
+        return true
+    }
+
+    /** One quadrant of a mask, drawn at exactly its own size so a texel is a pixel. */
+    private fun blitArc(mask: Identifier, arc: RoundedRectRaster.Arc, tint: Int) {
+        graphics.blit(
+            net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+            mask,
+            arc.left,
+            arc.top,
+            (arc.quadrantX * arc.radius).toFloat(),
+            (arc.quadrantY * arc.radius).toFloat(),
+            arc.radius,
+            arc.radius,
+            arc.radius * 2,
+            arc.radius * 2,
+            tint,
+        )
     }
 
     /** How many physical pixels one logical unit currently covers. */

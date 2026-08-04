@@ -186,6 +186,54 @@ public object RoundedRectRaster {
         return Decomposition(fills.filterNot { it.isEmpty }, arcs)
     }
 
+    /**
+     * Cuts an *outline* into pieces: four straight bars and the corner arcs between them.
+     *
+     * Eight draws instead of several per display-pixel row of curve. Borders were the last thing still
+     * rasterising every frame and had become the most expensive shape on the screen — an outline cost more
+     * than the panel it surrounded, and every glyph drawn as a ring paid it too.
+     *
+     * The bars stop where the corner squares begin, so nothing is drawn twice. That matters more here than
+     * for a fill: a stroke is usually translucent, and overlapping it produces a visibly darker patch at
+     * each corner rather than a harmless double-paint.
+     */
+    public fun decomposeStroke(bounds: Rect, corners: Corners, strokeWidth: Float): Decomposition {
+        if (bounds.isEmpty) return Decomposition(emptyList(), emptyList())
+
+        val thickness = max(1, strokeWidth.roundToInt())
+        val left = bounds.left.roundToInt()
+        val top = bounds.top.roundToInt()
+        val right = bounds.right.roundToInt()
+        val bottom = bounds.bottom.roundToInt()
+
+        val limit = min(bounds.width, bounds.height) / 2f
+        val topLeft = whole(corners.topLeft.value, limit)
+        val topRight = whole(corners.topRight.value, limit)
+        val bottomLeft = whole(corners.bottomLeft.value, limit)
+        val bottomRight = whole(corners.bottomRight.value, limit)
+
+        // The horizontal bars own the full span between their corners; the vertical ones stop where those
+        // bars begin. Without the `max`, a *square* corner has the vertical bar running under the horizontal
+        // one — and since a stroke is translucent, that overlap is a visibly darker patch at each corner.
+        val verticalTop = { radius: Int -> top + max(radius, thickness) }
+        val verticalBottom = { radius: Int -> bottom - max(radius, thickness) }
+
+        val fills = listOf(
+            Piece(left + topLeft, top, right - topRight, top + thickness),
+            Piece(left + bottomLeft, bottom - thickness, right - bottomRight, bottom),
+            Piece(left, verticalTop(topLeft), left + thickness, verticalBottom(bottomLeft)),
+            Piece(right - thickness, verticalTop(topRight), right, verticalBottom(bottomRight)),
+        ).filterNot { it.isEmpty }
+
+        val arcs = ArrayList<Arc>(CORNERS)
+        if (topLeft > 0) arcs += Arc(left, top, topLeft, 0, 0)
+        if (topRight > 0) arcs += Arc(right - topRight, top, topRight, 1, 0)
+        if (bottomLeft > 0) arcs += Arc(left, bottom - bottomLeft, bottomLeft, 0, 1)
+        if (bottomRight > 0) arcs += Arc(right - bottomRight, bottom - bottomRight, bottomRight, 1, 1)
+
+        return Decomposition(fills, arcs)
+    }
+
     private fun whole(radius: Float, limit: Float): Int = min(radius, limit).coerceAtLeast(0f).roundToInt()
 
     /**
