@@ -40,8 +40,39 @@ internal object CornerMasks {
      */
     fun forRadius(radius: Int): Identifier? {
         if (radius <= 0 || radius > MAX_RADIUS) return null
+        // Bounded. Every radius a *static* interface asks for is one of a dozen values, so a full cache means
+        // something is asking for a new one every frame — and the honest answer then is to refuse and let the
+        // caller use the slow path, rather than to keep minting textures until the machine notices.
+        if (radius !in cache && cache.size >= CACHE_LIMIT) return null
         return cache.getOrPut(radius) { build(radius) }
     }
+
+    /**
+     * One disc, for circles too large to be worth their own mask.
+     *
+     * **This exists because of a frame-rate cliff during cinematics.** The bloom behind a rare drop is six
+     * translucent discs that *breathe* — their radius changes every frame — and a cache keyed by radius turned
+     * that into six new textures rasterised and uploaded per frame, forever. A static interface only ever asks
+     * for a dozen radii, so the per-radius cache was right for everything that was being drawn when it was
+     * written and catastrophic for the first thing that animated a size.
+     *
+     * A single mask, scaled by the matrix to whatever size is wanted. Scaling an alpha ramp with nearest
+     * sampling softens its edge slightly, which for a halo at a tenth opacity is beneath noticing — and is why
+     * this is used only for the *large* circles. Anything small enough for its edge to matter still gets an
+     * exact mask, and those sizes do not animate.
+     */
+    fun disc(): Identifier? = forRadius(DISC_RADIUS)
+
+    /** The size [disc] is drawn at, so a caller can work out its own scale factor. */
+    const val DISC_RADIUS: Int = 32
+
+    /**
+     * Above this, a circle uses the scaled [disc] rather than a mask of its own.
+     *
+     * Chosen to sit above every radius the chrome asks for — the largest is a pill on a control — so nothing
+     * static is ever scaled, and only decorative shapes take the approximation.
+     */
+    const val EXACT_CEILING: Int = 32
 
     private val rings = HashMap<Long, Identifier?>()
 
@@ -55,6 +86,10 @@ internal object CornerMasks {
     fun forRing(radius: Int, thickness: Int): Identifier? {
         if (radius <= 0 || radius > MAX_RADIUS || thickness <= 0) return null
         val key = radius.toLong() shl KEY_SHIFT or thickness.toLong()
+        // Bounded for the same reason the filled masks are: an outline whose radius animates would otherwise
+        // mint a texture a frame. Nothing does today, which is exactly what was true of the filled ones the
+        // day before a cinematic did.
+        if (key !in rings && rings.size >= CACHE_LIMIT) return null
         return rings.getOrPut(key) { buildRing(radius, thickness) }
     }
 
@@ -140,6 +175,15 @@ internal object CornerMasks {
      * enormous one — and falls back to the rasteriser, which is slow but has no such ceiling.
      */
     private const val MAX_RADIUS = 96
+
+    /**
+     * How many exact masks may exist.
+     *
+     * A ceiling rather than a promise. Everything static asks for one of about a dozen radii, so reaching
+     * this means something is animating a size — and refusing is better than filling memory with textures
+     * that will each be used for one frame.
+     */
+    private const val CACHE_LIMIT = 48
 
     /** Samples per axis within a pixel. Sixteen sub-samples is smoother than an eight-bit alpha can show. */
     private const val SAMPLES = 4

@@ -127,6 +127,8 @@ public class MinecraftUiRenderer(
      *   the screen.
      */
     private fun blitCorners(bounds: Rect, corners: Corners, color: Color): Boolean {
+        if (blitLargeDisc(bounds, corners, color)) return true
+
         val decomposition = RoundedRectRaster.decompose(bounds, corners)
         val masks = decomposition.arcs.map { CornerMasks.forRadius(it.radius) ?: return false }
 
@@ -254,6 +256,54 @@ public class MinecraftUiRenderer(
             graphics.fill(piece.left, piece.top, piece.right, piece.bottom, packed)
         }
         decomposition.arcs.forEachIndexed { index, arc -> blitArc(masks[index], arc, packed) }
+        return true
+    }
+
+    /**
+     * A large circle, drawn from the one shared disc mask scaled to fit.
+     *
+     * **This is the cinematic's frame rate.** The bloom behind a rare drop is six translucent discs that
+     * breathe, so their radius is different every frame — and a mask cache keyed by radius answered that by
+     * rasterising and uploading six new textures per frame for the length of the animation. The per-radius
+     * cache is right for an interface whose shapes hold still, which was everything that existed when it was
+     * written.
+     *
+     * One mask, scaled by the matrix. Only for circles past [CornerMasks.EXACT_CEILING]: everything smaller
+     * still gets an exact mask, and nothing that small animates its size. A scaled alpha ramp has a slightly
+     * softer edge, which on a halo at a tenth opacity is beneath noticing and on a toggle knob would not be —
+     * hence the ceiling.
+     *
+     * @return false when this is not that shape, or the mask is unavailable, having drawn nothing.
+     */
+    private fun blitLargeDisc(bounds: Rect, corners: Corners, color: Color): Boolean {
+        val radius = min(bounds.width, bounds.height) / 2f
+        if (radius <= CornerMasks.EXACT_CEILING) return false
+        // A circle, not merely something round: every corner has to reach the half-way point, or the shape has
+        // straight edges that a disc would not draw.
+        if (corners.largest.value < radius) return false
+
+        val mask = CornerMasks.disc() ?: return false
+        val natural = CornerMasks.DISC_RADIUS * 2
+        val scale = bounds.width / natural
+
+        val pose = graphics.pose()
+        pose.pushMatrix()
+        pose.translate(bounds.left, bounds.top)
+        pose.scale(scale, bounds.height / natural)
+        graphics.blit(
+            net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+            mask,
+            0,
+            0,
+            0f,
+            0f,
+            natural,
+            natural,
+            natural,
+            natural,
+            resolve(color),
+        )
+        pose.popMatrix()
         return true
     }
 
