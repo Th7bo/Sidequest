@@ -120,6 +120,12 @@ public class ColorControlNode(
             if (isFocused || isOpen) palette.accent else palette.border,
         )
         context.diagnostics.drawCalls += 2
+        renderer.roundedRect(
+            Rect(bounds.x + 6f, bounds.y + 1f, bounds.width - 12f, 1f),
+            tokens.radii.pill,
+            palette.textPrimary.withAlpha(CONTROL_SHEEN_ALPHA),
+        )
+        context.diagnostics.drawCalls++
 
         val swatch = Rect(
             bounds.x + tokens.spacing.large.value,
@@ -156,5 +162,6 @@ public class ColorControlNode(
         const val SWATCH_SIZE = 11f
         const val OPAQUE = 255
         const val DISABLED_ALPHA = 0.4f
+        const val CONTROL_SHEEN_ALPHA = 0.045f
     }
 }

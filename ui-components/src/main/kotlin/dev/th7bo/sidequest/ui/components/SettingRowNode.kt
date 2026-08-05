@@ -124,10 +124,14 @@ public class SettingRowNode(
         val palette = context.theme.tokens.colors
 
         if (isHovered && setting.isEnabled.peek()) {
-            renderer.roundedRect(
+            renderer.gradient(
                 bounds.inset(Insets(3f, 2f, 3f, 2f)),
+                dev.th7bo.sidequest.ui.rendering.Gradient.linear(
+                    palette.hoverBackground,
+                    palette.hoverBackground.withAlpha(ROW_HOVER_END_ALPHA),
+                    dev.th7bo.sidequest.ui.rendering.Gradient.Direction.HORIZONTAL,
+                ),
                 context.theme.tokens.radii.small,
-                palette.hoverBackground,
             )
             context.diagnostics.drawCalls++
         }
@@ -165,6 +169,7 @@ public class SettingRowNode(
         const val MARKER_WIDTH = 2f
         const val MODIFIED_INSET = 3f
         const val MODIFIED_SIZE = 3f
+        const val ROW_HOVER_END_ALPHA = 0.015f
     }
 }
 

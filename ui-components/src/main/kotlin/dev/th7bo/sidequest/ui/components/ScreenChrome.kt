@@ -128,15 +128,16 @@ public class CategoryButtonNode(
             // The active category carries a marker as well as a fill, so selection is
             // never signalled by colour alone.
             renderer.roundedRect(
-                Rect(bounds.x, bounds.y + 3f, 2f, bounds.height - 6f),
+                Rect(bounds.x, bounds.y + 4f, 2f, bounds.height - 8f),
                 tokens.radii.pill,
                 palette.accent,
             )
-            renderer.border(
-                bounds,
-                tokens.radii.small,
-                tokens.metrics.borderWidth,
-                palette.accent.withAlpha(ACTIVE_BORDER_ALPHA),
+            // A one-pixel inner sheen keeps the selected surface crisp without boxing
+            // the entire navigation item in the accent colour.
+            renderer.roundedRect(
+                Rect(bounds.x + 5f, bounds.y + 1f, bounds.width - 10f, 1f),
+                tokens.radii.pill,
+                palette.accent.withAlpha(ACTIVE_SHEEN_ALPHA),
             )
             context.diagnostics.drawCalls += 2
         }
@@ -183,7 +184,7 @@ public class CategoryButtonNode(
         const val COUNT_MIN_HEIGHT = 15f
         const val COUNT_HORIZONTAL_PADDING = 6f
         const val COUNT_VERTICAL_PADDING = 3f
-        const val ACTIVE_BORDER_ALPHA = 0.22f
+        const val ACTIVE_SHEEN_ALPHA = 0.18f
     }
 
     private val countPillWidth: Float
@@ -229,6 +230,7 @@ private class SidebarBrandNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
         val mark = Rect(bounds.x, bounds.y + (bounds.height - BRAND_MARK) / 2f, BRAND_MARK, BRAND_MARK)
+        renderer.shadow(mark, tokens.radii.medium, tokens.effects.panelShadow.copy(color = palette.accent.withAlpha(0.24f), blurRadius = 10f))
         renderer.roundedRect(mark, tokens.radii.medium, palette.accent)
         renderer.border(mark, tokens.radii.medium, tokens.metrics.borderWidth, palette.accentHover)
         val inset = 5f
@@ -239,7 +241,12 @@ private class SidebarBrandNode(
             palette.onAccent,
         )
         edition.colorOverride = palette.textDisabled
-        context.diagnostics.drawCalls += 3
+        renderer.roundedRect(
+            Rect(mark.x + 4f, mark.y + 2f, mark.width - 8f, 1f),
+            tokens.radii.pill,
+            palette.onAccent.withAlpha(0.38f),
+        )
+        context.diagnostics.drawCalls += 5
     }
 
     private companion object {
@@ -284,10 +291,21 @@ private class SidebarStatusNode(
 
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
-        renderer.roundedRect(bounds, componentContext.theme.tokens.radii.small, palette.elevatedPanelBackground)
+        renderer.roundedRect(bounds, componentContext.theme.tokens.radii.small, palette.success.withAlpha(STATUS_WASH_ALPHA))
+        renderer.border(
+            bounds,
+            componentContext.theme.tokens.radii.small,
+            componentContext.theme.tokens.metrics.borderWidth,
+            palette.success.withAlpha(STATUS_BORDER_ALPHA),
+        )
         renderer.roundedRect(Rect(bounds.x + 3f, bounds.y + (bounds.height - 5f) / 2f, 5f, 5f), componentContext.theme.tokens.radii.pill, palette.success)
         label.colorOverride = palette.textDisabled
-        context.diagnostics.drawCalls += 2
+        context.diagnostics.drawCalls += 3
+    }
+
+    private companion object {
+        const val STATUS_WASH_ALPHA = 0.055f
+        const val STATUS_BORDER_ALPHA = 0.13f
     }
 }
 
@@ -497,6 +515,16 @@ public class SearchBoxNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
         renderer.roundedRect(bounds, tokens.radii.small, palette.elevatedPanelBackground)
+        if (isFocused) {
+            renderer.roundedRect(
+                bounds.outset(Insets(1f, 1f, 1f, 1f)),
+                tokens.radii.small,
+                palette.accent.withAlpha(SEARCH_FOCUS_GLOW_ALPHA),
+            )
+            // Restore the field over its glow.
+            renderer.roundedRect(bounds, tokens.radii.small, palette.elevatedPanelBackground)
+            context.diagnostics.drawCalls += 2
+        }
         renderer.border(
             bounds,
             tokens.radii.small,
@@ -504,6 +532,12 @@ public class SearchBoxNode(
             if (isFocused) palette.accent else palette.border,
         )
         context.diagnostics.drawCalls += 2
+        renderer.roundedRect(
+            Rect(bounds.x + 7f, bounds.y + 1f, bounds.width - 14f, 1f),
+            tokens.radii.pill,
+            palette.textPrimary.withAlpha(SEARCH_SHEEN_ALPHA),
+        )
+        context.diagnostics.drawCalls++
         val icon = Rect(
             bounds.x + tokens.spacing.large.value,
             bounds.y + (bounds.height - SEARCH_ICON) / 2f,
@@ -526,6 +560,8 @@ public class SearchBoxNode(
         const val SEARCH_ICON = 10f
         const val SEARCH_TEXT_LEFT = 28f
         const val CLEAR_HIT_WIDTH = 22f
+        const val SEARCH_FOCUS_GLOW_ALPHA = 0.11f
+        const val SEARCH_SHEEN_ALPHA = 0.055f
     }
 }
 
@@ -675,18 +711,18 @@ private class CategorySummaryNode(
         val cardWidth = panel.width / 3f
 
         renderer.roundedRect(panel, componentContext.theme.tokens.radii.medium, palette.elevatedPanelBackground)
-        renderer.border(
-            panel,
-            componentContext.theme.tokens.radii.medium,
-            componentContext.theme.tokens.metrics.borderWidth,
-            palette.border,
+        renderer.border(panel, componentContext.theme.tokens.radii.medium, componentContext.theme.tokens.metrics.borderWidth, palette.border)
+        renderer.roundedRect(
+            Rect(panel.x + 8f, panel.y + 1f, panel.width - 16f, 1f),
+            componentContext.theme.tokens.radii.pill,
+            palette.textPrimary.withAlpha(SUMMARY_SHEEN_ALPHA),
         )
         renderer.roundedRect(
             Rect(panel.x, panel.y + 8f, 2f, panel.height - 16f),
             componentContext.theme.tokens.radii.pill,
             palette.accent,
         )
-        context.diagnostics.drawCalls += 3
+        context.diagnostics.drawCalls += 4
 
         for (index in 1 until metrics.size) {
             renderer.fillRect(
@@ -725,9 +761,10 @@ private class CategorySummaryNode(
     }
 
     private companion object {
-        const val SUMMARY_HEIGHT = 56f
-        const val SUMMARY_VERTICAL_MARGIN = 6f
+        const val SUMMARY_HEIGHT = 50f
+        const val SUMMARY_VERTICAL_MARGIN = 5f
         const val METRIC_PADDING = 12f
+        const val SUMMARY_SHEEN_ALPHA = 0.05f
     }
 }
 
@@ -943,8 +980,22 @@ public class ConfigScreenLayoutNode(
             Gradient.linear(palette.accent.withAlpha(0.055f), palette.accent.withAlpha(0f)),
             tokens.radii.large,
         )
+        renderer.gradient(
+            Rect(panel.x, panel.y, minOf(panel.width, AMBIENT_WIDTH), panel.height),
+            Gradient.linear(
+                palette.accent.withAlpha(0.025f),
+                palette.accent.withAlpha(0f),
+                Gradient.Direction.HORIZONTAL,
+            ),
+            tokens.radii.large,
+        )
         renderer.border(panel, Corners.all(tokens.radii.large), tokens.metrics.borderWidth, palette.border)
-        context.diagnostics.drawCalls += 4
+        renderer.roundedRect(
+            Rect(panel.x + tokens.radii.large.value, panel.y + 1f, panel.width - tokens.radii.large.value * 2f, 1f),
+            tokens.radii.pill,
+            palette.textPrimary.withAlpha(FRAME_SHEEN_ALPHA),
+        )
+        context.diagnostics.drawCalls += 6
     }
 
     private companion object {
@@ -952,6 +1003,8 @@ public class ConfigScreenLayoutNode(
         const val HEADER_SEARCH_WIDTH = 154f
         const val HEADER_SEARCH_MIN_VIEWPORT = 620f
         const val AMBIENT_HEIGHT = 92f
+        const val AMBIENT_WIDTH = 250f
+        const val FRAME_SHEEN_ALPHA = 0.055f
         const val FALLBACK_SIZE = 480f
 
     }

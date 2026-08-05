@@ -187,9 +187,17 @@ public class ToggleControlNode(
         val trackColor = when {
             !isEnabled -> palette.panelBackground
             on -> palette.accent
-            else -> palette.panelBackground
+            else -> palette.elevatedPanelBackground
         }
-        renderer.roundedRect(bounds, tokens.radii.pill, trackColor)
+        if (on && isEnabled) {
+            renderer.gradient(
+                bounds,
+                dev.th7bo.sidequest.ui.rendering.Gradient.linear(palette.accentHover, trackColor),
+                tokens.radii.pill,
+            )
+        } else {
+            renderer.roundedRect(bounds, tokens.radii.pill, trackColor)
+        }
         renderer.border(
             bounds,
             tokens.radii.pill,
@@ -214,6 +222,14 @@ public class ToggleControlNode(
             tokens.radii.pill,
             if (isEnabled) palette.onAccent else palette.textDisabled,
         )
+        if (isEnabled) {
+            renderer.roundedRect(
+                Rect(knobBounds.x + 2f, knobBounds.y + 1f, knobBounds.width - 4f, 1f),
+                tokens.radii.pill,
+                palette.textPrimary.withAlpha(KNOB_SHEEN_ALPHA),
+            )
+            context.diagnostics.drawCalls++
+        }
         context.diagnostics.drawCalls++
 
         paintFocusRing(renderer, bounds, context)
@@ -225,6 +241,7 @@ public class ToggleControlNode(
         private const val KNOB_INSET = 2f
         private const val KNOB_DIAMETER = TRACK_HEIGHT - KNOB_INSET * 2
         private const val TOGGLE_HALO_ALPHA = 0.09f
+        private const val KNOB_SHEEN_ALPHA = 0.32f
     }
 }
 
@@ -494,7 +511,7 @@ public abstract class SliderControlNode<T>(
         val centreY = bounds.y + bounds.height / 2f
         val trackBounds = Rect(bounds.x, centreY - TRACK_THICKNESS / 2f, TRACK_WIDTH, TRACK_THICKNESS)
 
-        renderer.roundedRect(trackBounds, tokens.radii.pill, palette.panelBackground)
+        renderer.roundedRect(trackBounds, tokens.radii.pill, palette.elevatedPanelBackground)
         renderer.border(trackBounds, tokens.radii.pill, tokens.metrics.borderWidth, palette.border)
         context.diagnostics.drawCalls += 2
 
@@ -533,6 +550,15 @@ public abstract class SliderControlNode<T>(
         )
         context.diagnostics.drawCalls += 2
 
+        if (isEnabled) {
+            renderer.roundedRect(
+                Rect(knobX + 3f, centreY - KNOB_DIAMETER / 2f + 2f, KNOB_DIAMETER - 6f, 2f),
+                tokens.radii.pill,
+                palette.onAccent.withAlpha(SLIDER_HIGHLIGHT_ALPHA),
+            )
+            context.diagnostics.drawCalls++
+        }
+
         paintFocusRing(renderer, trackBounds, context)
     }
 
@@ -542,6 +568,7 @@ public abstract class SliderControlNode<T>(
         internal const val KNOB_DIAMETER = 10f
         private const val SLIDER_HALO = 2f
         private const val SLIDER_HALO_ALPHA = 0.12f
+        private const val SLIDER_HIGHLIGHT_ALPHA = 0.4f
     }
 }
 
@@ -746,6 +773,13 @@ public class MultiSelectControlNode<T>(
             if (isOpen) palette.accent else palette.border,
         )
         context.diagnostics.drawCalls += 2
+
+        renderer.roundedRect(
+            Rect(bounds.x + 6f, bounds.y + 1f, bounds.width - 12f, 1f),
+            tokens.radii.pill,
+            palette.textPrimary.withAlpha(CONTROL_SHEEN_ALPHA),
+        )
+        context.diagnostics.drawCalls++
         label.colorOverride = contentColor(palette.textPrimary)
         paintDownIndicator(renderer, bounds, contentColor(palette.textSecondary), tokens.radii.pill)
         context.diagnostics.drawCalls += 3
@@ -935,6 +969,7 @@ public class DropdownControlNode<T>(
         const val MIN_WIDTH = 122f
         const val MAX_LABEL_WIDTH = 140f
         const val CARET_WIDTH = 10f
+        const val CONTROL_SHEEN_ALPHA = 0.045f
     }
 }
 

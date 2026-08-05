@@ -130,9 +130,24 @@ public class ChromeButtonNode(
             }
         }
 
-        renderer.roundedRect(bounds, corners, background)
+        if (tone == ButtonTone.PRIMARY) {
+            renderer.gradient(
+                bounds,
+                dev.th7bo.sidequest.ui.rendering.Gradient.linear(palette.accentHover, background),
+                corners,
+            )
+        } else {
+            renderer.roundedRect(bounds, corners, background)
+        }
         renderer.border(bounds, corners, tokens.metrics.borderWidth, border)
         context.diagnostics.drawCalls += 2
+
+        renderer.roundedRect(
+            Rect(bounds.x + 5f, bounds.y + 1f, bounds.width - 10f, 1f),
+            tokens.radii.pill,
+            (if (tone == ButtonTone.PRIMARY) palette.onAccent else palette.textPrimary).withAlpha(BUTTON_SHEEN_ALPHA),
+        )
+        context.diagnostics.drawCalls++
 
         text.colorOverride = content
 
@@ -150,6 +165,7 @@ public class ChromeButtonNode(
     private companion object {
         const val DANGER_HOVER = 0.18f
         const val DANGER_BORDER = 0.5f
+        const val BUTTON_SHEEN_ALPHA = 0.12f
     }
 }
 
@@ -250,7 +266,12 @@ public class ScreenHeaderNode(
             Rect(bounds.x, bounds.bottom - 1f, bounds.width, 1f),
             context.theme.tokens.colors.border,
         )
-        context.diagnostics.drawCalls++
+        renderer.roundedRect(
+            Rect(bounds.x + horizontalPadding, bounds.bottom - 1f, HEADER_ACCENT_WIDTH, 1f),
+            tokens.radii.pill,
+            context.theme.tokens.colors.accent.withAlpha(0.65f),
+        )
+        context.diagnostics.drawCalls += 2
     }
 
     private val horizontalPadding: Float get() = tokens.spacing.xl.value
@@ -258,5 +279,6 @@ public class ScreenHeaderNode(
 
     private companion object {
         const val FALLBACK_WIDTH = 480f
+        const val HEADER_ACCENT_WIDTH = 24f
     }
 }
