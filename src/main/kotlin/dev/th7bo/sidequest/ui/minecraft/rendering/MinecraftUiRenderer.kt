@@ -503,9 +503,7 @@ public class MinecraftUiRenderer(
     ) {
         for ((index, line) in layout.lines.withIndex()) {
             if (line.content.isEmpty()) continue
-            // The mod's own face, carried on the string's style — see `SidequestFont`. The measurer uses
-            // the same one, and they have to: text drawn in a face it was not measured in overruns whatever
-            // laid it out.
+            // The same native style is used by the measurer, including Minecraft's bold advance.
             graphics.text(
                 font,
                 SidequestFont.text(line.content, layout.style.bold),

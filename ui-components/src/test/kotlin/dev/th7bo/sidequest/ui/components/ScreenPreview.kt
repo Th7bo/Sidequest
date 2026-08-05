@@ -16,15 +16,15 @@ import javax.imageio.ImageIO
 /**
  * Renders the *real* configuration screen to a PNG.
  *
- * **Skipped unless asked for.** Set `SIDEQUEST_SCREEN_PREVIEW` to a path.
+ * **Skipped unless asked for.** Set `SIDEQUEST_SCREEN_PREVIEW` to a path. Optional
+ * `SIDEQUEST_SCREEN_PREVIEW_WIDTH` and `SIDEQUEST_SCREEN_PREVIEW_HEIGHT` values exercise responsive layouts.
  *
  * Not a mock. This drives `ConfigScreenController` with the registered controls, the real layout and the
- * real theme, through a renderer that draws into an image in the shipped typeface. What comes out is what
- * the screen is — which matters because every visual change before this one was reasoned about rather than
- * seen, and several of them were wrong in ways one glance would have settled.
+ * real theme, through a renderer that draws into an image. Client screenshots remain the authority for
+ * typography — which matters because text rasterization must be judged in Minecraft itself.
  *
- * The one thing it cannot show is Minecraft's own text rasteriser, which renders the same TTF slightly
- * differently. Spacing, weight and colour are honest; the exact edges of a glyph are not.
+ * The one thing it cannot show is Minecraft's own bitmap text rasterizer. Spacing, weight and colour are
+ * approximate here; the exact glyphs are validated by the client game test.
  */
 class ScreenPreview {
 
@@ -34,9 +34,10 @@ class ScreenPreview {
         assumeTrue(target != null, "set SIDEQUEST_SCREEN_PREVIEW to write the preview")
 
         val scale = 2
-        // The size a real screen is, not a comfortable one to render. A smaller viewport silently
-        // exaggerates every proportion, and proportion is the whole thing being judged.
-        val viewport = Size(780f, 440f)
+        val viewport = Size(
+            environmentDimension("SIDEQUEST_SCREEN_PREVIEW_WIDTH", 780f),
+            environmentDimension("SIDEQUEST_SCREEN_PREVIEW_HEIGHT", 440f),
+        )
         val image = BufferedImage(
             (viewport.width * scale).toInt(),
             (viewport.height * scale).toInt(),
@@ -128,8 +129,12 @@ class ScreenPreview {
 
     private fun id(path: String) = UiId.of("sidequest", path)
 
+    private fun environmentDimension(name: String, fallback: Float): Float =
+        System.getenv(name)?.toFloatOrNull()?.takeIf { it >= MIN_VIEWPORT_DIMENSION } ?: fallback
+
     private companion object {
         /** Enough frames for the entry animations to settle, so the preview is the resting state. */
         const val FRAMES = 40
+        const val MIN_VIEWPORT_DIMENSION = 240f
     }
 }

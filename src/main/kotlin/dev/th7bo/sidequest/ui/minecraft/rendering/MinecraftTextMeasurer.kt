@@ -56,11 +56,10 @@ public class MinecraftTextMeasurer(
         SidequestFont.LINE_HEIGHT * style.scale * style.lineHeight
 
     /**
-     * How wide [text] is in the mod's own typeface.
+     * How wide [text] is in Minecraft's native typeface.
      *
      * Every measurement goes through here rather than `font.width(String)`, which measures the *default*
-     * font. A string measured in one face and drawn in another overflows whatever laid it out — and it does
-     * so silently, as a label that runs under the control beside it.
+     * font style. Measuring and drawing the same styled component keeps native bold advances accurate.
      */
     private fun widthOf(text: String, bold: Boolean): Float =
         font.width(SidequestFont.text(text, bold)).toFloat() * SidequestFont.RENDER_SCALE

@@ -111,19 +111,16 @@ public data class SpacingScale(
 )
 
 /**
- * A compact type scale for the bundled Inter face.
- *
- * Titles get just enough size and weight to anchor a region; secondary copy steps down slightly so dense
- * setting lists remain easy to scan. The shipped font is oversampled, so these restrained fractional sizes
- * remain smooth in Minecraft rather than degrading into rescaled bitmap glyphs.
+ * Single-size typography aligned to Minecraft's native bitmap grid. Hierarchy comes
+ * from weight, colour and placement without resampling the font between roles.
  */
 public data class TypographyScale(
-    val title: TextStyle = TextStyle(scale = 1.15f, bold = true),
+    val title: TextStyle = TextStyle(scale = 1f, bold = true),
     val label: TextStyle = TextStyle(scale = 1f),
     val body: TextStyle = TextStyle(scale = 1f),
-    val secondary: TextStyle = TextStyle(scale = 0.92f),
-    val caption: TextStyle = TextStyle(scale = 0.86f),
-    val mono: TextStyle = TextStyle(scale = 0.92f),
+    val secondary: TextStyle = TextStyle(scale = 1f),
+    val caption: TextStyle = TextStyle(scale = 1f),
+    val mono: TextStyle = TextStyle(scale = 1f),
 )
 
 /** Animation durations in seconds. All motion is delta-time driven, never frame counted. */

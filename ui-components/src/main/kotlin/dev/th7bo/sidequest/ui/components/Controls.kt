@@ -175,6 +175,15 @@ public class ToggleControlNode(
         val palette = context.theme.tokens.colors
         val on = toggleSetting.value
 
+        if (isHovered && isEnabled) {
+            renderer.roundedRect(
+                bounds.outset(dev.th7bo.sidequest.ui.geometry.Insets(2f, 2f, 2f, 2f)),
+                tokens.radii.pill,
+                palette.accent.withAlpha(TOGGLE_HALO_ALPHA),
+            )
+            context.diagnostics.drawCalls++
+        }
+
         val trackColor = when {
             !isEnabled -> palette.panelBackground
             on -> palette.accent
@@ -215,6 +224,7 @@ public class ToggleControlNode(
         public const val TRACK_HEIGHT: Float = 16f
         private const val KNOB_INSET = 2f
         private const val KNOB_DIAMETER = TRACK_HEIGHT - KNOB_INSET * 2
+        private const val TOGGLE_HALO_ALPHA = 0.09f
     }
 }
 
@@ -497,6 +507,19 @@ public abstract class SliderControlNode<T>(
         context.diagnostics.drawCalls++
 
         val knobX = bounds.x + (TRACK_WIDTH - KNOB_DIAMETER) * currentFraction()
+        if (isHovered && isEnabled) {
+            renderer.roundedRect(
+                Rect(
+                    knobX - SLIDER_HALO,
+                    centreY - KNOB_DIAMETER / 2f - SLIDER_HALO,
+                    KNOB_DIAMETER + SLIDER_HALO * 2f,
+                    KNOB_DIAMETER + SLIDER_HALO * 2f,
+                ),
+                tokens.radii.pill,
+                palette.accent.withAlpha(SLIDER_HALO_ALPHA),
+            )
+            context.diagnostics.drawCalls++
+        }
         renderer.roundedRect(
             Rect(knobX, centreY - KNOB_DIAMETER / 2f, KNOB_DIAMETER, KNOB_DIAMETER),
             tokens.radii.pill,
@@ -515,8 +538,10 @@ public abstract class SliderControlNode<T>(
 
     public companion object {
         public const val TRACK_WIDTH: Float = 90f
-        internal const val TRACK_THICKNESS = 4f
+        internal const val TRACK_THICKNESS = 3f
         internal const val KNOB_DIAMETER = 10f
+        private const val SLIDER_HALO = 2f
+        private const val SLIDER_HALO_ALPHA = 0.12f
     }
 }
 
@@ -708,7 +733,11 @@ public class MultiSelectControlNode<T>(
         renderer.roundedRect(
             bounds,
             tokens.radii.medium,
-            if (isHovered && isEnabled) palette.hoverBackground else palette.panelBackground,
+            when {
+                isOpen -> palette.selectedBackground
+                isHovered && isEnabled -> palette.hoverBackground
+                else -> palette.panelBackground
+            },
         )
         renderer.border(
             bounds,
@@ -880,7 +909,11 @@ public class DropdownControlNode<T>(
         renderer.roundedRect(
             bounds,
             tokens.radii.medium,
-            if (isHovered && isEnabled) palette.hoverBackground else palette.panelBackground,
+            when {
+                isOpen -> palette.selectedBackground
+                isHovered && isEnabled -> palette.hoverBackground
+                else -> palette.panelBackground
+            },
         )
         renderer.border(
             bounds,

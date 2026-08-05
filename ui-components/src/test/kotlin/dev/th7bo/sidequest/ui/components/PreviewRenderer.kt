@@ -21,7 +21,6 @@ import java.awt.Color as AwtColor
 import java.awt.Font as AwtFont
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
-import java.io.File
 import kotlin.math.roundToInt
 
 /**
@@ -32,9 +31,8 @@ import kotlin.math.roundToInt
  * PNG and inspected.
  *
  * It rasterises through the same [RoundedRectRaster] the real renderer uses, at a supersampled resolution,
- * and draws text in the *shipped* typeface loaded from the mod's own resources. Both matter: a preview that
- * approximated either would be a picture of something that does not ship, which is worse than no preview at
- * all because it invites confident conclusions.
+ * Java2D cannot load Minecraft's generated bitmap atlas, so text uses a compact monospaced approximation;
+ * screenshots from the client game test remain the authority for final typography.
  */
 internal class PreviewRenderer(
     private val image: BufferedImage,
@@ -49,14 +47,8 @@ internal class PreviewRenderer(
         guiScale = scale.toFloat(),
     )
 
-    /**
-     * The shipped typeface, loaded straight from the resources.
-     *
-     * The preview is only worth having if what it draws is what ships, and text is most of a screen. Falling
-     * back to a logical font when the file cannot be found keeps the harness usable from anywhere, at the
-     * cost of a preview whose metrics are approximate — which is said out loud rather than hidden.
-     */
-    private val awtFont: AwtFont = loadInter()
+    private val regularFont: AwtFont = AwtFont(AwtFont.MONOSPACED, AwtFont.PLAIN, 1)
+    private val boldFont: AwtFont = AwtFont(AwtFont.MONOSPACED, AwtFont.BOLD, 1)
 
     private val graphics = image.createGraphics().apply {
         setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -65,7 +57,7 @@ internal class PreviewRenderer(
     }
 
     private fun fontFor(style: TextStyle): AwtFont =
-        awtFont.deriveFont(if (style.bold) AwtFont.BOLD else AwtFont.PLAIN, FONT_SIZE * style.scale * scale)
+        (if (style.bold) boldFont else regularFont).deriveFont(FONT_SIZE * style.scale * scale)
 
     override val textMeasurer: TextMeasurer = object : TextMeasurer {
         override fun measure(
@@ -96,16 +88,6 @@ internal class PreviewRenderer(
     /** Measured with the same face and size the drawing uses, or the two disagree and text overruns. */
     private fun widthOf(text: String, style: TextStyle): Float =
         graphics.getFontMetrics(fontFor(style)).stringWidth(text).toFloat() / scale
-
-    private fun loadInter(): AwtFont {
-        for (candidate in FONT_PATHS) {
-            val file = File(candidate)
-            if (file.exists()) {
-                runCatching { return AwtFont.createFont(AwtFont.TRUETYPE_FONT, file) }
-            }
-        }
-        return AwtFont(AwtFont.SANS_SERIF, AwtFont.PLAIN, 1)
-    }
 
     fun clear(color: Color) {
         for (y in 0 until image.height) for (x in 0 until image.width) image.setRGB(x, y, color.argb)
@@ -250,14 +232,8 @@ internal class PreviewRenderer(
         const val MIN_COVERAGE = 0.02f
 
         /** Matches `SidequestFont.LINE_HEIGHT`, which is what the shipped renderer lays out with. */
-        const val LINE_HEIGHT = 10f
+        const val LINE_HEIGHT = 9f
 
-        /** Matches the native displayed size in `assets/sidequest/font/ui.json`. */
-        const val FONT_SIZE = 10f
-
-        val FONT_PATHS = listOf(
-            "../src/main/resources/assets/sidequest/font/inter_regular.ttf",
-            "src/main/resources/assets/sidequest/font/inter_regular.ttf",
-        )
+        const val FONT_SIZE = 9f
     }
 }

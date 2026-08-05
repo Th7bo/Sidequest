@@ -79,7 +79,12 @@ class ConfigScreenRenderTest : FabricClientGameTest {
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("config_screen_empty_state")
 
-        onClient(context) { screen.controller?.clearSearch() }
+        onClient(context) {
+            screen.controller?.clearSearch()
+            Sidequest.configScreen.categories.firstOrNull()?.let {
+                screen.controller?.selectCategory(it.id)
+            }
+        }
         context.waitTicks(SETTLE_TICKS)
 
         // 5b. Popups: the dropdown list has to escape the row's clip and paint above

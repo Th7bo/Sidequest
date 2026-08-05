@@ -125,8 +125,8 @@ public class ChromeButtonNode(
             }
             ButtonTone.DANGER -> {
                 background = if (isHovered) palette.error.withAlpha(DANGER_HOVER) else palette.panelBackground
-                border = palette.error.withAlpha(DANGER_BORDER)
-                content = palette.error
+                border = if (isHovered) palette.error.withAlpha(DANGER_BORDER) else palette.border
+                content = if (isHovered) palette.error else palette.textSecondary
             }
         }
 
@@ -165,6 +165,7 @@ public class ScreenHeaderNode(
     private val componentContext: ComponentContext,
     title: UiState<String>,
     subtitle: UiState<String>? = null,
+    eyebrow: UiState<String>? = null,
     actions: List<UiNode> = emptyList(),
 ) : UiNode(id) {
 
@@ -172,9 +173,11 @@ public class ScreenHeaderNode(
 
     private val titleNode = TextNode(id.child("title"), title, TextRole.TITLE)
     private val subtitleNode = subtitle?.let { TextNode(id.child("subtitle"), it, TextRole.SECONDARY) }
+    private val eyebrowNode = eyebrow?.let { TextNode(id.child("eyebrow"), it, TextRole.CAPTION) }
     private val actionNodes = actions
 
     init {
+        eyebrowNode?.let(::addChild)
         addChild(titleNode)
         subtitleNode?.let(::addChild)
         actionNodes.forEach(::addChild)
@@ -190,10 +193,13 @@ public class ScreenHeaderNode(
         }
 
         val textWidth = (available - horizontalPadding * 2 - actionsWidth).coerceAtLeast(0f)
+        val eyebrowSize = eyebrowNode?.measure(Constraints(maxWidth = textWidth), context)
         val titleSize = titleNode.measure(Constraints(maxWidth = textWidth), context)
         val subtitleSize = subtitleNode?.measure(Constraints(maxWidth = textWidth), context)
 
-        val textHeight = titleSize.height + (subtitleSize?.height?.plus(tokens.spacing.xs.value) ?: 0f)
+        val textHeight = titleSize.height +
+            (eyebrowSize?.height?.plus(tokens.spacing.xs.value) ?: 0f) +
+            (subtitleSize?.height?.plus(tokens.spacing.xs.value) ?: 0f)
         val actionHeight = actionNodes.maxOfOrNull { it.measuredSize.height } ?: 0f
 
         return Size(available, maxOf(textHeight, actionHeight) + verticalPadding * 2)
@@ -202,14 +208,22 @@ public class ScreenHeaderNode(
     override fun arrangeChildren(context: LayoutContext) {
         val titleSize = titleNode.measuredSize
         val subtitleSize = subtitleNode?.measuredSize
+        val eyebrowSize = eyebrowNode?.measuredSize
 
-        val textHeight = titleSize.height + (subtitleSize?.height?.plus(tokens.spacing.xs.value) ?: 0f)
+        val textHeight = titleSize.height +
+            (eyebrowSize?.height?.plus(tokens.spacing.xs.value) ?: 0f) +
+            (subtitleSize?.height?.plus(tokens.spacing.xs.value) ?: 0f)
         val textTop = (measuredSize.height - textHeight) / 2f
+        var nextY = textTop
 
-        titleNode.arrange(Rect.of(Vec2(horizontalPadding, textTop), titleSize), context)
+        eyebrowNode?.arrange(Rect.of(Vec2(horizontalPadding, nextY), eyebrowSize!!), context)
+        if (eyebrowSize != null) nextY += eyebrowSize.height + tokens.spacing.xs.value
+
+        titleNode.arrange(Rect.of(Vec2(horizontalPadding, nextY), titleSize), context)
+        nextY += titleSize.height
         subtitleNode?.arrange(
             Rect.of(
-                Vec2(horizontalPadding, textTop + titleSize.height + tokens.spacing.xs.value),
+                Vec2(horizontalPadding, nextY + tokens.spacing.xs.value),
                 subtitleSize!!,
             ),
             context,
@@ -229,6 +243,7 @@ public class ScreenHeaderNode(
     }
 
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
+        eyebrowNode?.colorOverride = context.theme.tokens.colors.accent
         // A hairline under the header separates it from the scrolling content without
         // adding another surface.
         renderer.fillRect(

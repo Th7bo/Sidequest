@@ -279,6 +279,15 @@ public class SectionCardHeaderNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
 
+        // A barely tinted header wash gives the section a top plane without adding a
+        // second box or a heavy outline around every card.
+        renderer.roundedRect(
+            bounds,
+            Corners.top(tokens.radii.large),
+            palette.accent.withAlpha(HEADER_TINT_ALPHA),
+        )
+        context.diagnostics.drawCalls++
+
         val countBounds = count.absoluteBounds()
         val countPill = Rect(
             countBounds.x - COUNT_HORIZONTAL_PADDING,
@@ -371,6 +380,7 @@ public class SectionCardHeaderNode(
         const val CHEVRON_SIZE = 8f
         const val COUNT_HORIZONTAL_PADDING = 7f
         const val COUNT_VERTICAL_PADDING = 3f
+        const val HEADER_TINT_ALPHA = 0.025f
 
         /** How many bars the triangle is stacked from. Four reads as a chevron at every GUI scale. */
         const val CHEVRON_STEPS = 8

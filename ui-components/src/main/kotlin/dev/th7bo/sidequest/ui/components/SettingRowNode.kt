@@ -98,6 +98,7 @@ public class SettingRowNode(
         isVisible = setting.isVisible.peek()
 
         setting.isEnabled.observe(scope) { invalidatePaint() }
+        setting.isModified.observe(scope) { invalidatePaint() }
 
         // An empty status must not leave a gap where a message would go.
         statusText.observe(scope) { statusNode.isVisible = it.isNotEmpty() }
@@ -123,7 +124,22 @@ public class SettingRowNode(
         val palette = context.theme.tokens.colors
 
         if (isHovered && setting.isEnabled.peek()) {
-            renderer.roundedRect(bounds, context.theme.tokens.radii.small, palette.hoverBackground)
+            renderer.roundedRect(
+                bounds.inset(Insets(3f, 2f, 3f, 2f)),
+                context.theme.tokens.radii.small,
+                palette.hoverBackground,
+            )
+            context.diagnostics.drawCalls++
+        }
+
+        // A quiet state marker in the row gutter. It makes customized values easy to
+        // find after scrolling without adding another badge or shifting the text grid.
+        if (setting.isModified.peek()) {
+            renderer.roundedRect(
+                Rect(bounds.x + MODIFIED_INSET, bounds.center.y - MODIFIED_SIZE / 2f, MODIFIED_SIZE, MODIFIED_SIZE),
+                context.theme.tokens.radii.pill,
+                palette.accent,
+            )
             context.diagnostics.drawCalls++
         }
 
@@ -147,6 +163,8 @@ public class SettingRowNode(
         const val DESCRIPTION_LINES = 3
         const val STATUS_LINES = 2
         const val MARKER_WIDTH = 2f
+        const val MODIFIED_INSET = 3f
+        const val MODIFIED_SIZE = 3f
     }
 }
 

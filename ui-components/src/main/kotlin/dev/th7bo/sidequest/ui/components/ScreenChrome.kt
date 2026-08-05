@@ -127,8 +127,18 @@ public class CategoryButtonNode(
         if (active) {
             // The active category carries a marker as well as a fill, so selection is
             // never signalled by colour alone.
-            renderer.fillRect(Rect(bounds.x, bounds.y + 3f, 2f, bounds.height - 6f), palette.accent)
-            context.diagnostics.drawCalls++
+            renderer.roundedRect(
+                Rect(bounds.x, bounds.y + 3f, 2f, bounds.height - 6f),
+                tokens.radii.pill,
+                palette.accent,
+            )
+            renderer.border(
+                bounds,
+                tokens.radii.small,
+                tokens.metrics.borderWidth,
+                palette.accent.withAlpha(ACTIVE_BORDER_ALPHA),
+            )
+            context.diagnostics.drawCalls += 2
         }
         val content = if (active) palette.textPrimary else palette.textSecondary
         label.colorOverride = content
@@ -173,6 +183,7 @@ public class CategoryButtonNode(
         const val COUNT_MIN_HEIGHT = 15f
         const val COUNT_HORIZONTAL_PADDING = 6f
         const val COUNT_VERTICAL_PADDING = 3f
+        const val ACTIVE_BORDER_ALPHA = 0.22f
     }
 
     private val countPillWidth: Float
@@ -273,9 +284,10 @@ private class SidebarStatusNode(
 
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
+        renderer.roundedRect(bounds, componentContext.theme.tokens.radii.small, palette.elevatedPanelBackground)
         renderer.roundedRect(Rect(bounds.x + 3f, bounds.y + (bounds.height - 5f) / 2f, 5f, 5f), componentContext.theme.tokens.radii.pill, palette.success)
         label.colorOverride = palette.textDisabled
-        context.diagnostics.drawCalls++
+        context.diagnostics.drawCalls += 2
     }
 }
 
@@ -337,11 +349,21 @@ public class SidebarNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
         renderer.fillRect(bounds, palette.panelBackground)
+        renderer.gradient(
+            Rect(bounds.x, bounds.y, bounds.width, minOf(bounds.height, SIDEBAR_GLOW_HEIGHT)),
+            Gradient.linear(palette.accent.withAlpha(SIDEBAR_GLOW_ALPHA), palette.accent.withAlpha(0f)),
+            tokens.radii.none,
+        )
         renderer.fillRect(
             Rect(bounds.right - 1f, bounds.y, 1f, bounds.height),
             palette.border,
         )
-        context.diagnostics.drawCalls += 2
+        context.diagnostics.drawCalls += 3
+    }
+
+    private companion object {
+        const val SIDEBAR_GLOW_HEIGHT = 92f
+        const val SIDEBAR_GLOW_ALPHA = 0.035f
     }
 }
 
@@ -630,10 +652,10 @@ private class CategorySummaryNode(
 
     override fun arrangeChildren(context: LayoutContext) {
         val sideMargin = componentContext.theme.tokens.spacing.xl.value
-        val cardWidth = ((measuredSize.width - sideMargin * 2f - CARD_GAP * 2f) / 3f).coerceAtLeast(0f)
+        val cardWidth = ((measuredSize.width - sideMargin * 2f) / 3f).coerceAtLeast(0f)
         metrics.forEachIndexed { index, metric ->
-            val cardX = sideMargin + index * (cardWidth + CARD_GAP)
-            val contentX = cardX + 10f
+            val cardX = sideMargin + index * cardWidth
+            val contentX = cardX + METRIC_PADDING
             val contentHeight = metric.value.measuredSize.height + 2f + metric.label.measuredSize.height
             val top = (SUMMARY_HEIGHT - contentHeight) / 2f
             metric.value.arrange(Rect.of(Vec2(contentX, top), metric.value.measuredSize), context)
@@ -644,18 +666,48 @@ private class CategorySummaryNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         val palette = context.theme.tokens.colors
         val sideMargin = componentContext.theme.tokens.spacing.xl.value
-        val cardWidth = ((bounds.width - sideMargin * 2f - CARD_GAP * 2f) / 3f).coerceAtLeast(0f)
+        val panel = Rect(
+            bounds.x + sideMargin,
+            bounds.y + SUMMARY_VERTICAL_MARGIN,
+            (bounds.width - sideMargin * 2f).coerceAtLeast(0f),
+            bounds.height - SUMMARY_VERTICAL_MARGIN * 2f,
+        )
+        val cardWidth = panel.width / 3f
+
+        renderer.roundedRect(panel, componentContext.theme.tokens.radii.medium, palette.elevatedPanelBackground)
+        renderer.border(
+            panel,
+            componentContext.theme.tokens.radii.medium,
+            componentContext.theme.tokens.metrics.borderWidth,
+            palette.border,
+        )
+        renderer.roundedRect(
+            Rect(panel.x, panel.y + 8f, 2f, panel.height - 16f),
+            componentContext.theme.tokens.radii.pill,
+            palette.accent,
+        )
+        context.diagnostics.drawCalls += 3
+
+        for (index in 1 until metrics.size) {
+            renderer.fillRect(
+                Rect(panel.x + cardWidth * index, panel.y + 9f, 1f, panel.height - 18f),
+                palette.border,
+            )
+            context.diagnostics.drawCalls++
+        }
+
         metrics.forEachIndexed { index, metric ->
-            val card = Rect(bounds.x + sideMargin + index * (cardWidth + CARD_GAP), bounds.y + 6f, cardWidth, bounds.height - 12f)
-            renderer.roundedRect(card, componentContext.theme.tokens.radii.medium, palette.elevatedPanelBackground)
-            renderer.border(card, componentContext.theme.tokens.radii.medium, componentContext.theme.tokens.metrics.borderWidth, palette.border)
-            renderer.roundedRect(Rect(card.x, card.y + 9f, 2f, card.height - 18f), componentContext.theme.tokens.radii.pill, if (index == 1) palette.accent else palette.borderStrong)
             if (index == 1) {
                 val category = activeCategory()
                 val total = category?.settings?.count { it.isVisible.value } ?: 0
                 val modified = category?.settings?.count { it.isVisible.value && it.isModified.value } ?: 0
                 val progress = if (total == 0) 0f else modified.toFloat() / total
-                val track = Rect(card.x + 10f, card.bottom - 7f, card.width - 20f, 2f)
+                val track = Rect(
+                    panel.x + cardWidth + METRIC_PADDING,
+                    panel.bottom - 6f,
+                    cardWidth - METRIC_PADDING * 2f,
+                    2f,
+                )
                 renderer.roundedRect(track, componentContext.theme.tokens.radii.pill, palette.border)
                 if (progress > 0f) {
                     renderer.roundedRect(
@@ -669,13 +721,13 @@ private class CategorySummaryNode(
             }
             metric.value.colorOverride = if (index == 1) palette.accent else palette.textPrimary
             metric.label.colorOverride = palette.textDisabled
-            context.diagnostics.drawCalls += 3
         }
     }
 
     private companion object {
         const val SUMMARY_HEIGHT = 56f
-        const val CARD_GAP = 7f
+        const val SUMMARY_VERTICAL_MARGIN = 6f
+        const val METRIC_PADDING = 12f
     }
 }
 
@@ -726,7 +778,7 @@ public class ConfigScreenLayoutNode(
         id = id.child("reset_all"),
         componentContext = componentContext,
         label = "Reset All",
-        tone = ButtonTone.NEUTRAL,
+        tone = ButtonTone.DANGER,
     ) {
         controller.screen.resetAll()
     }
@@ -760,11 +812,18 @@ public class ConfigScreenLayoutNode(
                 ?: "Configure Sidequest"
         }
 
+    private val activeCategoryMeta: UiState<String> = derivedStateOf("${id.value}.active_category_meta") {
+        val category = controller.activeCategory.value?.let(controller.screen::category)
+        val visible = category?.settings?.count { it.isVisible.value } ?: controller.screen.settings.size
+        "CONFIGURATION  /  $visible ${if (visible == 1) "SETTING" else "SETTINGS"}"
+    }
+
     private val header: ScreenHeaderNode = ScreenHeaderNode(
         id = id.child("header"),
         componentContext = componentContext,
         title = activeCategoryTitle,
         subtitle = activeCategoryDescription,
+        eyebrow = activeCategoryMeta,
         actions = buildList {
             add(headerSearch)
             onSaveAndClose?.let { action ->
