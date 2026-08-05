@@ -189,15 +189,9 @@ public class ToggleControlNode(
             on -> palette.accent
             else -> palette.elevatedPanelBackground
         }
-        if (on && isEnabled) {
-            renderer.gradient(
-                bounds,
-                dev.th7bo.sidequest.ui.rendering.Gradient.linear(palette.accentHover, trackColor),
-                tokens.radii.pill,
-            )
-        } else {
-            renderer.roundedRect(bounds, tokens.radii.pill, trackColor)
-        }
+        // Keep the surface on the rounded-rect path. The gradient backend is a
+        // rectangular fill and would leak square pixels outside a pill's corners.
+        renderer.roundedRect(bounds, tokens.radii.pill, trackColor)
         renderer.border(
             bounds,
             tokens.radii.pill,
@@ -790,6 +784,7 @@ public class MultiSelectControlNode<T>(
         const val MULTI_MAX_LABEL_WIDTH = 160f
         const val MULTI_MIN_WIDTH = 122f
         const val MULTI_CARET_WIDTH = 10f
+        const val CONTROL_SHEEN_ALPHA = 0.045f
 
         /** A stand-in for the widest summary, so the reserved width covers every count. */
         val WIDEST_SAMPLE: List<Nothing> = emptyList()
@@ -956,6 +951,13 @@ public class DropdownControlNode<T>(
             if (isOpen) palette.accent else palette.border,
         )
         context.diagnostics.drawCalls += 2
+
+        renderer.roundedRect(
+            Rect(bounds.x + 6f, bounds.y + 1f, bounds.width - 12f, 1f),
+            tokens.radii.pill,
+            palette.textPrimary.withAlpha(CONTROL_SHEEN_ALPHA),
+        )
+        context.diagnostics.drawCalls++
 
         label.colorOverride = contentColor(palette.textPrimary)
 

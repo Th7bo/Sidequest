@@ -975,35 +975,19 @@ public class ConfigScreenLayoutNode(
         )
         renderer.shadow(panel, tokens.radii.large, tokens.effects.panelShadow)
         renderer.roundedRect(panel, Corners.all(tokens.radii.large), palette.windowBackground)
-        renderer.gradient(
-            Rect(panel.x, panel.y, panel.width, minOf(panel.height, AMBIENT_HEIGHT)),
-            Gradient.linear(palette.accent.withAlpha(0.055f), palette.accent.withAlpha(0f)),
-            tokens.radii.large,
-        )
-        renderer.gradient(
-            Rect(panel.x, panel.y, minOf(panel.width, AMBIENT_WIDTH), panel.height),
-            Gradient.linear(
-                palette.accent.withAlpha(0.025f),
-                palette.accent.withAlpha(0f),
-                Gradient.Direction.HORIZONTAL,
-            ),
-            tokens.radii.large,
-        )
         renderer.border(panel, Corners.all(tokens.radii.large), tokens.metrics.borderWidth, palette.border)
         renderer.roundedRect(
             Rect(panel.x + tokens.radii.large.value, panel.y + 1f, panel.width - tokens.radii.large.value * 2f, 1f),
             tokens.radii.pill,
             palette.textPrimary.withAlpha(FRAME_SHEEN_ALPHA),
         )
-        context.diagnostics.drawCalls += 6
+        context.diagnostics.drawCalls += 4
     }
 
     private companion object {
         const val CLOSE_BUTTON_WIDTH = 26f
         const val HEADER_SEARCH_WIDTH = 154f
         const val HEADER_SEARCH_MIN_VIEWPORT = 620f
-        const val AMBIENT_HEIGHT = 92f
-        const val AMBIENT_WIDTH = 250f
         const val FRAME_SHEEN_ALPHA = 0.055f
         const val FALLBACK_SIZE = 480f
 

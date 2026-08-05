@@ -130,15 +130,9 @@ public class ChromeButtonNode(
             }
         }
 
-        if (tone == ButtonTone.PRIMARY) {
-            renderer.gradient(
-                bounds,
-                dev.th7bo.sidequest.ui.rendering.Gradient.linear(palette.accentHover, background),
-                corners,
-            )
-        } else {
-            renderer.roundedRect(bounds, corners, background)
-        }
+        // Keep action surfaces on the clipped rounded-rect path. The gradient
+        // backend is rectangular and creates square leaks at rounded corners.
+        renderer.roundedRect(bounds, corners, background)
         renderer.border(bounds, corners, tokens.metrics.borderWidth, border)
         context.diagnostics.drawCalls += 2
 

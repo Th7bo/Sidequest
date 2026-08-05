@@ -296,16 +296,6 @@ public class SectionCardHeaderNode(
             Corners.top(tokens.radii.large),
             palette.accent.withAlpha(HEADER_TINT_ALPHA),
         )
-        renderer.gradient(
-            Rect(bounds.x, bounds.y, minOf(bounds.width, HEADER_GLOW_WIDTH), bounds.height),
-            dev.th7bo.sidequest.ui.rendering.Gradient.linear(
-                palette.accent.withAlpha(HEADER_GLOW_ALPHA),
-                palette.accent.withAlpha(0f),
-                dev.th7bo.sidequest.ui.rendering.Gradient.Direction.HORIZONTAL,
-            ),
-            Corners.top(tokens.radii.large),
-        )
-        context.diagnostics.drawCalls++
 
         val countBounds = count.absoluteBounds()
         val countPill = Rect(
@@ -400,8 +390,6 @@ public class SectionCardHeaderNode(
         const val COUNT_HORIZONTAL_PADDING = 7f
         const val COUNT_VERTICAL_PADDING = 3f
         const val HEADER_TINT_ALPHA = 0.025f
-        const val HEADER_GLOW_ALPHA = 0.06f
-        const val HEADER_GLOW_WIDTH = 96f
 
         /** How many bars the triangle is stacked from. Four reads as a chevron at every GUI scale. */
         const val CHEVRON_STEPS = 8
