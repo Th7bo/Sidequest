@@ -22,9 +22,10 @@ import net.minecraft.client.gui.screens.TitleScreen
  * the world sliding about underneath.
  *
  * **It refuses to draw whenever it is not certain it should.** Off in the settings, a screen that is not
- * exactly the vanilla title screen, or no window to measure — each returns false and Minecraft's own
- * panorama runs untouched. That is the compatibility story: another mod's title screen is a different class,
- * so this simply does not recognise it and stays out of the way.
+ * a screen that is not based on the vanilla title screen, or no window to measure — each returns false and
+ * Minecraft's own panorama runs untouched. Vanilla-derived screens still call the same panorama hook, and
+ * accepting those is what lets lightweight decorators such as PackCore keep their buttons while Sidequest
+ * owns the background.
  */
 public object TitleScreenBackground {
 
@@ -39,9 +40,9 @@ public object TitleScreenBackground {
     @JvmStatic
     public fun paint(screen: Screen, graphics: GuiGraphicsExtractor): Boolean {
         if (!SidequestSettings.TitleScreen.isEnabled) return false
-        // Exactly the vanilla screen, not a subclass. A mod that extends `TitleScreen` to add its own
-        // background has an opinion about the background, and two mods drawing one is worse than either.
-        if (screen.javaClass != TitleScreen::class.java) return false
+        // A vanilla title screen or a decorator built on it. Fully custom screens do not reach this branch,
+        // so a mod with its own rendering pipeline keeps its own background.
+        if (screen !is TitleScreen) return false
 
         val client = Minecraft.getInstance()
         val window = client.window ?: return false
