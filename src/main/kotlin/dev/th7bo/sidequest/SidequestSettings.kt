@@ -244,10 +244,20 @@ public object SidequestSettings {
          */
         public const val DEFAULT_APPLICATION_ID: String = "1533887312373616650"
 
-        /** The settings as the feature reads them: one value, snapshotted on the client thread. */
+        /**
+         * The settings as the feature reads them: one value, snapshotted on the client thread.
+         *
+         * **An empty field falls back to the shipped application rather than to nothing.** A default on the
+         * property alone is not enough: a config file written before this default existed — or by anybody
+         * who cleared the box — has an empty string *stored*, and a stored empty string beats a default
+         * forever. Resolving it here means the setting behaves the way an override should, and there is no
+         * config file that can silently pin the feature off.
+         *
+         * [isEnabled] is the switch for turning it off. Blanking a text field is not.
+         */
         public fun snapshot(): PresenceSettings = PresenceSettings(
             isEnabled = isEnabled,
-            applicationId = applicationId.trim(),
+            applicationId = applicationId.trim().ifEmpty { DEFAULT_APPLICATION_ID },
             disclosure = PresenceDisclosure(
                 showIsland = showIsland,
                 showActivity = showActivity,
