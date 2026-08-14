@@ -3,6 +3,8 @@ package dev.th7bo.sidequest
 import dev.th7bo.sidequest.platform.audio.SoundGroup
 import dev.th7bo.sidequest.platform.chat.DropRarity
 import dev.th7bo.sidequest.platform.cinematic.CinematicSettings
+import dev.th7bo.sidequest.platform.core.presence.PresenceDisclosure
+import dev.th7bo.sidequest.platform.core.presence.PresenceSettings
 import dev.th7bo.sidequest.platform.core.skyblock.LevelPalette
 import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings
 import dev.th7bo.sidequest.platform.notification.NotificationSettings
@@ -187,6 +189,56 @@ public object SidequestSettings {
          * sitting on disk should be able to keep almost none.
          */
         public var retentionDays: Int = 90
+    }
+
+    // -- Discord -------------------------------------------------------------
+
+    /**
+     * What goes on the Discord profile.
+     *
+     * **The widest audience anything in this mod publishes to.** Everything else — presence, pings, debts —
+     * reaches a friend group that opted into a shared backend; this reaches everybody on somebody's Discord
+     * friend list, including people who have never heard of SkyBlock. That is why these are their own
+     * switches rather than a reuse of [dev.th7bo.sidequest.platform.permission.Permission]: the same person
+     * can reasonably tell six friends where they are and not want it above their name in a work server.
+     */
+    public object Discord {
+        /** Off until somebody asks for it, and until they have supplied an application id. */
+        public var isEnabled: Boolean = false
+
+        /**
+         * The Discord application the presence belongs to.
+         *
+         * Blank, and deliberately not defaulted. See
+         * [PresenceSettings.applicationId][dev.th7bo.sidequest.platform.core.presence.PresenceSettings.applicationId]:
+         * an application id is somebody's registered Discord application, and its name is the bold line on
+         * the card. Shipping one would file this group's activity under a stranger's name.
+         */
+        public var applicationId: String = ""
+
+        public var showIsland: Boolean = true
+        public var showActivity: Boolean = true
+
+        /** Off by default: people name profiles things they would not choose as a public label. */
+        public var showProfile: Boolean = false
+
+        /** A count, never names — see [PresenceDisclosure.showParty]. */
+        public var showParty: Boolean = true
+
+        public var showElapsed: Boolean = true
+
+        /** The settings as the feature reads them: one value, snapshotted on the client thread. */
+        public fun snapshot(): PresenceSettings = PresenceSettings(
+            isEnabled = isEnabled,
+            applicationId = applicationId.trim(),
+            disclosure = PresenceDisclosure(
+                showIsland = showIsland,
+                showActivity = showActivity,
+                showProfile = showProfile,
+                showParty = showParty,
+                showElapsed = showElapsed,
+            ),
+        )
     }
 
     // -- cosmetics -----------------------------------------------------------

@@ -40,6 +40,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     val playtimeOn = mutableStateOf(SidequestSettings.Playtime.isEnabled, "playtime.enabled")
     val titleScreenOn = mutableStateOf(SidequestSettings.TitleScreen.isEnabled, "title.enabled")
     val levelsOn = mutableStateOf(SidequestSettings.Levels.isEnabled, "levels.enabled")
+    val discordOn = mutableStateOf(SidequestSettings.Discord.isEnabled, "discord.enabled")
 
     /** Every change pushes into the services. See [SidequestSettings.applyToPlatform]. */
     fun applied() = SidequestSettings.applyToPlatform()
@@ -628,6 +629,121 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     destructive = true,
                 ) {
                     Sidequest.signOutOfBackend()
+                }
+            }
+
+            section(
+                "Discord",
+                description = "What your Discord profile says you are doing",
+                icon = GlyphIconIds.friends,
+                collapsible = true,
+                startsCollapsed = true,
+            ) {
+                // Stated before the switches rather than buried in one of them. Everything else in this mod
+                // is shared with a friend group that opted in; this is shared with everybody who can see a
+                // Discord profile, and somebody deciding what to turn on needs to know that first.
+                warning(
+                    id = id("discord.notice"),
+                    title = "This is public",
+                    body = "Anyone who can see your Discord profile can read this — a wider audience than " +
+                        "the group's backend. Party members are counted, never named.",
+                )
+                toggle(
+                    id = id("discord.enabled"),
+                    title = "Show on Discord",
+                    value = bind(
+                        get = { SidequestSettings.Discord.isEnabled },
+                        set = { SidequestSettings.Discord.isEnabled = it; discordOn.value = it },
+                        debugName = "discord.enabled",
+                    ),
+                )
+                textField(
+                    id = id("discord.application_id"),
+                    title = "Application id",
+                    description = "From discord.com/developers — create an application and paste its id here. " +
+                        "Its name is the bold line on the card.",
+                    value = bind(
+                        get = { SidequestSettings.Discord.applicationId },
+                        set = { SidequestSettings.Discord.applicationId = it },
+                        debugName = "discord.application_id",
+                    ),
+                    placeholder = "000000000000000000",
+                    // Digits, because that is what a snowflake is. Refused rather than accepted-and-silent:
+                    // a wrong id produces a connection that handshakes, fails, and shows nothing, which is
+                    // indistinguishable from Discord being closed.
+                    validator = Validator { field, value ->
+                        when {
+                            value.isBlank() -> ValidationResult.valid()
+                            value.all(Char::isDigit) -> ValidationResult.valid()
+                            else -> ValidationResult.error(
+                                field,
+                                "An application id is only digits",
+                                remediation = "Copy the Application ID, not the name or the public key",
+                            )
+                        }
+                    },
+                ) {
+                    visibleWhen = discordOn
+                }
+                toggle(
+                    id = id("discord.island"),
+                    title = "Where you are",
+                    description = "The island, the area within it, and its picture",
+                    value = bind(
+                        get = { SidequestSettings.Discord.showIsland },
+                        set = { SidequestSettings.Discord.showIsland = it },
+                        debugName = "discord.island",
+                    ),
+                ) {
+                    visibleWhen = discordOn
+                }
+                toggle(
+                    id = id("discord.activity"),
+                    title = "What you are doing",
+                    description = "Including the dungeon floor and the Kuudra tier",
+                    value = bind(
+                        get = { SidequestSettings.Discord.showActivity },
+                        set = { SidequestSettings.Discord.showActivity = it },
+                        debugName = "discord.activity",
+                    ),
+                ) {
+                    visibleWhen = discordOn
+                }
+                toggle(
+                    id = id("discord.party"),
+                    title = "How many you are with",
+                    description = "A count. Nobody else is ever named.",
+                    value = bind(
+                        get = { SidequestSettings.Discord.showParty },
+                        set = { SidequestSettings.Discord.showParty = it },
+                        debugName = "discord.party",
+                    ),
+                ) {
+                    visibleWhen = discordOn
+                }
+                toggle(
+                    id = id("discord.profile"),
+                    title = "Your profile name",
+                    description = "The SkyBlock profile you are on, and its game mode",
+                    value = bind(
+                        get = { SidequestSettings.Discord.showProfile },
+                        set = { SidequestSettings.Discord.showProfile = it },
+                        debugName = "discord.profile",
+                    ),
+                ) {
+                    visibleWhen = discordOn
+                }
+                toggle(
+                    id = id("discord.elapsed"),
+                    title = "How long you have been on",
+                    description = "The clock counts from when you joined Hypixel",
+                    value = bind(
+                        get = { SidequestSettings.Discord.showElapsed },
+                        set = { SidequestSettings.Discord.showElapsed = it },
+                        debugName = "discord.elapsed",
+                    ),
+                ) {
+                    visibleWhen = discordOn
                 }
             }
         }

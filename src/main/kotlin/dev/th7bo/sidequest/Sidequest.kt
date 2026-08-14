@@ -3,6 +3,7 @@ package dev.th7bo.sidequest
 import dev.th7bo.sidequest.features.CustomFriends
 import dev.th7bo.sidequest.features.DebtTracker
 import dev.th7bo.sidequest.features.DeveloperTools
+import dev.th7bo.sidequest.features.DiscordPresence
 import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.PlaytimeTracker
 import dev.th7bo.sidequest.features.PingSystem
@@ -586,6 +587,10 @@ object Sidequest : ClientModInitializer {
         )
         readyChecks.clear = { platform.partyService.endReadyCheck() }
 
+        // Reads the settings rather than being handed them, because they change while it runs — turning the
+        // switch off has to take the presence down, not wait for a restart.
+        discordPresence = DiscordPresence(settings = SidequestSettings.Discord::snapshot)
+
         val refusals = platform.start(
             sessionDiagnostics,
             developerTools,
@@ -599,6 +604,7 @@ object Sidequest : ClientModInitializer {
             waypoints,
             pings,
             readyChecks,
+            discordPresence,
         )
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
@@ -614,6 +620,8 @@ object Sidequest : ClientModInitializer {
     private lateinit var friends: CustomFriends
 
     private lateinit var debts: DebtTracker
+
+    private lateinit var discordPresence: DiscordPresence
 
     /**
      * Opens the waypoint manager.
