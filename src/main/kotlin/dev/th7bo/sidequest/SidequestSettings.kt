@@ -209,12 +209,16 @@ public object SidequestSettings {
         /**
          * The Discord application the presence belongs to.
          *
-         * Blank, and deliberately not defaulted. See
-         * [PresenceSettings.applicationId][dev.th7bo.sidequest.platform.core.presence.PresenceSettings.applicationId]:
-         * an application id is somebody's registered Discord application, and its name is the bold line on
-         * the card. Shipping one would file this group's activity under a stranger's name.
+         * Defaulted to the group's own application for the same reason [backendUrl] is defaulted to the
+         * group's own server: this is a private mod for one friend group, and asking every member to visit
+         * the Discord developer portal is asking for five of them not to. One application is registered
+         * once, its art is uploaded once, and everybody else inherits it — which is exactly what every mod
+         * that ships rich presence does.
+         *
+         * Left as a setting so somebody can point it at their own application, not because they should have
+         * to. Blank is supported and means the feature stays off.
          */
-        public var applicationId: String = ""
+        public var applicationId: String = DEFAULT_APPLICATION_ID
 
         public var showIsland: Boolean = true
         public var showActivity: Boolean = true
@@ -226,6 +230,19 @@ public object SidequestSettings {
         public var showParty: Boolean = true
 
         public var showElapsed: Boolean = true
+
+        /**
+         * Sidequest's own Discord application.
+         *
+         * Registered once so that nobody in the group ever opens this setting — the same reasoning as
+         * [backendUrl], and the reason every mod that ships rich presence hardcodes one.
+         *
+         * Two things follow from it that are easy to miss. The application's **name** is the bold first line
+         * of every card this mod draws, so renaming it renames the presence for everyone. And every asset
+         * key in `docs/guide/discord-rich-presence.md` resolves against **this application's** art library,
+         * so art uploaded anywhere else will not appear.
+         */
+        public const val DEFAULT_APPLICATION_ID: String = "1533887312373616650"
 
         /** The settings as the feature reads them: one value, snapshotted on the client thread. */
         public fun snapshot(): PresenceSettings = PresenceSettings(

@@ -660,14 +660,16 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 textField(
                     id = id("discord.application_id"),
                     title = "Application id",
-                    description = "From discord.com/developers — create an application and paste its id here. " +
-                        "Its name is the bold line on the card.",
+                    // An override, not a step. Sidequest ships its own application; this is here for
+                    // somebody who wants the card to carry a name of their own.
+                    description = "Which Discord application the card is shown under. " +
+                        "Leave it alone unless you want your own.",
                     value = bind(
                         get = { SidequestSettings.Discord.applicationId },
                         set = { SidequestSettings.Discord.applicationId = it },
                         debugName = "discord.application_id",
                     ),
-                    placeholder = "000000000000000000",
+                    placeholder = SidequestSettings.Discord.DEFAULT_APPLICATION_ID.ifEmpty { "000000000000000000" },
                     // Digits, because that is what a snowflake is. Refused rather than accepted-and-silent:
                     // a wrong id produces a connection that handshakes, fails, and shows nothing, which is
                     // indistinguishable from Discord being closed.

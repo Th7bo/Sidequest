@@ -24,6 +24,9 @@ public data class RichPresence(
      *
      * The unit is the whole of the field. Milliseconds here produce a timer counting from somewhere in the
      * year 55000, which renders as a plausible-looking number and is wrong by fifty thousand years.
+     *
+     * Confirmed against a live Discord rather than taken on faith: sending `1786711130` came back echoed as
+     * `1786711130000`, so Discord reads seconds and normalises to milliseconds itself. See `DiscordLiveTest`.
      */
     public val startedAtEpochSeconds: Long? = null,
 

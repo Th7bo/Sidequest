@@ -289,9 +289,11 @@ class DiscordPresence(
         }
 
         val subtitle = when {
-            !settings.isEnabled -> "Turn it on under Social · Discord in the settings."
+            !settings.isEnabled -> "Turn it on under Network · Discord in the settings."
+            // Reachable only by clearing the field, since the mod ships an application of its own. Worth a
+            // message anyway: somebody who emptied it deserves to be told that is why nothing appears.
             settings.applicationId.isBlank() ->
-                "Set one under Social · Discord. It names the Discord application the presence belongs to."
+                "The field under Network · Discord is empty. Clear it back to the default to use Sidequest's."
             isConnected && presence == null -> "Connected, showing nothing — you are not on Hypixel."
             isConnected -> listOfNotNull(presence?.details, presence?.state).joinToString(" / ")
             else -> lastError ?: "Looking for Discord."

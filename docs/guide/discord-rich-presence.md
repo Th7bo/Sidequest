@@ -4,21 +4,28 @@ What the mod puts on your Discord profile, and what it takes to make the picture
 
 ## Turning it on
 
-**Settings → Network → Discord.** It needs two things: the switch, and an application id.
+**Settings → Network → Discord**, and flip the switch. That is the whole of it.
 
-There is no default application id and there cannot be one. An application id names a *registered Discord
-application*, and that application's name is the bold first line on the presence card — its art library is
-also what every image key below resolves against. Shipping one would file this group's activity under
-somebody else's application name and somebody else's pictures.
+Sidequest ships its own registered Discord application (`1533887312373616650`), so nobody in the group types
+anything — the same reasoning as the backend URL being defaulted to the group's own server. The application
+id is still a setting, for anybody who wants the card to carry a name of their own, but it is an override
+rather than a step.
 
-To get one:
+It stays **off by default** even so. Everything else in the mod is shared with people who opted into a
+backend; this is shared with everybody who can read a Discord profile, and that should be a choice somebody
+makes rather than one made for them by an update.
 
-1. Go to <https://discord.com/developers/applications> and create an application.
-2. Name it whatever should appear as the bold line — `SkyBlock`, `Hypixel SkyBlock`, `Sidequest`.
-3. Copy the **Application ID** (all digits) into the setting.
+**Uploading art is optional** — every line of text stands on its own, and an image key Discord does not
+recognise simply shows no image.
 
-That is the whole of the setup. **Uploading art is optional** — every line of text stands on its own, and an
-image key Discord does not recognise simply shows no image.
+### Two things about the application itself
+
+Both easy to forget, because neither lives in this repository:
+
+- **Its name is the bold first line of every card the mod draws.** Renaming it in the developer portal
+  renames the presence for everyone, with no rebuild.
+- **The art keys below resolve against *this* application's library.** Art uploaded to any other application
+  will not appear, however correctly it is named.
 
 ## What it shows
 
@@ -122,18 +129,26 @@ The protocol lives in `platform-core`, under `platform/core/presence`:
 - `DiscordSockets` — finding a running Discord, including sandboxed installs.
 
 `DiscordIpcTest` checks all of it against a Discord made of bytes. That suite cannot catch a wire format that
-is self-consistently wrong, so there is also `DiscordLiveTest`, skipped unless you ask for it:
+is self-consistently wrong — it was written from the same understanding as the code — so there is also
+`DiscordLiveTest`, skipped unless you ask for it. Run it after touching the framing, the socket discovery or
+the activity payload:
 
 ```
-SIDEQUEST_DISCORD_LIVE=1 ./gradlew :platform-core:test --tests '*DiscordLiveTest*'
+SIDEQUEST_DISCORD_LIVE=1 SIDEQUEST_DISCORD_APP=1533887312373616650 \
+  ./gradlew :platform-core:test --tests '*DiscordLiveTest*' --rerun-tasks
 ```
 
-Run it after touching the framing or the socket discovery. It hands Discord an application id that cannot
-exist, because a *rejection* proves the frame was decoded while changing nothing about your real presence.
+Two tests, deliberately different in kind. The first hands Discord an application id that *cannot* exist,
+because a rejection proves the frame was decoded while changing nothing about your presence. The second
+sends a real activity under the real application and checks it comes back without an `ERROR` — it briefly
+shows a card on the running account's profile, then clears it.
 
-Two rules that are not obvious from the code:
+Three rules that are not obvious from the code:
 
-- **Timestamps are epoch seconds, not milliseconds.** Milliseconds produce a clock counting from the year
-  55000, which renders as a plausible number and is wrong by fifty thousand years.
+- **Timestamps are epoch seconds, not milliseconds.** Confirmed live: sending `1786711130` comes back echoed
+  as `1786711130000`, so Discord reads seconds and normalises. Milliseconds would produce a clock counting
+  from the year 55000 — a plausible-looking number, wrong by fifty thousand years.
+- **Nulls must be absent, not null.** The payload is encoded with `explicitNulls = false` for that reason;
+  an explicit null where Discord expects a missing field is rejected.
 - **Every IPC call blocks and belongs on the background thread.** A Discord that has stopped reading its own
   socket is not a rare state, and a blocking write from the client thread takes the game with it.
