@@ -104,7 +104,10 @@ class DiscordLiveTest {
             // that is the failure this whole test exists to catch.
             assertFalse(response!!.contains("\"evt\":\"ERROR\""), "Discord rejected the activity: $response")
 
-            // Taken down again rather than left on somebody's profile.
+            // arRPC acknowledges before Vesktop has resolved the application and asset keys. Clearing in
+            // that window races the older update: the clear lands first, then the completed image lookup
+            // resurrects this test card. Let the renderer settle before taking it down.
+            Thread.sleep(RENDERER_SETTLE_MILLIS)
             it.setActivity(null)
         }
     }
@@ -112,6 +115,7 @@ class DiscordLiveTest {
     private companion object {
         const val LIVE = "SIDEQUEST_DISCORD_LIVE"
         const val APPLICATION = "SIDEQUEST_DISCORD_APP"
+        const val RENDERER_SETTLE_MILLIS = 5_000L
 
         /** All digits, so it is shaped like a snowflake, and far too small to be a real one. */
         const val NOT_AN_APPLICATION = "1"

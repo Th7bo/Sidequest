@@ -91,6 +91,13 @@ class DiscordPresence(
     private var hasSent: Boolean = false
     private var lastSentAt: Long = 0
 
+    /**
+     * arRPC acknowledges an activity before Vesktop has finished resolving its image assets. A clear sent
+     * while that lookup is in flight can therefore arrive first, after which the older activity resurrects
+     * itself. Repeat clears for a short bounded window so the final update is unambiguously the clear.
+     */
+    private var repeatClearUntil: Long = 0
+
     private var failures: Int = 0
     private var nextAttemptAt: Long = 0
 
@@ -192,16 +199,24 @@ class DiscordPresence(
         }
 
         val target = desired
-        if (target == lastSent && (hasSent || target == null)) return
+        val now = now()
+        val isRepeatingClear = target == null && hasSent && now < repeatClearUntil
+        if (target == lastSent && (hasSent || target == null) && !isRepeatingClear) return
         // The floor. Discord rate-limits presence updates, and a sub-location that changes every few seconds
         // while walking across an island would otherwise be the loudest thing on this connection.
-        if (hasSent && now() - lastSentAt < MINIMUM_INTERVAL.inWholeMilliseconds) return
+        if (hasSent && now - lastSentAt < MINIMUM_INTERVAL.inWholeMilliseconds) return
 
         try {
+            val beganClear = target == null && hasSent && lastSent != null
             live.setActivity(target)
             lastSent = target
             hasSent = true
-            lastSentAt = now()
+            lastSentAt = now
+            repeatClearUntil = when {
+                beganClear -> now + CLEAR_RETRY_WINDOW.inWholeMilliseconds
+                target != null -> 0
+                else -> repeatClearUntil
+            }
             lastError = null
         } catch (e: DiscordIpcException) {
             note(e)
@@ -233,6 +248,7 @@ class DiscordPresence(
         // previous one says nothing about what this one is showing.
         lastSent = null
         hasSent = false
+        repeatClearUntil = 0
         context.log.info { "Discord rich presence connected" }
     }
 
@@ -243,6 +259,7 @@ class DiscordPresence(
         isConnected = false
         lastSent = null
         hasSent = false
+        repeatClearUntil = 0
     }
 
     /**
@@ -323,6 +340,9 @@ class DiscordPresence(
          * shorter so that a change is picked up promptly; this is what stops a burst of them going out.
          */
         val MINIMUM_INTERVAL = 5.seconds
+
+        /** Long enough to outlast Vesktop's asynchronous application and asset lookups. */
+        val CLEAR_RETRY_WINDOW = 15.seconds
 
         /** How long to wait after each successive failed connection. */
         val BACKOFF = listOf(15.seconds, 30.seconds, 60.seconds, 120.seconds, 300.seconds)
