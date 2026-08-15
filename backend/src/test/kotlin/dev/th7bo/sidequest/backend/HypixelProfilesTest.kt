@@ -55,7 +55,7 @@ class HypixelProfilesTest {
         assertEquals("Mage", profile.dungeonClasses.single().name)
         assertEquals(2, profile.collections.size)
         assertEquals("Farming", profile.collections.first { it.id == "WHEAT" }.category)
-        assertEquals("Tiger", profile.pets.single().name)
+        assertEquals("Tiger", profile.pets.first().name, "the active pet leads")
         assertEquals(120, profile.fairySouls)
         assertEquals(734, profile.magicalPower)
         assertEquals("SILKY", profile.selectedPower)
@@ -161,6 +161,35 @@ class HypixelProfilesTest {
             .slots.first { it.slot == 1 }.nodes.single { it.id == "gemstone_infusion" }
 
         assertEquals(listOf("§6Pickaxe Ability: Gemstone Infusion", "§8Duration: §a25s"), infusion.lore)
+    }
+
+    /**
+     * A field Hypixel sends as null must arrive as null, not as the word.
+     *
+     * **`JsonNull` is a `JsonPrimitive`, and its content is the four-character string `"null"`.** So every
+     * absent optional came back as text reading "null" and every caller took it for a real value. The
+     * damage was worst where a value is used as an identity: a pet with no skin claimed a skin of "null",
+     * all forty in a stable agreed on it, and the screen's icon cache — keyed by skin where there is one —
+     * collapsed into a single entry holding whichever pet was resolved first. Every pet then wore the
+     * active pet's face, while its name and rarity stayed correct, because only the icon was shared.
+     */
+    @Test
+    fun `an explicitly null field is absent rather than the word null`() {
+        val pets = parseWithTables().pets
+
+        assertEquals(null, pets.first { it.type == "TIGER" }.skin, "a null skin is no skin")
+        assertEquals(null, pets.first { it.type == "TIGER" }.heldItem)
+        assertEquals("WOLF_DOGE", pets.first { it.type == "WOLF" }.skin, "a real skin still arrives")
+        assertTrue(pets.none { it.skin == "null" }, "the word leaked through: $pets")
+    }
+
+    /** Whatever a screen keys a pet's picture on, no two of these pets may agree on it. */
+    @Test
+    fun `no two pets share an identity`() {
+        val pets = parseWithTables().pets
+        val identities = pets.map { listOf(it.type, it.rarity, it.skin.orEmpty()) }
+
+        assertEquals(pets.size, identities.distinct().size, "two pets are indistinguishable: $identities")
     }
 
     /**
@@ -338,7 +367,11 @@ class HypixelProfilesTest {
                       },
                       "player_data": {"experience": {"SKILL_FARMING": 275.0}},
                       "collection": {"WHEAT": 10000, "DIAMOND": 5000},
-                      "pets_data": {"pets": [{"type":"TIGER","tier":"LEGENDARY","exp":12345,"active":true}]},
+                      "pets_data": {"pets": [
+                        {"type":"TIGER","tier":"LEGENDARY","exp":12345,"active":true,"skin":null,"heldItem":null},
+                        {"type":"HEDGEHOG","tier":"EPIC","exp":500,"skin":null},
+                        {"type":"WOLF","tier":"LEGENDARY","exp":100,"skin":"WOLF_DOGE"}
+                      ]},
                       "mining_core": {
                         "experience": 4567,
                         "powder_mithril": 890,

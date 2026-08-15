@@ -39,6 +39,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
@@ -1132,7 +1133,17 @@ private fun parseObject(body: String): JsonObject = try {
 
 private fun JsonObject.obj(name: String): JsonObject? = get(name) as? JsonObject
 private fun JsonObject.array(name: String): JsonArray? = get(name) as? JsonArray
-private fun JsonObject.string(name: String): String? = (get(name) as? JsonPrimitive)?.content
+/**
+ * A string field, or null when there isn't one.
+ *
+ * **`JsonNull` is a `JsonPrimitive`, and its content is the four-character string `"null"`.** So a field
+ * Hypixel explicitly sends as null came back as text reading "null" and every caller treated it as a real
+ * value. That is what made every pet in a stable draw the same animal: a pet with no skin reported its skin
+ * as `"null"`, all forty of them agreed on it, and the icon cache — keyed by skin where there is one —
+ * collapsed to a single entry holding whichever pet was looked up first. The active one, as it happens.
+ */
+private fun JsonObject.string(name: String): String? =
+    (get(name) as? JsonPrimitive)?.takeUnless { it is JsonNull }?.content
 private fun JsonObject.number(name: String): Double? = (get(name) as? JsonPrimitive)?.doubleOrNull
 
 /**

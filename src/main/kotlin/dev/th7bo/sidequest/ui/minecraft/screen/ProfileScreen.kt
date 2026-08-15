@@ -1275,8 +1275,19 @@ public class ProfileScreen(
     private fun itemCandidates(id: String): List<String> =
         listOf(id, id.replace(':', '-')).filter { it.isNotEmpty() }.distinct()
 
-    private fun petVisualKey(pet: ProfilePet): String = pet.skin?.takeIf { it.isNotBlank() }
-        ?: "${pet.type};${petTier(pet.rarity)}"
+    /**
+     * The cache slot a pet's picture lives in.
+     *
+     * Everything that identifies the pet, always — not the skin *or* the type, which is what this used to
+     * be. That earlier shape had one failure mode and it was catastrophic: any two pets agreeing on the
+     * field it happened to pick shared a slot, so the first one looked up won and every other pet in the
+     * stable wore its face. A key made of all three parts cannot collapse however odd the values are.
+     *
+     * Purely internal. The names actually asked of the item database come from `petCandidatesFor`, so this
+     * never has to resemble anything the database would recognise.
+     */
+    private fun petVisualKey(pet: ProfilePet): String =
+        "${pet.type}|${petTier(pet.rarity)}|${pet.skin.orEmpty()}"
 
     private fun trophyFishVisualKey(fish: ProfileTrophyFish): String {
         val tier = when {
