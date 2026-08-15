@@ -125,7 +125,11 @@ public object PresenceComposer {
                     .takeIf { context.island.isRealIsland && it.isNotEmpty() && it !in details }
                 island?.let(::add)
 
-                val area = context.subLocation.name.trim()
+                // Hypixel's official pack renders private-use Unicode as icons. Minecraft deliberately
+                // keeps those code points, but Discord has no copy of that font and draws tofu boxes for
+                // them. Clean the area before deciding whether it deserves a piece of the line; otherwise
+                // an icon-only area would leave a dangling separator after the final clean.
+                val area = clean(context.subLocation.name).orEmpty()
                 if (area.isNotEmpty() && !area.equals(island, ignoreCase = true) && area !in details) add(area)
             }
             // A count, and there is deliberately no branch here that could reach a name.
@@ -189,15 +193,31 @@ public object PresenceComposer {
     /**
      * A line Discord will accept, or null.
      *
-     * Two jobs. The length cap is Discord's; a longer line is rejected outright rather than truncated by
-     * them, which would lose the whole update rather than the tail of one string. The minimum is Discord's
-     * too and is the stranger of the two: a single-character `state` is refused, so an area that shrank to
-     * one letter would take the entire presence down with it.
+     * Three jobs. Minecraft text may contain private-use code points that Hypixel's resource pack draws as
+     * icons; Discord does not have that font, so those become empty boxes and are removed here rather than
+     * in the parser that still needs them. The length cap is Discord's; a longer line is rejected outright
+     * rather than truncated by them, which would lose the whole update rather than the tail of one string.
+     * The minimum is Discord's too and is the stranger of the two: a single-character `state` is refused,
+     * so an area that shrank to one letter would take the entire presence down with it.
      */
     private fun clean(text: String?): String? {
-        val trimmed = text?.trim().orEmpty()
+        val trimmed = text
+            ?.withoutPrivateUse()
+            ?.replace(WHITESPACE, " ")
+            ?.trim()
+            .orEmpty()
         if (trimmed.length < MINIMUM_LENGTH) return null
         return trimmed.take(MAXIMUM_LENGTH)
+    }
+
+    /** Removes all three Unicode private-use areas, including the supplementary planes. */
+    private fun String.withoutPrivateUse(): String = buildString(length) {
+        var offset = 0
+        while (offset < this@withoutPrivateUse.length) {
+            val codePoint = this@withoutPrivateUse.codePointAt(offset)
+            if (Character.getType(codePoint) != Character.PRIVATE_USE.toInt()) appendCodePoint(codePoint)
+            offset += Character.charCount(codePoint)
+        }
     }
 
     /** What separates two things on one line. A middle dot, which Discord renders and a hyphen would not. */
@@ -212,4 +232,6 @@ public object PresenceComposer {
 
     private const val MINIMUM_LENGTH = 2
     private const val MAXIMUM_LENGTH = 128
+
+    private val WHITESPACE = Regex("\\s+")
 }

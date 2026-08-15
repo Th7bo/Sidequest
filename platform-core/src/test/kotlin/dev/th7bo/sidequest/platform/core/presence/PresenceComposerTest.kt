@@ -293,6 +293,34 @@ class PresenceComposerTest {
         assertNull(PresenceComposer.compose(terse, PartyState(), PresenceDisclosure())!!.state)
     }
 
+    @Test
+    fun `resource pack glyphs do not escape into Discord text`() {
+        val supplementaryGlyph = String(Character.toChars(0xF0000))
+        val garden = GameContext(
+            isOnHypixel = true,
+            isInSkyBlock = true,
+            island = Island.GARDEN,
+            subLocation = SubLocation("\uE123   Plot 5 $supplementaryGlyph"),
+        )
+
+        assertEquals(
+            "Garden · Plot 5",
+            PresenceComposer.compose(garden, PartyState(), PresenceDisclosure())!!.state,
+        )
+    }
+
+    @Test
+    fun `an icon-only area does not leave a dangling separator`() {
+        val garden = GameContext(
+            isOnHypixel = true,
+            isInSkyBlock = true,
+            island = Island.GARDEN,
+            subLocation = SubLocation("\uE123"),
+        )
+
+        assertEquals("Garden", PresenceComposer.compose(garden, PartyState(), PresenceDisclosure())!!.state)
+    }
+
     /** Asset keys come from the stable ids, so renaming an enum constant cannot silently change a picture. */
     @Test
     fun `asset keys are built from the stable identifiers`() {
