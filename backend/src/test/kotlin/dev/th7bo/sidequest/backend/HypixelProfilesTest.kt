@@ -37,6 +37,7 @@ class HypixelProfilesTest {
             PROFILES,
             definitions,
             listOf(50.0, 125.0, 1_125.0),
+            HypixelProfileParser.parseCollectionDefinitions(COLLECTIONS),
         )
 
         assertEquals("Apple", profile.profileName)
@@ -53,6 +54,7 @@ class HypixelProfilesTest {
         assertEquals(3, profile.dungeons.single().level)
         assertEquals("Mage", profile.dungeonClasses.single().name)
         assertEquals(2, profile.collections.size)
+        assertEquals("Farming", profile.collections.first { it.id == "WHEAT" }.category)
         assertEquals("Tiger", profile.pets.single().name)
         assertEquals(120, profile.fairySouls)
         assertEquals(734, profile.magicalPower)
@@ -64,8 +66,8 @@ class HypixelProfilesTest {
             84.0,
             profile.currencies.first { it.name == "Wither Current" }.value,
         )
-        assertTrue(profile.sections.any { it.id == "bestiary" })
-        assertTrue(profile.sections.any { it.id == "inventory" })
+        assertTrue(profile.bestiary.isEmpty())
+        assertTrue(profile.inventories.isEmpty())
         assertTrue(profile.sections.any { it.id == "sacks" })
         assertTrue(profile.sections.any { it.id == "trophy_fish" })
         assertEquals(
@@ -111,6 +113,7 @@ class HypixelProfilesTest {
                     emptyMap(),
                 )
                 "resources/skyblock/skills" in url -> UpstreamResponse(200, SKILLS, emptyMap())
+                "resources/skyblock/collections" in url -> UpstreamResponse(200, COLLECTIONS, emptyMap())
                 "NotEnoughUpdates-REPO" in url -> UpstreamResponse(
                     200,
                     """{"catacombs":[50,75,1000]}""",
@@ -138,7 +141,7 @@ class HypixelProfilesTest {
         val profile = service.lookup("Alice", null)
         service.lookup("alice", null)
 
-        assertEquals(7, calls.values.sum())
+        assertEquals(8, calls.values.sum())
         assertEquals(1, calls.entries.single { "skyblock/profiles" in it.key }.value)
         assertEquals(1234.0, profile.garden.first { it.id == "garden_experience" }.value)
         assertEquals(9999.0, profile.museum.first { it.id == "value" }.value)
@@ -163,6 +166,12 @@ class HypixelProfilesTest {
                 }
               }
             }
+        """.trimIndent()
+        val COLLECTIONS = """
+            {"success":true,"collections":{
+              "FARMING":{"name":"Farming","items":{"WHEAT":{"name":"Wheat"}}},
+              "MINING":{"name":"Mining","items":{"DIAMOND":{"name":"Diamond"}}}
+            }}
         """.trimIndent()
         val PROFILES = """
             {

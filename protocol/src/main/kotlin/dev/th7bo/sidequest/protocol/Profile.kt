@@ -32,6 +32,10 @@ public data class SkyBlockProfile(
     public val dungeonClasses: List<ProfileProgress> = emptyList(),
     public val collections: List<ProfileCollection> = emptyList(),
     public val pets: List<ProfilePet> = emptyList(),
+    public val inventories: List<ProfileInventory> = emptyList(),
+    public val bestiary: List<ProfileBestiaryLocation> = emptyList(),
+    public val skillTrees: List<ProfileSkillTree> = emptyList(),
+    public val loadouts: List<ProfileLoadout> = emptyList(),
     public val currencies: List<ProfileMetric> = emptyList(),
     public val mining: List<ProfileMetric> = emptyList(),
     public val garden: List<ProfileMetric> = emptyList(),
@@ -85,6 +89,72 @@ public data class ProfileCollection(
     public val id: String,
     public val name: String,
     public val amount: Long,
+    public val category: String = "Other",
+)
+
+@Serializable
+public data class ProfileInventory(
+    public val id: String,
+    public val name: String,
+    public val columns: Int = 9,
+    public val slots: List<ProfileItemSlot> = emptyList(),
+)
+
+@Serializable
+public data class ProfileItemSlot(
+    public val slot: Int,
+    public val internalName: String? = null,
+    public val displayName: String? = null,
+    public val count: Int = 1,
+)
+
+@Serializable
+public data class ProfileBestiaryLocation(
+    public val id: String,
+    public val name: String,
+    public val kills: Long,
+    public val mobs: List<ProfileBestiaryMob> = emptyList(),
+)
+
+@Serializable
+public data class ProfileBestiaryMob(
+    public val id: String,
+    public val name: String,
+    public val kills: Long,
+)
+
+@Serializable
+public data class ProfileSkillTree(
+    public val id: String,
+    public val name: String,
+    public val selectedSlot: Int = 1,
+    public val slots: List<ProfileSkillTreeSlot> = emptyList(),
+)
+
+@Serializable
+public data class ProfileSkillTreeSlot(
+    public val slot: Int,
+    public val selectedAbility: String? = null,
+    public val nodes: List<ProfileSkillTreeNode> = emptyList(),
+)
+
+@Serializable
+public data class ProfileSkillTreeNode(
+    public val id: String,
+    public val name: String,
+    public val level: Int,
+    public val enabled: Boolean? = null,
+)
+
+@Serializable
+public data class ProfileLoadout(
+    public val id: String,
+    public val name: String,
+    public val equipped: Boolean = false,
+    public val pet: String? = null,
+    public val powerStone: String? = null,
+    public val armor: List<ProfileItemSlot> = emptyList(),
+    public val equipment: List<ProfileItemSlot> = emptyList(),
 )
 
 @Serializable

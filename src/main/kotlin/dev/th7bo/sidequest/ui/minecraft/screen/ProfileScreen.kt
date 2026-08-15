@@ -5,12 +5,17 @@ import dev.th7bo.sidequest.platform.item.SkyBlockItem
 import dev.th7bo.sidequest.protocol.ApiErrorCode
 import dev.th7bo.sidequest.protocol.ApiResult
 import dev.th7bo.sidequest.protocol.ProfileCollection
+import dev.th7bo.sidequest.protocol.ProfileBestiaryLocation
+import dev.th7bo.sidequest.protocol.ProfileInventory
+import dev.th7bo.sidequest.protocol.ProfileItemSlot
+import dev.th7bo.sidequest.protocol.ProfileLoadout
 import dev.th7bo.sidequest.protocol.ProfileMetric
 import dev.th7bo.sidequest.protocol.ProfilePet
 import dev.th7bo.sidequest.protocol.ProfileProgress
 import dev.th7bo.sidequest.protocol.ProfileSection
 import dev.th7bo.sidequest.protocol.ProfileSkill
 import dev.th7bo.sidequest.protocol.ProfileSlayer
+import dev.th7bo.sidequest.protocol.ProfileSkillTree
 import dev.th7bo.sidequest.protocol.SkyBlockProfile
 import dev.th7bo.sidequest.ui.components.ProfileWindowChrome
 import dev.th7bo.sidequest.ui.components.ProfileWindowLayout
@@ -233,13 +238,13 @@ public class ProfileScreen(
                 Tab.OVERVIEW -> paintOverview(renderer, profile, viewport.x, start, viewport.width)
                 Tab.SKILLS -> paintSkills(renderer, profile.skills, viewport.x, start, viewport.width)
                 Tab.COMBAT -> paintCombat(renderer, profile, viewport.x, start, viewport.width)
-                Tab.INVENTORY -> paintProfileSections(renderer, profile, setOf("inventory", "shared_inventory", "sacks", "loadout"), viewport.x, start, viewport.width)
+                Tab.INVENTORY -> paintInventories(renderer, profile, viewport.x, start, viewport.width)
                 Tab.COLLECTIONS -> paintCollections(renderer, profile.collections, viewport.x, start, viewport.width)
                 Tab.PETS -> paintPets(renderer, profile.pets, viewport.x, start, viewport.width)
                 Tab.MINING -> paintMining(renderer, profile, viewport.x, start, viewport.width)
                 Tab.FARMING -> paintFarming(renderer, profile, viewport.x, start, viewport.width)
                 Tab.FISHING -> paintProfileSections(renderer, profile, setOf("trophy_fish"), viewport.x, start, viewport.width)
-                Tab.FORAGING -> paintProfileSections(renderer, profile, setOf("foraging", "foraging_core", "attributes"), viewport.x, start, viewport.width)
+                Tab.FORAGING -> paintForaging(renderer, profile, viewport.x, start, viewport.width)
                 Tab.RIFT -> paintProfileSections(renderer, profile, setOf("rift"), viewport.x, start, viewport.width)
                 Tab.MORE -> paintMore(renderer, profile, viewport.x, start, viewport.width)
             }
@@ -439,7 +444,8 @@ public class ProfileScreen(
         if (profile.dungeons.isNotEmpty() || profile.dungeonClasses.isNotEmpty()) {
             y = paintDungeons(renderer, profile, x, y, width) + GAP
         }
-        y = paintProfileSections(renderer, profile, setOf("bestiary", "nether_island_player_data"), x, y, width, emptyWhenMissing = false)
+        if (profile.bestiary.isNotEmpty()) y = paintBestiary(renderer, profile.bestiary, x, y, width) + GAP
+        y = paintProfileSections(renderer, profile, setOf("nether_island_player_data"), x, y, width, emptyWhenMissing = false)
         return if (y == top) emptyState(renderer, "Combat API disabled", x, y, width) else y
     }
 
@@ -460,21 +466,25 @@ public class ProfileScreen(
     }
 
     private fun paintCollections(renderer: MinecraftUiRenderer, values: List<ProfileCollection>, x: Float, top: Float, width: Float): Float {
-        var y = sectionTitle(renderer, "Collections", "minecraft:item_frame", x, top, width)
-        if (values.isEmpty()) return emptyState(renderer, "Collection API disabled", x, y, width)
-        val columns = columns(width, 145f, 5)
-        val gap = 6f
-        val cardWidth = (width - gap * (columns - 1)) / columns
-        for ((index, collection) in values.withIndex()) {
-            val row = index / columns
-            val column = index % columns
-            val box = Rect(x + column * (cardWidth + gap), y + row * 36f, cardWidth, 30f)
-            surface(renderer, box)
-            renderer.item(ItemRef(collectionItem(collection.id)), Rect(box.x + 6f, box.y + 6f, 18f, 18f))
-            text(renderer, collection.name, box.x + 29f, box.y + 5f, TextRole.CAPTION, maxWidth = box.width - 35f)
-            text(renderer, formatNumber(collection.amount.toDouble()), box.x + 29f, box.y + 17f, TextRole.LABEL, theme.tokens.colors.accent)
+        if (values.isEmpty()) return emptyState(renderer, "Collection API disabled", x, top, width)
+        var y = top
+        for ((category, collections) in values.groupBy { it.category }.toSortedMap()) {
+            y = sectionTitle(renderer, category, collectionCategoryItem(category), x, y, width)
+            val gridColumns = columns(width, 145f, 5)
+            val gap = 6f
+            val cardWidth = (width - gap * (gridColumns - 1)) / gridColumns
+            for ((index, collection) in collections.withIndex()) {
+                val row = index / gridColumns
+                val column = index % gridColumns
+                val box = Rect(x + column * (cardWidth + gap), y + row * 39f, cardWidth, 33f)
+                surface(renderer, box)
+                renderer.item(ItemRef(collectionItem(collection.id)), Rect(box.x + 6f, box.y + 7f, 19f, 19f))
+                text(renderer, collection.name, box.x + 30f, box.y + 5f, TextRole.CAPTION, maxWidth = box.width - 36f)
+                text(renderer, formatNumber(collection.amount.toDouble()), box.x + 30f, box.y + 19f, TextRole.LABEL, theme.tokens.colors.accent)
+            }
+            y += ceil(collections.size / gridColumns.toFloat()).toInt() * 39f + GAP
         }
-        return y + ceil(values.size / columns.toFloat()).toInt() * 36f
+        return y
     }
 
     private fun paintPets(renderer: MinecraftUiRenderer, pets: List<ProfilePet>, x: Float, top: Float, width: Float): Float {
@@ -486,22 +496,121 @@ public class ProfileScreen(
         for ((index, pet) in pets.withIndex()) {
             val row = index / columns
             val column = index % columns
-            val box = Rect(x + column * (cardWidth + gap), y + row * 70f, cardWidth, 63f)
+            val box = Rect(x + column * (cardWidth + gap), y + row * 79f, cardWidth, 72f)
             surface(renderer, box, strong = pet.active)
             val petIcon = itemIcons[petVisualKey(pet)]
-            val textX = if (petIcon != null) box.x + 42f else box.x + 13f
-            petIcon?.let { renderer.item(it, Rect(box.x + 7f, box.y + 9f, 28f, 28f)) }
+            val textX = if (petIcon != null) box.x + 54f else box.x + 13f
+            petIcon?.let { renderer.item(it, Rect(box.x + 7f, box.y + 9f, 40f, 40f)) }
             renderer.fillRect(Rect(box.x, box.y + 7f, 2f, box.height - 14f), rarityColor(pet.rarity).withAlpha(.8f))
             text(renderer, pet.name, textX, box.y + 7f, TextRole.LABEL, rarityColor(pet.rarity), maxWidth = box.right - textX - 7f)
             text(renderer, pet.rarity.humanName() + if (pet.active) " · active" else "", textX, box.y + 21f, TextRole.CAPTION)
             text(renderer, "${formatNumber(pet.experience)} XP", textX, box.y + 34f, TextRole.CAPTION)
-            val detail = buildList {
-                pet.heldItem?.let { add(it.removePrefix("PET_ITEM_").humanName()) }
-                if (pet.candyUsed > 0) add("${pet.candyUsed} candy")
-            }.joinToString(" · ")
-            if (detail.isNotEmpty()) text(renderer, detail, textX, box.y + 47f, TextRole.CAPTION, maxWidth = box.right - textX - 7f)
+            val itemText = pet.heldItem?.removePrefix("PET_ITEM_")?.humanName() ?: "No pet item"
+            pet.heldItem?.let { itemIcons[it] }?.let { renderer.item(it, Rect(box.x + 8f, box.bottom - 19f, 14f, 14f)) }
+            text(renderer, itemText + if (pet.candyUsed > 0) " · ${pet.candyUsed} candy" else "", if (pet.heldItem != null) box.x + 26f else box.x + 8f, box.y + 54f, TextRole.CAPTION, maxWidth = box.width - 34f)
         }
-        return y + ceil(pets.size / columns.toFloat()).toInt() * 70f
+        return y + ceil(pets.size / columns.toFloat()).toInt() * 79f
+    }
+
+    private fun paintInventories(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, x: Float, top: Float, width: Float): Float {
+        var y = top
+        if (profile.inventories.isEmpty()) {
+            y = sectionTitle(renderer, "Inventories", "minecraft:ender_chest", x, y, width)
+            y = emptyState(renderer, "Inventory API disabled or inventories are empty", x, y, width) + GAP
+        } else {
+            for (inventory in profile.inventories) y = paintInventory(renderer, inventory, x, y, width) + GAP
+        }
+        if (profile.loadouts.isNotEmpty()) y = paintLoadouts(renderer, profile.loadouts, x, y, width) + GAP
+        y = paintProfileSections(renderer, profile, setOf("sacks"), x, y, width, emptyWhenMissing = false)
+        return y
+    }
+
+    private fun paintInventory(renderer: MinecraftUiRenderer, inventory: ProfileInventory, x: Float, top: Float, width: Float): Float {
+        var y = sectionTitle(renderer, inventory.name, inventoryIcon(inventory.id), x, top, width)
+        val columns = inventory.columns.coerceIn(1, 9)
+        val slot = (width / columns).coerceAtMost(29f)
+        val rows = ((inventory.slots.maxOfOrNull { it.slot } ?: 0) / columns + 1).coerceAtLeast(1)
+        val gridWidth = slot * columns
+        val grid = Rect(x, y, gridWidth, rows * slot)
+        surface(renderer, grid)
+        repeat(rows * columns) { index ->
+            val box = Rect(x + (index % columns) * slot + 2f, y + (index / columns) * slot + 2f, slot - 4f, slot - 4f)
+            renderer.roundedRect(box, Dp(2f), theme.tokens.colors.windowBackground.withAlpha(.75f))
+        }
+        for (item in inventory.slots) {
+            val icon = item.internalName?.let(itemIcons::get) ?: ItemRef(itemFallback(item))
+            val box = Rect(x + (item.slot % columns) * slot + 3f, y + (item.slot / columns) * slot + 3f, slot - 6f, slot - 6f)
+            renderer.item(icon, box)
+            if (item.count > 1) rightText(renderer, item.count.toString(), box.right, box.bottom - 8f, TextRole.CAPTION, Color.White)
+        }
+        return y + rows * slot
+    }
+
+    private fun paintBestiary(renderer: MinecraftUiRenderer, locations: List<ProfileBestiaryLocation>, x: Float, top: Float, width: Float): Float {
+        var y = sectionTitle(renderer, "Bestiary", "minecraft:writable_book", x, top, width)
+        for (location in locations) {
+            val height = 39f + ceil(location.mobs.size.coerceAtMost(8) / 4f) * 16f
+            val box = Rect(x, y, width, height)
+            surface(renderer, box)
+            renderer.item(ItemRef(bestiaryLocationItem(location.id)), Rect(box.x + 8f, box.y + 8f, 24f, 24f))
+            text(renderer, location.name, box.x + 39f, box.y + 7f, TextRole.TITLE)
+            text(renderer, "${formatNumber(location.kills.toDouble())} kills · ${location.mobs.size} mobs", box.x + 39f, box.y + 22f, TextRole.CAPTION)
+            location.mobs.take(8).forEachIndexed { index, mob ->
+                val cellWidth = (box.width - 16f) / 4f
+                val cellX = box.x + 8f + (index % 4) * cellWidth
+                val cellY = box.y + 39f + (index / 4) * 16f
+                text(renderer, "${mob.name} ${formatNumber(mob.kills.toDouble())}", cellX, cellY, TextRole.CAPTION, maxWidth = cellWidth - 6f)
+            }
+            y = box.bottom + 6f
+        }
+        return y
+    }
+
+    private fun paintSkillTree(renderer: MinecraftUiRenderer, tree: ProfileSkillTree, x: Float, top: Float, width: Float): Float {
+        var y = sectionTitle(renderer, tree.name, if (tree.id == "mining") "minecraft:beacon" else "minecraft:oak_sapling", x, top, width)
+        val selected = tree.slots.firstOrNull { it.slot == tree.selectedSlot } ?: tree.slots.firstOrNull() ?: return y
+        val summary = Rect(x, y, width, 39f)
+        surface(renderer, summary, strong = true)
+        text(renderer, "Preset ${selected.slot} · ${tree.slots.size} saved", summary.x + 10f, summary.y + 7f, TextRole.LABEL, theme.tokens.colors.accent)
+        text(renderer, selected.selectedAbility ?: "No selected ability", summary.x + 10f, summary.y + 22f, TextRole.CAPTION)
+        y = summary.bottom + 6f
+        val nodes = selected.nodes.filter { it.level > 0 }
+        val gridColumns = columns(width, 150f, 4)
+        val cardWidth = (width - 6f * (gridColumns - 1)) / gridColumns
+        nodes.forEachIndexed { index, node ->
+            val box = Rect(x + (index % gridColumns) * (cardWidth + 6f), y + (index / gridColumns) * 39f, cardWidth, 33f)
+            surface(renderer, box)
+            renderer.item(ItemRef(if (node.enabled == false) "minecraft:redstone" else "minecraft:emerald"), Rect(box.x + 7f, box.y + 8f, 17f, 17f))
+            text(renderer, node.name, box.x + 29f, box.y + 5f, TextRole.CAPTION, maxWidth = box.width - 35f)
+            text(renderer, "Level ${node.level}", box.x + 29f, box.y + 19f, TextRole.LABEL, theme.tokens.colors.accent)
+        }
+        return y + ceil(nodes.size / gridColumns.toFloat()).toInt() * 39f
+    }
+
+    private fun paintLoadouts(renderer: MinecraftUiRenderer, loadouts: List<ProfileLoadout>, x: Float, top: Float, width: Float): Float {
+        var y = sectionTitle(renderer, "Loadouts", "minecraft:armor_stand", x, top, width)
+        val gridColumns = columns(width, 190f, 4)
+        val cardWidth = (width - 7f * (gridColumns - 1)) / gridColumns
+        loadouts.forEachIndexed { index, loadout ->
+            val box = Rect(x + (index % gridColumns) * (cardWidth + 7f), y + (index / gridColumns) * 70f, cardWidth, 63f)
+            surface(renderer, box, loadout.equipped)
+            renderer.item(ItemRef(if (loadout.equipped) "minecraft:netherite_chestplate" else "minecraft:armor_stand"), Rect(box.x + 8f, box.y + 13f, 24f, 24f))
+            text(renderer, loadout.name, box.x + 39f, box.y + 8f, TextRole.LABEL, maxWidth = box.width - 46f)
+            val detail = listOfNotNull(loadout.powerStone, loadout.pet?.let { "Pet selected" }).joinToString(" · ").ifEmpty { "Saved equipment set" }
+            text(renderer, detail, box.x + 39f, box.y + 25f, TextRole.CAPTION, maxWidth = box.width - 46f)
+            (loadout.armor + loadout.equipment).take(8).forEachIndexed { slot, item ->
+                val icon = item.internalName?.let(itemIcons::get) ?: ItemRef(itemFallback(item))
+                renderer.item(icon, Rect(box.x + 8f + slot * 18f, box.y + 42f, 16f, 16f))
+            }
+        }
+        return y + ceil(loadouts.size / gridColumns.toFloat()).toInt() * 70f
+    }
+
+    private fun paintForaging(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, x: Float, top: Float, width: Float): Float {
+        var y = top
+        profile.skillTrees.firstOrNull { it.id == "foraging" }?.let { y = paintSkillTree(renderer, it, x, y, width) + GAP }
+        y = paintProfileSections(renderer, profile, setOf("foraging_summary", "attributes"), x, y, width, emptyWhenMissing = false)
+        return if (y == top) emptyState(renderer, "Foraging API disabled", x, y, width) else y
     }
 
     private fun paintMetrics(renderer: MinecraftUiRenderer, title: String, metrics: List<ProfileMetric>, x: Float, top: Float, width: Float): Float {
@@ -515,7 +624,8 @@ public class ProfileScreen(
         if (profile.mining.isNotEmpty()) {
             y = paintMetrics(renderer, "Mining & Heart of the Mountain", profile.mining, x, y, width) + GAP
         }
-        y = paintProfileSections(renderer, profile, setOf("glacite_player_data", "skill_tree", "forge"), x, y, width, emptyWhenMissing = false)
+        profile.skillTrees.firstOrNull { it.id == "mining" }?.let { y = paintSkillTree(renderer, it, x, y, width) + GAP }
+        y = paintProfileSections(renderer, profile, setOf("glacite_player_data", "forge"), x, y, width, emptyWhenMissing = false)
         return if (y == top) emptyState(renderer, "Mining API disabled", x, y, width) else y
     }
 
@@ -525,7 +635,7 @@ public class ProfileScreen(
             y = sectionTitle(renderer, "Garden", "minecraft:wheat", x, y, width)
             y = metricGrid(renderer, profile.garden, x, y, width, preferredColumns = 4) + GAP
         }
-        y = paintProfileSections(renderer, profile, setOf("garden_player_data", "jacobs_contest"), x, y, width, emptyWhenMissing = false)
+        y = paintProfileSections(renderer, profile, setOf("farming_summary"), x, y, width, emptyWhenMissing = false)
         return if (y == top) emptyState(renderer, "Farming API disabled", x, y, width) else y
     }
 
@@ -545,7 +655,8 @@ public class ProfileScreen(
         val dedicated = setOf(
             "inventory", "shared_inventory", "sacks", "loadout",
             "bestiary", "nether_island_player_data", "glacite_player_data", "skill_tree", "forge",
-            "garden_player_data", "jacobs_contest", "trophy_fish", "foraging", "foraging_core", "attributes", "rift",
+            "garden_player_data", "jacobs_contest", "farming_summary", "trophy_fish",
+            "foraging", "foraging_core", "foraging_summary", "attributes", "rift",
         )
         y = paintProfileSections(renderer, profile, profile.sections.map { it.id }.toSet() - dedicated, x, y, width, emptyWhenMissing = false)
         return if (y == top) emptyState(renderer, "No additional public progression data", x, y, width) else y
@@ -744,12 +855,20 @@ public class ProfileScreen(
         (state as? ViewState.Ready)?.profile?.let { preloadVisuals(it, selectedTab) }
     }
 
+    /** Moves a screenshot harness directly to lower tab content without exercising unrelated input flow. */
+    public fun scrollForTest(pixels: Float) {
+        val maxScroll = (lastContentHeight - scrollViewportHeight).coerceAtLeast(0f)
+        scrollOffset = -pixels.coerceIn(0f, maxScroll)
+    }
+
     public val loadedVisualCountForTest: Int get() = itemIcons.size
 
     private fun preloadVisuals(profile: SkyBlockProfile, tab: Tab) {
         val keys = when (tab) {
             Tab.COMBAT -> profile.slayers.mapNotNull { slayerVisualKey(it.id) }
-            Tab.PETS -> profile.pets.map(::petVisualKey)
+            Tab.PETS -> profile.pets.flatMap { listOfNotNull(petVisualKey(it), it.heldItem) }
+            Tab.INVENTORY -> profile.inventories.flatMap { inventory -> inventory.slots.mapNotNull { it.internalName } } +
+                profile.loadouts.flatMap { (it.armor + it.equipment).mapNotNull(ProfileItemSlot::internalName) }
             else -> emptyList()
         }.distinct().filter(requestedItemIcons::add)
         if (keys.isEmpty()) return
@@ -948,9 +1067,9 @@ public class ProfileScreen(
         "bestiary" -> "minecraft:zombie_head"
         "events" -> "minecraft:clock"
         "experimentation" -> "minecraft:enchanting_table"
-        "foraging", "foraging_core" -> "minecraft:oak_log"
+        "foraging", "foraging_core", "foraging_summary" -> "minecraft:oak_log"
         "forge" -> "minecraft:blast_furnace"
-        "garden_player_data", "jacobs_contest" -> "minecraft:wheat"
+        "garden_player_data", "jacobs_contest", "farming_summary" -> "minecraft:wheat"
         "glacite_player_data" -> "minecraft:packed_ice"
         "inventory" -> "minecraft:ender_chest"
         "shared_inventory" -> "minecraft:shulker_box"
@@ -971,6 +1090,7 @@ public class ProfileScreen(
     private fun collectionItem(id: String): String {
         val key = id.uppercase()
         return when {
+            key == "SEEDS" -> "minecraft:wheat_seeds"
             "WHEAT" in key -> "minecraft:wheat"
             "CARROT" in key -> "minecraft:carrot"
             "POTATO" in key -> "minecraft:potato"
@@ -1015,6 +1135,51 @@ public class ProfileScreen(
             "FISH" in key || "SALMON" in key -> "minecraft:cod"
             else -> DISTINCT_COLLECTION_ITEMS[kotlin.math.abs(key.hashCode()) % DISTINCT_COLLECTION_ITEMS.size]
         }
+    }
+
+    private fun collectionCategoryItem(category: String): String = when (category.lowercase()) {
+        "farming" -> "minecraft:golden_hoe"
+        "mining" -> "minecraft:diamond_pickaxe"
+        "combat" -> "minecraft:diamond_sword"
+        "foraging" -> "minecraft:oak_log"
+        "fishing" -> "minecraft:fishing_rod"
+        else -> "minecraft:item_frame"
+    }
+
+    private fun inventoryIcon(id: String): String = when {
+        "ender" in id -> "minecraft:ender_chest"
+        "armor" in id -> "minecraft:diamond_chestplate"
+        "equipment" in id -> "minecraft:elytra"
+        "vault" in id -> "minecraft:chest"
+        "bag" in id -> "minecraft:bundle"
+        "backpack" in id -> "minecraft:shulker_box"
+        else -> "minecraft:chest"
+    }
+
+    private fun itemFallback(item: ProfileItemSlot): String {
+        val key = (item.internalName ?: item.displayName).orEmpty().uppercase()
+        return when {
+            "SWORD" in key -> "minecraft:diamond_sword"
+            "PICK" in key || "DRILL" in key -> "minecraft:diamond_pickaxe"
+            "BOW" in key -> "minecraft:bow"
+            "HELMET" in key -> "minecraft:diamond_helmet"
+            "CHESTPLATE" in key -> "minecraft:diamond_chestplate"
+            "LEGGINGS" in key -> "minecraft:diamond_leggings"
+            "BOOTS" in key -> "minecraft:diamond_boots"
+            else -> "minecraft:barrier"
+        }
+    }
+
+    private fun bestiaryLocationItem(id: String): String = when {
+        "end" in id -> "minecraft:end_stone"
+        "crimson" in id -> "minecraft:netherrack"
+        "dungeon" in id -> "minecraft:wither_skeleton_skull"
+        "sea" in id -> "minecraft:prismarine"
+        "mining" in id -> "minecraft:diamond_pickaxe"
+        "spider" in id -> "minecraft:cobweb"
+        "park" in id -> "minecraft:spruce_sapling"
+        "rift" in id -> "minecraft:ender_eye"
+        else -> "minecraft:grass_block"
     }
 
     private companion object {

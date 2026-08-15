@@ -4,10 +4,18 @@ import dev.th7bo.sidequest.protocol.ProfileProgress
 import dev.th7bo.sidequest.protocol.ProfileSection
 import dev.th7bo.sidequest.protocol.ProfileChoice
 import dev.th7bo.sidequest.protocol.ProfileCollection
+import dev.th7bo.sidequest.protocol.ProfileBestiaryLocation
+import dev.th7bo.sidequest.protocol.ProfileBestiaryMob
+import dev.th7bo.sidequest.protocol.ProfileInventory
+import dev.th7bo.sidequest.protocol.ProfileItemSlot
+import dev.th7bo.sidequest.protocol.ProfileLoadout
 import dev.th7bo.sidequest.protocol.ProfileMetric
 import dev.th7bo.sidequest.protocol.ProfilePet
 import dev.th7bo.sidequest.protocol.ProfileSkill
 import dev.th7bo.sidequest.protocol.ProfileSlayer
+import dev.th7bo.sidequest.protocol.ProfileSkillTree
+import dev.th7bo.sidequest.protocol.ProfileSkillTreeNode
+import dev.th7bo.sidequest.protocol.ProfileSkillTreeSlot
 import dev.th7bo.sidequest.protocol.SkyBlockProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -58,6 +66,7 @@ internal class HypixelProfileService(
     private val profiles = ConcurrentHashMap<String, Cached<SkyBlockProfile>>()
     private val identities = ConcurrentHashMap<String, Cached<PlayerIdentity>>()
     @Volatile private var skills: Cached<Map<String, SkillDefinition>>? = null
+    @Volatile private var collections: Cached<Map<String, CollectionDefinition>>? = null
     @Volatile private var dungeonLevels: Cached<List<Double>>? = null
     private val misses = Mutex()
 
@@ -74,12 +83,14 @@ internal class HypixelProfileService(
                 mapOf("API-Key" to credential),
             )
             val definitions = skillDefinitions()
+            val collectionDefinitions = collectionDefinitions()
             val basic = HypixelProfileParser.parse(
                 identity,
                 requestedProfile,
                 profileJson.body,
                 definitions,
                 dungeonLevelDefinitions(),
+                collectionDefinitions,
             )
             val parsed = coroutineScope {
                 val garden = async {
@@ -138,6 +149,15 @@ internal class HypixelProfileService(
         return parsed
     }
 
+    private suspend fun collectionDefinitions(): Map<String, CollectionDefinition> {
+        collections?.takeIf { it.expiresAt > now() }?.let { return it.value }
+        val response = upstream.get("$HYPIXEL_API/v2/resources/skyblock/collections")
+        response.requireSuccess()
+        val parsed = HypixelProfileParser.parseCollectionDefinitions(response.body)
+        collections = Cached(parsed, now() + SKILL_TTL_MILLIS)
+        return parsed
+    }
+
     /** Catacombs and class levels are not part of Hypixel's skills resource; NEU maintains their live table. */
     private suspend fun dungeonLevelDefinitions(): List<Double> {
         dungeonLevels?.takeIf { it.expiresAt > now() }?.let { return it.value }
@@ -190,6 +210,7 @@ internal data class PlayerIdentity(
     val skinSignature: String? = null,
 )
 internal data class SkillDefinition(val name: String, val maxLevel: Int, val thresholds: List<Double>)
+internal data class CollectionDefinition(val name: String, val category: String)
 internal data class UpstreamResponse(val status: Int, val body: String, val headers: Map<String, String>)
 
 internal fun interface ProfileUpstream {
@@ -238,12 +259,27 @@ internal object HypixelProfileParser {
         }.toMap()
     }
 
+    fun parseCollectionDefinitions(body: String): Map<String, CollectionDefinition> {
+        val categories = parseObject(body).obj("collections") ?: return emptyMap()
+        return buildMap {
+            for ((categoryId, rawCategory) in categories) {
+                val category = rawCategory as? JsonObject ?: continue
+                val categoryName = category.string("name") ?: categoryId.humanName()
+                for ((itemId, rawItem) in category.obj("items").orEmpty()) {
+                    val item = rawItem as? JsonObject ?: continue
+                    put(itemId, CollectionDefinition(item.string("name") ?: itemId.humanName(), categoryName))
+                }
+            }
+        }
+    }
+
     fun parse(
         identity: PlayerIdentity,
         requestedProfile: String?,
         body: String,
         definitions: Map<String, SkillDefinition>,
         dungeonThresholds: List<Double> = emptyList(),
+        collectionDefinitions: Map<String, CollectionDefinition> = emptyMap(),
     ): SkyBlockProfile {
         val root = parseObject(body)
         if (root.boolean("success") == false) throw ProfileLookupFailure.Upstream("Hypixel refused the lookup")
@@ -311,7 +347,10 @@ internal object HypixelProfileParser {
         }.sortedBy { it.name }
 
         val collections = member.obj("collection").orEmpty().mapNotNull { (id, raw) ->
-            (raw as? JsonPrimitive)?.longOrNull?.let { ProfileCollection(id, id.humanName(), it) }
+            val definition = collectionDefinitions[id]
+            (raw as? JsonPrimitive)?.longOrNull?.let {
+                ProfileCollection(id, definition?.name ?: id.humanName(), it, definition?.category ?: collectionCategory(id))
+            }
         }.sortedByDescending { it.amount }
 
         val pets = (member.pathObject("pets_data")?.array("pets") ?: member.array("pets")).orEmpty()
@@ -339,7 +378,11 @@ internal object HypixelProfileParser {
             }
             .sortedBy { it.name }
 
-        val mining = member.obj("mining_core").toMetrics(limit = 48)
+        val mining = parseMiningSummary(member)
+        val inventories = parseInventories(member)
+        val bestiary = parseBestiary(member.obj("bestiary"))
+        val skillTrees = parseSkillTrees(member.obj("skill_tree"))
+        val loadouts = parseLoadouts(member.obj("loadout"))
         val playerStats = member.obj("player_stats")
         val kills = playerStats?.entries?.filter { it.key.startsWith("kills_") }
             ?.sumOf { (it.value as? JsonPrimitive)?.longOrNull ?: 0L }
@@ -368,36 +411,27 @@ internal object HypixelProfileParser {
                 if (metrics.isNotEmpty()) add(ProfileSection(id, name, metrics))
             }
 
-            addSection("bestiary", "Bestiary")
             addSection("nether_island_player_data", "Crimson Isle")
             addSection("experimentation", "Experimentation")
-            addSection("foraging", "Foraging")
-            addSection("foraging_core", "Foraging core")
             addSection("attributes", "Attributes")
             addSection("forge", "Forge")
-            addSection("garden_player_data", "Garden progress")
-            addSection("jacobs_contest", "Jacob's contests")
+            member.obj("jacobs_contest")?.let(::parseFarmingSummary)?.takeIf { it.isNotEmpty() }
+                ?.let { add(ProfileSection("farming_summary", "Farming progress", it)) }
+            parseForagingSummary(member).takeIf { it.isNotEmpty() }
+                ?.let { add(ProfileSection("foraging_summary", "Foraging progress", it)) }
             addSection("glacite_player_data", "Glacite Tunnels")
             addSection("leveling", "SkyBlock leveling")
-            addSection("loadout", "Loadout")
             addSection("rift", "The Rift")
             addSection("safari", "Hunting & safari")
             addSection("shards", "Shards")
-            addSection("skill_tree", "Skill trees")
             addSection("temples", "Temples")
             addSection("trophy_fish", "Trophy fishing")
             addSection("events", "Events")
             addSection("item_data", "Item progression")
 
             member.obj("inventory")?.let { inventory ->
-                inventorySummary(inventory).takeIf { it.isNotEmpty() }
-                    ?.let { add(ProfileSection("inventory", "Inventories", it)) }
                 inventory.obj("sacks_counts").toMetrics(limit = 96).takeIf { it.isNotEmpty() }
                     ?.let { add(ProfileSection("sacks", "Sacks", it.sortedByDescending { metric -> metric.value })) }
-            }
-            member.obj("shared_inventory")?.let { inventory ->
-                inventorySummary(inventory).takeIf { it.isNotEmpty() }
-                    ?.let { add(ProfileSection("shared_inventory", "Shared inventories", it)) }
             }
             member.obj("objectives")?.let { objectives ->
                 val completed = objectives.values.count {
@@ -452,6 +486,10 @@ internal object HypixelProfileParser {
             dungeonClasses = dungeonClasses,
             collections = collections,
             pets = pets,
+            inventories = inventories,
+            bestiary = bestiary,
+            skillTrees = skillTrees,
+            loadouts = loadouts,
             currencies = currencies,
             mining = mining,
             stats = stats,
@@ -460,7 +498,14 @@ internal object HypixelProfileParser {
     }
 
     fun parseGarden(body: String): List<ProfileMetric> =
-        parseObject(body).obj("garden").toMetrics(limit = 64)
+        parseObject(body).obj("garden")?.let { garden ->
+            buildList {
+                garden.number("garden_experience")?.let { add(ProfileMetric("garden_experience", "Garden XP", value = it)) }
+                garden.number("visitors_served")?.let { add(ProfileMetric("visitors_served", "Visitors served", value = it)) }
+                garden.array("unlocked_plots_ids")?.size?.let { add(ProfileMetric("plots", "Unlocked plots", value = it.toDouble())) }
+                garden.obj("commission_data")?.number("total_visitors")?.let { add(ProfileMetric("visitors", "Visitor requests", value = it)) }
+            }
+        }.orEmpty()
 
     fun parseMuseum(body: String): List<ProfileMetric> {
         val profile = parseObject(body).obj("profile") ?: return emptyList()
@@ -472,6 +517,151 @@ internal object HypixelProfileParser {
         }
     }
 
+}
+
+private fun parseInventories(member: JsonObject): List<ProfileInventory> = buildList {
+    fun addInventory(container: JsonObject?, id: String, name: String, columns: Int = 9) {
+        val data = container?.obj(id)?.string("data") ?: return
+        val slots = SkyBlockInventoryNbt.decode(data)
+        if (slots.isNotEmpty()) add(ProfileInventory(id, name, columns, slots))
+    }
+    val inventory = member.obj("inventory")
+    addInventory(inventory, "inv_contents", "Inventory")
+    addInventory(inventory, "ender_chest_contents", "Ender Chest")
+    addInventory(inventory, "inv_armor", "Armor", 4)
+    addInventory(inventory, "equipment_contents", "Equipment", 4)
+    addInventory(inventory, "personal_vault_contents", "Personal Vault")
+    val bags = inventory?.obj("bag_contents")
+    listOf(
+        "talisman_bag" to "Accessory Bag", "potion_bag" to "Potion Bag",
+        "fishing_bag" to "Fishing Bag", "quiver" to "Quiver",
+    ).forEach { (id, name) -> addInventory(bags, id, name) }
+    val backpacks = inventory?.obj("backpack_contents")
+    backpacks.orEmpty().entries.sortedBy { it.key.toIntOrNull() ?: Int.MAX_VALUE }.forEach { (id, raw) ->
+        val data = (raw as? JsonObject)?.string("data") ?: return@forEach
+        SkyBlockInventoryNbt.decode(data).takeIf { it.isNotEmpty() }
+            ?.let { add(ProfileInventory("backpack_$id", "Backpack ${id.toIntOrNull()?.plus(1) ?: id}", 9, it)) }
+    }
+}
+
+private fun parseBestiary(root: JsonObject?): List<ProfileBestiaryLocation> {
+    val kills = root?.obj("kills") ?: return emptyList()
+    return kills.mapNotNull { (id, raw) ->
+        val amount = (raw as? JsonPrimitive)?.longOrNull ?: return@mapNotNull null
+        ProfileBestiaryMob(id, id.humanName(), amount)
+    }.groupBy { bestiaryLocation(it.id) }
+        .map { (location, mobs) ->
+            ProfileBestiaryLocation(location.lowercase().replace(' ', '_'), location, mobs.sumOf { it.kills }, mobs.sortedByDescending { it.kills })
+        }.sortedByDescending { it.kills }
+}
+
+private fun bestiaryLocation(id: String): String {
+    val key = id.lowercase()
+    return when {
+        listOf("enderman", "endermite", "dragon", "obsidian_defender", "watcher", "zealot").any(key::contains) -> "The End"
+        listOf("blaze", "magma", "ghast", "pigman", "kuudra", "barbarian", "ashfang").any(key::contains) -> "Crimson Isle"
+        listOf("dungeon", "crypt", "skeletor", "lost_adventurer", "shadow_assassin", "watchful_eye").any(key::contains) -> "Dungeons"
+        listOf("sea_", "guardian", "squid", "shark", "jawbus", "water_hydra", "seaweed").any(key::contains) -> "Sea Creatures"
+        listOf("glacite", "goblin", "automaton", "yog", "thyst", "worm", "treasure_hoarder").any(key::contains) -> "Mining Islands"
+        listOf("spider", "arachne", "brood").any(key::contains) -> "Spider's Den"
+        listOf("wolf", "sven", "old_wolf").any(key::contains) -> "The Park"
+        listOf("rift", "vampire", "bacte", "shy", "volt").any(key::contains) -> "The Rift"
+        else -> "Private Island & Hub"
+    }
+}
+
+private fun parseSkillTrees(root: JsonObject?): List<ProfileSkillTree> {
+    if (root == null) return emptyList()
+    val nodes = root.obj("nodes") ?: return emptyList()
+    return listOf("mining" to "Heart of the Mountain", "foraging" to "Heart of the Forest").mapNotNull { (id, name) ->
+        val slots = (1..5).mapNotNull { slot ->
+            val key = if (slot == 1) id else "${id}_$slot"
+            val values = nodes.obj(key) ?: return@mapNotNull null
+            val toggles = values.filterKeys { it.startsWith("toggle_") }
+            val parsedNodes = values.mapNotNull node@{ (nodeId, raw) ->
+                if (nodeId.startsWith("toggle_") || "selected" in nodeId) return@node null
+                val level = (raw as? JsonPrimitive)?.intOrNull ?: return@node null
+                ProfileSkillTreeNode(nodeId, nodeId.humanName(), level, toggles["toggle_$nodeId"]?.let { (it as? JsonPrimitive)?.content?.toBooleanStrictOrNull() })
+            }.sortedByDescending { it.level }
+            ProfileSkillTreeSlot(slot, values.string("selected_ability")?.humanName(), parsedNodes)
+        }
+        if (slots.isEmpty()) null else ProfileSkillTree(id, name, root.pathObject("selected_skill_tree_slot")?.int(id) ?: 1, slots)
+    }
+}
+
+private fun parseLoadouts(root: JsonObject?): List<ProfileLoadout> {
+    val saved = root?.obj("loadouts") ?: return emptyList()
+    fun sets(group: String, names: List<String>): Pair<Int?, Map<Int, List<ProfileItemSlot>>> {
+        val container = root.obj(group) ?: return null to emptyMap()
+        val equipped = container.int("equipped_set")
+        val values = container.entries.mapNotNull { (_, raw) ->
+            val set = raw as? JsonObject ?: return@mapNotNull null
+            val id = set.int("id") ?: return@mapNotNull null
+            val items = names.mapIndexedNotNull { slot, name ->
+                val data = set.obj(name)?.string("data") ?: return@mapIndexedNotNull null
+                SkyBlockInventoryNbt.decode(data).firstOrNull()?.copy(slot = slot)
+            }
+            id to items
+        }.toMap()
+        return equipped to values
+    }
+    val (equippedArmor, armor) = sets("armor", listOf("HELMET", "CHESTPLATE", "LEGGINGS", "BOOTS"))
+    val (equippedEquipment, equipment) = sets("equipment", listOf("EQUIPMENT_SLOT_1", "EQUIPMENT_SLOT_2", "EQUIPMENT_SLOT_3", "EQUIPMENT_SLOT_4"))
+    return saved.mapNotNull { (id, raw) ->
+        val value = raw as? JsonObject ?: return@mapNotNull null
+        val armorId = value.int("armor_set_id")
+        val equipmentId = value.int("equipment_set_id")
+        ProfileLoadout(
+            id = id,
+            name = value.string("name") ?: "Loadout ${id.humanName()}",
+            equipped = value.boolean("equipped") == true || value.boolean("selected") == true ||
+                (armorId != null && armorId == equippedArmor && equipmentId == equippedEquipment),
+            pet = value.string("pet") ?: value.string("pet_uuid"),
+            powerStone = value.string("power_stone")?.humanName(),
+            armor = armor[armorId].orEmpty(),
+            equipment = equipment[equipmentId].orEmpty(),
+        )
+    }
+}
+
+private fun parseMiningSummary(member: JsonObject): List<ProfileMetric> {
+    val core = member.obj("mining_core") ?: return emptyList()
+    return buildList {
+        core.number("experience")?.let { add(ProfileMetric("hotm_experience", "HOTM XP", value = it)) }
+        core.number("tokens_spent")?.let { add(ProfileMetric("tokens_spent", "Tokens spent", value = it)) }
+        listOf("powder_mithril" to "Mithril powder", "powder_gemstone" to "Gemstone powder", "powder_glacite" to "Glacite powder").forEach { (id, name) ->
+            core.number(id)?.let { add(ProfileMetric(id, name, value = it)) }
+        }
+        core.obj("crystals")?.values?.mapNotNull { it as? JsonObject }?.count { it.string("state") == "FOUND" }
+            ?.let { add(ProfileMetric("crystals_found", "Crystals found", value = it.toDouble())) }
+    }
+}
+
+private fun parseFarmingSummary(root: JsonObject): List<ProfileMetric> = buildList {
+    root.obj("medals_inv")?.let { medals ->
+        listOf("bronze", "silver", "gold").forEach { id -> medals.number(id)?.let { add(ProfileMetric("${id}_medals", "${id.humanName()} medals", value = it)) } }
+    }
+    root.obj("perks")?.number("double_drops")?.let { add(ProfileMetric("double_drops", "Farming fortune perk", value = it)) }
+    root.obj("personal_bests")?.size?.let { add(ProfileMetric("personal_bests", "Crop personal bests", value = it.toDouble())) }
+    root.obj("contests")?.size?.let { add(ProfileMetric("contests", "Recorded contests", value = it.toDouble())) }
+}
+
+private fun parseForagingSummary(member: JsonObject): List<ProfileMetric> = buildList {
+    val core = member.obj("foraging_core")
+    val data = member.obj("foraging")
+    core?.number("daily_trees_cut")?.let { add(ProfileMetric("daily_trees", "Trees cut today", value = it)) }
+    core?.number("daily_logs_cut")?.let { add(ProfileMetric("daily_logs", "Logs cut today", value = it)) }
+    core?.number("daily_tree_gifts")?.let { add(ProfileMetric("tree_gifts", "Tree gifts today", value = it)) }
+    data?.number("level_cap")?.let { add(ProfileMetric("level_cap", "Foraging level cap", value = it)) }
+    data?.obj("tree_gifts")?.size?.let { add(ProfileMetric("tree_gift_types", "Tree gift types", value = it.toDouble())) }
+}
+
+private fun collectionCategory(id: String): String = when {
+    id in setOf("WHEAT", "CARROT_ITEM", "POTATO_ITEM", "PUMPKIN", "MELON", "SEEDS", "MUSHROOM_COLLECTION", "INK_SACK:3", "CACTUS", "SUGAR_CANE", "NETHER_STALK", "MUTTON", "PORK", "RAW_CHICKEN", "FEATHER", "LEATHER", "RABBIT") -> "Farming"
+    id in setOf("COBBLESTONE", "COAL", "IRON_INGOT", "GOLD_INGOT", "DIAMOND", "EMERALD", "REDSTONE", "QUARTZ", "OBSIDIAN", "GLOWSTONE_DUST", "GRAVEL", "ICE", "NETHERRACK", "SAND", "ENDER_STONE", "MITHRIL_ORE", "HARD_STONE") -> "Mining"
+    id in setOf("LOG", "LOG:1", "LOG:2", "LOG:3", "LOG_2", "LOG_2:1") -> "Foraging"
+    id.contains("FISH") || id in setOf("INK_SACK", "PRISMARINE_SHARD", "PRISMARINE_CRYSTALS", "CLAY_BALL", "SPONGE", "LILY_PAD") -> "Fishing"
+    else -> "Combat"
 }
 
 private fun String.humanName(): String = lowercase().split('_').joinToString(" ") {
