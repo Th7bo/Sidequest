@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test
 import dev.th7bo.sidequest.backend.NeuFixtures.HOTF
 import dev.th7bo.sidequest.backend.NeuFixtures.HOTM
 import dev.th7bo.sidequest.backend.NeuFixtures.PRELUDE
+import dev.th7bo.sidequest.backend.NeuFixtures.PETS
 import dev.th7bo.sidequest.backend.NeuFixtures.SACKS
 import dev.th7bo.sidequest.backend.NeuFixtures.SHARDS
 
@@ -159,6 +160,79 @@ class NeuConstantsTest {
         assertEquals(7, hotf.columns)
         assertEquals(7, hotf.rows)
         assertEquals(0, requireNotNull(hotf.perks["half_empty"]).row, "the top row is row zero")
+    }
+
+    // -- pet levels ------------------------------------------------------------
+
+    private val pets = requireNotNull(NeuConstants.parsePets(PETS))
+
+    /**
+     * A pet's rarity decides where on the ladder it starts, not how fast it climbs.
+     *
+     * A legendary pet skips the first twenty rungs. With the fixture's ladder that leaves it nothing to
+     * climb, while a common pet with the same experience is several levels up — which is the whole reason
+     * this cannot be a formula over experience alone.
+     */
+    @Test
+    fun `rarity decides where a pet starts on the ladder`() {
+        // 100 + 110 + 120 = 330 buys three levels of a common pet, and part of a fourth.
+        assertEquals(4, pets.levelOf("TIGER", "COMMON", 340.0).level)
+        assertEquals(1, pets.levelOf("TIGER", "COMMON", 99.0).level)
+        // Epic starts at rung 16, where a level costs 440 — so the same experience buys nothing.
+        assertEquals(1, pets.levelOf("TIGER", "EPIC", 340.0).level)
+        assertEquals(2, pets.levelOf("TIGER", "EPIC", 440.0).level)
+    }
+
+    /** Progress is measured against the *next* rung, not against the level just finished. */
+    @Test
+    fun `progress runs from one level to the next`() {
+        // Three levels bought for 330; the fourth rung costs 130, and 65 of it is paid.
+        val halfway = pets.levelOf("TIGER", "COMMON", 330.0 + 65.0)
+
+        assertEquals(4, halfway.level)
+        assertEquals(0.5, halfway.progress, 1e-9)
+    }
+
+    /** At the cap there is nothing left to climb, and the bar reads full rather than empty. */
+    @Test
+    fun `a capped pet reports its cap`() {
+        val maxed = pets.levelOf("TIGER", "COMMON", 1_000_000.0)
+
+        // Twenty rungs climbed from level one. The real ladder has ninety-nine of them, which is the cap;
+        // this reports how far it could count rather than claiming a level the table never described.
+        assertEquals(21, maxed.level)
+        assertEquals(1.0, maxed.progress)
+        assertEquals(100, maxed.maxLevel, "the cap it is measured against is still the pet's own")
+    }
+
+    /** Three dragons go to two hundred, on a ladder of their own appended to everybody else's. */
+    @Test
+    fun `a dragon levels past a hundred on its own ladder`() {
+        assertEquals(200, pets.maxLevel("GOLDEN_DRAGON"))
+        assertEquals(100, pets.maxLevel("TIGER"))
+        // Legendary skips the twenty shared rungs and lands on the dragon's own, at 1,886,700 apiece — which
+        // is why a Golden Dragon reads as level one until it has more experience than most pets ever see.
+        assertEquals(1, pets.levelOf("GOLDEN_DRAGON", "LEGENDARY", 1_000_000.0).level)
+        assertEquals(3, pets.levelOf("GOLDEN_DRAGON", "LEGENDARY", 1_886_700.0 * 2).level)
+        // A legendary pet with no ladder of its own has nothing left to climb at all.
+        assertEquals(1, pets.levelOf("TIGER", "LEGENDARY", 340.0).level)
+    }
+
+    /** A Bingo pet ignores rarity entirely, which is a per-pet override rather than a rule. */
+    @Test
+    fun `a pet may override the rarity offsets`() {
+        assertEquals(
+            pets.levelOf("BINGO", "COMMON", 340.0).level,
+            pets.levelOf("BINGO", "LEGENDARY", 340.0).level,
+        )
+    }
+
+    /** The two names a profile cannot supply itself: the pet's real name and its held item's. */
+    @Test
+    fun `names come from the table rather than the id`() {
+        assertEquals("T-Rex", pets.displayNames["TYRANNOSAURUS"])
+        assertEquals("§6Tier Boost", pets.itemNames["PET_ITEM_TIER_BOOST"])
+        assertEquals("§9Lucky Clover", pets.itemNames["PET_ITEM_LUCKY_CLOVER"])
     }
 
     // -- sacks ----------------------------------------------------------------

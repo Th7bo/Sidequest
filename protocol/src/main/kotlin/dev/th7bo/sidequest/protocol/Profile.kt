@@ -316,6 +316,16 @@ public data class ProfilePet(
     public val heldItem: String? = null,
     public val skin: String? = null,
     public val candyUsed: Int = 0,
+    /** Worked out from experience against the pet's own level ladder, not sent by Hypixel. */
+    public val level: Int = 1,
+    /** A hundred for almost every pet, two hundred for the three dragons that go that far. */
+    public val maxLevel: Int = 100,
+    /** Progress through the current level, from zero to one. One at the cap. */
+    public val progress: Double = 0.0,
+    /** The held item as the game writes it — `§6Tier Boost` — for when the id would read as shouting. */
+    public val heldItemName: String? = null,
+    /** Whether the held item is a Tier Boost, which is what makes the reported rarity understate the pet. */
+    public val tierBoosted: Boolean = false,
 )
 
 /** A named value from one of Hypixel's open-ended progression objects. */

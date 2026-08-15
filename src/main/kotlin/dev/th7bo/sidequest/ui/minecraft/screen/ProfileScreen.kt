@@ -582,9 +582,21 @@ public class ProfileScreen(
         val featuredIcon = itemIcons[petVisualKey(featured)] ?: PET_PLACEHOLDER
         renderer.item(featuredIcon, Rect(feature.x + 14f, feature.y + 14f, 66f, 66f))
         renderer.fillRect(Rect(feature.x, feature.y + 10f, 3f, feature.height - 20f), rarityColor(featured.rarity))
+        tooltipZones = tooltipZones + (feature to { petTooltip(featured) })
         text(renderer, featured.name, feature.x + 94f, feature.y + 14f, TextRole.TITLE, rarityColor(featured.rarity))
         text(renderer, featured.rarity.humanName() + if (featured.active) " · active pet" else "", feature.x + 94f, feature.y + 34f, TextRole.LABEL)
-        text(renderer, "${formatNumber(featured.experience)} XP", feature.x + 94f, feature.y + 51f, TextRole.CAPTION)
+        text(renderer, "Level ${featured.level}/${featured.maxLevel}  ·  ${formatNumber(featured.experience)} XP", feature.x + 94f, feature.y + 51f, TextRole.CAPTION)
+        // The bar reads as progress towards the next level; a maxed pet fills it.
+        val track = Rect(feature.right - 118f, feature.y + 20f, 100f, 3f)
+        renderer.roundedRect(track, Dp(1.5f), theme.tokens.colors.border.withAlpha(.45f))
+        val filled = if (featured.level >= featured.maxLevel) 1.0 else featured.progress.coerceIn(0.0, 1.0)
+        if (filled > 0.0) {
+            renderer.roundedRect(
+                Rect(track.x, track.y, track.width * filled.toFloat(), track.height),
+                Dp(1.5f),
+                rarityColor(featured.rarity),
+            )
+        }
         val held = featured.heldItem?.removePrefix("PET_ITEM_")?.humanName() ?: "No pet item"
         featured.heldItem?.let(itemIcons::get)?.let { renderer.item(it, Rect(feature.x + 94f, feature.y + 68f, 17f, 17f)) }
         text(renderer, held, feature.x + if (featured.heldItem == null) 94f else 117f, feature.y + 72f, TextRole.CAPTION)
@@ -597,6 +609,9 @@ public class ProfileScreen(
             surface(renderer, box, pet.active)
             renderer.item(itemIcons[petVisualKey(pet)] ?: PET_PLACEHOLDER, Rect(box.x + 8f, box.y + 6f, 36f, 36f))
             renderer.fillRect(Rect(box.x + 5f, box.bottom - 5f, box.width - 10f, 2f), rarityColor(pet.rarity))
+            // The stable has no room for text, so the level goes in the corner and the rest in the tooltip.
+            rightText(renderer, pet.level.toString(), box.right - 5f, box.y + 4f, TextRole.CAPTION, Color.White)
+            tooltipZones = tooltipZones + (box to { petTooltip(pet) })
         }
         return y + ceil(pets.size / gridColumns.toFloat()).toInt() * cell
     }
@@ -680,6 +695,51 @@ public class ProfileScreen(
         add(legacyComponent(item.displayName ?: item.internalName?.humanName() ?: "Unknown item"))
         item.lore.take(24).mapTo(this, ::legacyComponent)
         if (item.count > 1) add(Component.literal("Count: ${item.count}").withStyle(ChatFormatting.GRAY))
+    }
+
+    /**
+     * A pet, as its own item would read.
+     *
+     * The level is the interesting part and it is not in the profile: Hypixel sends experience, and turning
+     * that into a level needs the pet's own ladder and where its rarity starts on it. That work is the
+     * server's, so this only has to lay it out.
+     */
+    private fun petTooltip(pet: ProfilePet): List<Component> = buildList {
+        // `withColor` wants a plain RGB int; the theme's colours carry an alpha byte that has to come off.
+        val nameColor = rarityColor(pet.rarity).argb and 0xFFFFFF
+        add(
+            Component.literal("[Lvl ${pet.level}] ").withStyle(ChatFormatting.GRAY)
+                .append(Component.literal(pet.name).withStyle { it.withColor(nameColor) }),
+        )
+
+        val rarity = buildString {
+            append(pet.rarity.humanName())
+            if (pet.tierBoosted) append(" · tier boosted")
+            if (pet.active) append(" · active")
+        }
+        add(Component.literal(rarity).withStyle(ChatFormatting.DARK_GRAY))
+
+        add(Component.empty())
+        add(
+            Component.literal("Level ${pet.level}").withStyle(ChatFormatting.GRAY)
+                .append(Component.literal("/${pet.maxLevel}").withStyle(ChatFormatting.DARK_GRAY)),
+        )
+        add(Component.literal("${formatNumber(pet.experience)} XP").withStyle(ChatFormatting.DARK_GRAY))
+        if (pet.level < pet.maxLevel) {
+            val percent = (pet.progress * 100).roundToInt().coerceIn(0, 100)
+            add(Component.literal("$percent% to level ${pet.level + 1}").withStyle(ChatFormatting.DARK_GRAY))
+        }
+
+        val held = pet.heldItemName ?: pet.heldItem?.removePrefix("PET_ITEM_")?.humanName()
+        if (held != null || pet.skin != null || pet.candyUsed > 0) add(Component.empty())
+        held?.let { add(Component.literal("Held item: ").withStyle(ChatFormatting.GRAY).append(legacyComponent(it))) }
+        pet.skin?.let {
+            add(Component.literal("Skin: ${it.removePrefix("PET_SKIN_").humanName()}").withStyle(ChatFormatting.GRAY))
+        }
+        // Candy is worth saying because it caps: eaten experience past ten is experience that did nothing.
+        if (pet.candyUsed > 0) {
+            add(Component.literal("Pet candy used: ${pet.candyUsed}/10").withStyle(ChatFormatting.DARK_GRAY))
+        }
     }
 
     /**

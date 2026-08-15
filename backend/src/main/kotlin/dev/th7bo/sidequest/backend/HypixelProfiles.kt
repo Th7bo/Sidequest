@@ -215,11 +215,13 @@ internal class HypixelProfileService(
             val shards = async { upstream.optionalGet(neuConstant("attribute_shards"), emptyMap()) }
             val hotm = async { upstream.optionalGet(neuConstant("hotmlayout"), emptyMap()) }
             val hotf = async { upstream.optionalGet(neuConstant("hotflayout"), emptyMap()) }
+            val pets = async { upstream.optionalGet(neuConstant("pets"), emptyMap()) }
             NeuTables(
                 sacks = sacks.await()?.let { runCatching { NeuConstants.parseSacks(it) }.getOrNull() }.orEmpty(),
                 shards = shards.await()?.let { runCatching { NeuConstants.parseShards(it) }.getOrNull() }.orEmpty(),
                 mining = hotm.await()?.let { runCatching { NeuConstants.parseTreeLayout(it, "hotm") }.getOrNull() },
                 foraging = hotf.await()?.let { runCatching { NeuConstants.parseTreeLayout(it, "hotf") }.getOrNull() },
+                pets = pets.await()?.let { runCatching { NeuConstants.parsePets(it) }.getOrNull() },
             )
         }
         neu = Cached(tables, now() + SKILL_TTL_MILLIS)
@@ -281,6 +283,7 @@ internal data class NeuTables(
     val shards: List<NeuConstants.Shard> = emptyList(),
     val mining: NeuConstants.TreeLayout? = null,
     val foraging: NeuConstants.TreeLayout? = null,
+    val pets: NeuConstants.PetLeveling? = null,
 ) {
     val shardsByName: Map<String, NeuConstants.Shard> by lazy { NeuConstants.index(shards) }
 
@@ -441,15 +444,28 @@ internal object HypixelProfileParser {
             .mapNotNull { raw ->
                 val pet = raw as? JsonObject ?: return@mapNotNull null
                 val type = pet.string("type") ?: return@mapNotNull null
+                val rarity = pet.string("tier") ?: "UNKNOWN"
+                val heldItem = pet.string("heldItem")
+                val experience = pet.number("exp") ?: 0.0
+                // A Tier Boost makes the pet behave as one rarity above what Hypixel reports, which moves
+                // where it starts on the level ladder. Both public implementations of this agree on it.
+                val boosted = heldItem == TIER_BOOST
+                val leveling = neu.pets
+                val level = leveling?.levelOf(type, if (boosted) boostedRarity(rarity) else rarity, experience)
                 ProfilePet(
                     type = type,
-                    name = type.humanName(),
-                    rarity = pet.string("tier") ?: "UNKNOWN",
-                    experience = pet.number("exp") ?: 0.0,
+                    name = leveling?.displayNames?.get(type.uppercase()) ?: type.humanName(),
+                    rarity = rarity,
+                    experience = experience,
                     active = pet.boolean("active") == true,
-                    heldItem = pet.string("heldItem"),
+                    heldItem = heldItem,
                     skin = pet.string("skin"),
                     candyUsed = pet.int("candyUsed") ?: 0,
+                    level = level?.level ?: 1,
+                    maxLevel = level?.maxLevel ?: leveling?.maxLevel(type) ?: 100,
+                    progress = level?.progress ?: 0.0,
+                    heldItemName = heldItem?.let { leveling?.itemNames?.get(it) },
+                    tierBoosted = boosted,
                 )
             }.sortedWith(compareByDescending<ProfilePet> { it.active }.thenByDescending { it.experience })
 
@@ -1055,6 +1071,24 @@ private fun parseCrimsonIsle(root: JsonObject?): ProfileCrimsonIsle? {
             ProfileDojoChallenge(id, name, dojo?.int("dojo_points_$id") ?: -1, dojo?.int("dojo_time_$id") ?: -1)
         },
     )
+}
+
+private const val TIER_BOOST = "PET_ITEM_TIER_BOOST"
+
+/**
+ * One step up the rarity ladder, which is what a Tier Boost buys.
+ *
+ * Stops at mythic because nothing is above it. Whether a *particular* pet can reach mythic is a per-pet fact
+ * this server has no table for — but legendary and mythic share a starting point on the level ladder, so the
+ * distinction cannot change a level either way. The reported rarity is left as Hypixel sent it and the boost
+ * is flagged separately, rather than claiming a rarity the pet may not have.
+ */
+private fun boostedRarity(rarity: String): String = when (rarity.uppercase()) {
+    "COMMON" -> "UNCOMMON"
+    "UNCOMMON" -> "RARE"
+    "RARE" -> "EPIC"
+    "EPIC" -> "LEGENDARY"
+    else -> "MYTHIC"
 }
 
 private val CRIMSON_FACTIONS = mapOf("mages" to "Mage", "barbarians" to "Barbarian")

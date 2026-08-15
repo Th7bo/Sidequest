@@ -93,6 +93,7 @@ class HypixelProfilesTest {
             sacks = NeuConstants.parseSacks(NeuFixtures.SACKS),
             shards = NeuConstants.parseShards(NeuFixtures.SHARDS),
             mining = NeuConstants.parseTreeLayout(NeuFixtures.HOTM, "hotm"),
+            pets = NeuConstants.parsePets(NeuFixtures.PETS),
         ),
     )
 
@@ -178,9 +179,42 @@ class HypixelProfilesTest {
         val pets = parseWithTables().pets
 
         assertEquals(null, pets.first { it.type == "TIGER" }.skin, "a null skin is no skin")
-        assertEquals(null, pets.first { it.type == "TIGER" }.heldItem)
+        assertEquals(null, pets.first { it.type == "HEDGEHOG" }.heldItem, "an absent held item stays absent")
         assertEquals("WOLF_DOGE", pets.first { it.type == "WOLF" }.skin, "a real skin still arrives")
         assertTrue(pets.none { it.skin == "null" }, "the word leaked through: $pets")
+    }
+
+    /**
+     * A pet arrives with experience; a level is worked out from it here.
+     *
+     * Hypixel never sends one. Deriving it needs the pet's own ladder and the rung its rarity starts on,
+     * which is why this is the server's job and not the screen's.
+     */
+    @Test
+    fun `a pet reports a level worked out from its experience`() {
+        val tiger = parseWithTables().pets.first { it.type == "TIGER" }
+
+        // Legendary starts past the fixture's twenty shared rungs, so 12,345 experience buys nothing.
+        assertEquals(1, tiger.level)
+        assertEquals(100, tiger.maxLevel)
+        assertEquals("§6Tier Boost", tiger.heldItemName, "the id would read as shouting")
+    }
+
+    /**
+     * A Tier Boost moves the pet one rarity up, which moves where it starts on the ladder.
+     *
+     * The reported rarity is left as Hypixel sent it — whether a given pet can reach the next tier is a
+     * per-pet fact this server has no table for — but the level is computed as the game computes it.
+     */
+    @Test
+    fun `a tier boost is applied to the level and flagged rather than rewriting the rarity`() {
+        val hedgehog = parseWithTables().pets.first { it.type == "HEDGEHOG" }
+        val tiger = parseWithTables().pets.first { it.type == "TIGER" }
+
+        assertEquals("EPIC", hedgehog.rarity, "the rarity stays as reported")
+        assertTrue(!hedgehog.tierBoosted)
+        assertTrue(tiger.tierBoosted, "the tiger holds a Tier Boost")
+        assertEquals("LEGENDARY", tiger.rarity, "and is not silently promoted to mythic")
     }
 
     /** Whatever a screen keys a pet's picture on, no two of these pets may agree on it. */
@@ -276,6 +310,7 @@ class HypixelProfilesTest {
                 "constants/attribute_shards.json" in url -> UpstreamResponse(200, NeuFixtures.SHARDS, emptyMap())
                 "constants/hotmlayout.json" in url -> UpstreamResponse(200, NeuFixtures.HOTM, emptyMap())
                 "constants/hotflayout.json" in url -> UpstreamResponse(200, NeuFixtures.HOTF, emptyMap())
+                "constants/pets.json" in url -> UpstreamResponse(200, NeuFixtures.PETS, emptyMap())
                 "skyblock/garden" in url -> UpstreamResponse(
                     200,
                     """{"success":true,"garden":{"garden_experience":1234,"unlocked_plots_ids":[1,2]}}""",
@@ -298,12 +333,12 @@ class HypixelProfilesTest {
         val profile = service.lookup("Alice", null)
         service.lookup("alice", null)
 
-        assertEquals(13, calls.values.sum())
+        assertEquals(14, calls.values.sum())
         assertEquals(1, calls.entries.single { "skyblock/profiles" in it.key }.value)
         // The description tables are the same for everybody and for every profile, so a second lookup — and
         // by extension a fifth friend opening the same screen — must not fetch a single one of them again.
         val constants = calls.entries.filter { "constants/" in it.key }
-        assertEquals(5, constants.size, "one request per table: $constants")
+        assertEquals(6, constants.size, "one request per table: $constants")
         assertTrue(constants.all { it.value == 1 }, "a table was fetched twice: $constants")
         assertEquals(1234.0, profile.garden.first { it.id == "garden_experience" }.value)
         assertEquals(9999.0, profile.museum.first { it.id == "value" }.value)
@@ -368,7 +403,7 @@ class HypixelProfilesTest {
                       "player_data": {"experience": {"SKILL_FARMING": 275.0}},
                       "collection": {"WHEAT": 10000, "DIAMOND": 5000},
                       "pets_data": {"pets": [
-                        {"type":"TIGER","tier":"LEGENDARY","exp":12345,"active":true,"skin":null,"heldItem":null},
+                        {"type":"TIGER","tier":"LEGENDARY","exp":12345,"active":true,"skin":null,"heldItem":"PET_ITEM_TIER_BOOST"},
                         {"type":"HEDGEHOG","tier":"EPIC","exp":500,"skin":null},
                         {"type":"WOLF","tier":"LEGENDARY","exp":100,"skin":"WOLF_DOGE"}
                       ]},

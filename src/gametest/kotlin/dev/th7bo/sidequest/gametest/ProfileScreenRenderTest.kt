@@ -232,9 +232,17 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         ),
         pets = listOf(
             // Mythic, which the database has no entry for: it resolves only by walking down to legendary.
-            ProfilePet("GOLDEN_DRAGON", "Golden Dragon", "MYTHIC", 210_000_000.0, true, "PET_ITEM_TIER_BOOST"),
-            ProfilePet("ENDER_DRAGON", "Ender Dragon", "MYTHIC", 125_000_000.0, heldItem = "PET_ITEM_LUCKY_CLOVER"),
-            ProfilePet("TIGER", "Tiger", "LEGENDARY", 35_000_000.0),
+            ProfilePet(
+                "GOLDEN_DRAGON", "Golden Dragon", "MYTHIC", 210_000_000.0, active = true,
+                heldItem = "PET_ITEM_TIER_BOOST", heldItemName = "§6Tier Boost", candyUsed = 10,
+                level = 142, maxLevel = 200, progress = .38, tierBoosted = true,
+            ),
+            ProfilePet(
+                "ENDER_DRAGON", "Ender Dragon", "MYTHIC", 125_000_000.0,
+                heldItem = "PET_ITEM_LUCKY_CLOVER", heldItemName = "§9Lucky Clover",
+                level = 100, maxLevel = 100, progress = 1.0,
+            ),
+            ProfilePet("TIGER", "Tiger", "LEGENDARY", 35_000_000.0, level = 91, progress = .62, skin = "TIGER_SABERTOOTH"),
         ),
         inventories = listOf(
             ProfileInventory("inv_contents", "Inventory", 9, listOf(

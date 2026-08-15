@@ -107,6 +107,34 @@ internal object NeuFixtures {
         }
     """.trimIndent()
 
+    /**
+     * `constants/pets.json`, with the ladder cut short.
+     *
+     * The offsets, the Golden Dragon's two hundred levels and the Bingo pet's flat offsets are verbatim, and
+     * so are the rungs — these are the real first twenty of `pet_levels`. Only the *length* is trimmed, from
+     * a hundred and nineteen down to twenty, because a test that counts to a hundred proves nothing extra.
+     * Twenty is not arbitrary: it is where a legendary pet starts, so it is the shortest ladder on which
+     * rarity still visibly matters.
+     */
+    val PETS = """
+        {
+          "pet_rarity_offset": {"COMMON": 0, "UNCOMMON": 6, "RARE": 11, "EPIC": 16, "LEGENDARY": 20, "MYTHIC": 20},
+          "pet_levels": [100, 110, 120, 130, 145, 160, 175, 190, 210, 230,
+                         250, 275, 300, 330, 360, 400, 440, 490, 540, 600],
+          "custom_pet_leveling": {
+            "GOLDEN_DRAGON": {"type": 1, "pet_levels": [1886700, 1886700, 1886700], "max_level": 200},
+            "BINGO": {"rarity_offset": {"COMMON": 0, "UNCOMMON": 0, "RARE": 0, "EPIC": 0, "LEGENDARY": 0}}
+          },
+          "pet_types": {"TIGER": "COMBAT"},
+          "id_to_display_name": {"TYRANNOSAURUS": "T-Rex"},
+          "pet_item_display_name_to_id": {
+            "§6Tier Boost": "PET_ITEM_TIER_BOOST",
+            "§5Quick Claw": "PET_ITEM_QUICK_CLAW",
+            "§9Lucky Clover": "PET_ITEM_LUCKY_CLOVER"
+          }
+        }
+    """.trimIndent()
+
     /** Two sacks from `constants/sacks.json`, contents trimmed. */
     val SACKS = """
         {

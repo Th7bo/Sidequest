@@ -142,6 +142,113 @@ internal object NeuConstants {
         .replace(NON_WORD, "_")
         .trim('_')
 
+    // -- pets ------------------------------------------------------------------
+
+    /** A pet that does not level like the rest. Three dragons go to 200; a Bingo pet ignores rarity. */
+    data class CustomPet(
+        val extraLevels: List<Int> = emptyList(),
+        val maxLevel: Int? = null,
+        val rarityOffsets: Map<String, Int> = emptyMap(),
+    )
+
+    /** A pet's level, and how far through it the pet is. */
+    data class PetLevel(val level: Int, val maxLevel: Int, val progress: Double)
+
+    /**
+     * How pet experience becomes a pet level.
+     *
+     * Not a formula — a ladder of per-level costs, with the pet's rarity deciding where on that ladder it
+     * starts. A legendary pet skips the first twenty rungs, which is why the same experience is a very
+     * different level on two pets of different rarity.
+     *
+     * Read rather than copied, for the usual reason: the ladder is a hundred and nineteen numbers that
+     * Hypixel changes, and three pets have their own hundred on top of it.
+     */
+    class PetLeveling(
+        private val rarityOffsets: Map<String, Int>,
+        private val baseLevels: List<Int>,
+        private val custom: Map<String, CustomPet>,
+        /** The handful of pets the game calls something other than their id. `TYRANNOSAURUS` is `T-Rex`. */
+        val displayNames: Map<String, String>,
+        /** `PET_ITEM_TIER_BOOST` to `§6Tier Boost`, colour code and all. */
+        val itemNames: Map<String, String>,
+    ) {
+        val isEmpty: Boolean get() = baseLevels.isEmpty()
+
+        fun maxLevel(type: String): Int = custom[type.uppercase()]?.maxLevel ?: DEFAULT_MAX_LEVEL
+
+        /**
+         * The level [experience] buys a pet of this type and rarity.
+         *
+         * The loop is Hypixel's own: spend experience one level at a time until the next one cannot be
+         * afforded. Cross-checked against both public implementations of it, which agree.
+         */
+        fun levelOf(type: String, rarity: String, experience: Double): PetLevel {
+            val key = type.uppercase()
+            val pet = custom[key]
+            val maxLevel = pet?.maxLevel ?: DEFAULT_MAX_LEVEL
+            val offset = pet?.rarityOffsets?.get(rarity.uppercase())
+                ?: rarityOffsets[rarity.uppercase()]
+                ?: 0
+            val ladder = (baseLevels + pet?.extraLevels.orEmpty()).drop(offset).take(maxLevel - 1)
+            if (ladder.isEmpty()) return PetLevel(1, maxLevel, 0.0)
+
+            var remaining = experience.coerceAtLeast(0.0)
+            var level = 1
+            for (cost in ladder) {
+                if (remaining < cost) return PetLevel(level, maxLevel, remaining / cost)
+                remaining -= cost
+                level++
+            }
+            // Running out of rungs is normally the cap: the ladder holds exactly `maxLevel - 1` of them.
+            // It says `1 + ladder.size` rather than `maxLevel` anyway, so a truncated or unfamiliar table
+            // reports how far it could actually count instead of asserting a level it never reached.
+            return PetLevel(level.coerceAtMost(maxLevel), maxLevel, 1.0)
+        }
+    }
+
+    /**
+     * Reads `constants/pets.json`.
+     *
+     * `pet_item_display_name_to_id` is stored the way a lore line is read — name to id — and inverted here,
+     * because what a profile carries is the id and what a tooltip wants is the name.
+     */
+    fun parsePets(body: String): PetLeveling? {
+        val root = parseObject(body)
+        val base = (root["pet_levels"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }
+        if (base.isEmpty()) return null
+
+        fun offsets(value: JsonObject?): Map<String, Int> = value.orEmpty()
+            .mapNotNull { (rarity, raw) -> (raw as? JsonPrimitive)?.intOrNull?.let { rarity.uppercase() to it } }
+            .toMap()
+
+        val custom = (root["custom_pet_leveling"] as? JsonObject).orEmpty().mapNotNull { (id, raw) ->
+            val pet = raw as? JsonObject ?: return@mapNotNull null
+            id.uppercase() to CustomPet(
+                extraLevels = (pet["pet_levels"] as? JsonArray).orEmpty()
+                    .mapNotNull { (it as? JsonPrimitive)?.intOrNull },
+                maxLevel = (pet["max_level"] as? JsonPrimitive)?.intOrNull,
+                rarityOffsets = offsets(pet["rarity_offset"] as? JsonObject),
+            )
+        }.toMap()
+
+        val itemNames = (root["pet_item_display_name_to_id"] as? JsonObject).orEmpty()
+            .mapNotNull { (name, raw) -> (raw as? JsonPrimitive)?.content?.let { it to name } }
+            .toMap()
+
+        return PetLeveling(
+            rarityOffsets = offsets(root["pet_rarity_offset"] as? JsonObject),
+            baseLevels = base,
+            custom = custom,
+            displayNames = (root["id_to_display_name"] as? JsonObject).orEmpty()
+                .mapNotNull { (id, raw) -> (raw as? JsonPrimitive)?.content?.let { id.uppercase() to it } }
+                .toMap(),
+            itemNames = itemNames,
+        )
+    }
+
+    private const val DEFAULT_MAX_LEVEL = 100
+
     // -- Heart of the Mountain and Heart of the Forest ------------------------
 
     /** One line of a perk's description, and the condition it appears under. */
