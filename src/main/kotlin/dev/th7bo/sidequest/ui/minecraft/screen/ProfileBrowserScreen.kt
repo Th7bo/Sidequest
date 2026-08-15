@@ -2,6 +2,7 @@ package dev.th7bo.sidequest.ui.minecraft.screen
 
 import com.mojang.blaze3d.systems.RenderSystem
 import com.mojang.blaze3d.textures.FilterMode
+import dev.th7bo.sidequest.SidequestSettings
 import dev.th7bo.sidequest.platform.core.profile.SkyCryptUrls
 import dev.th7bo.sidequest.platform.minecraft.Mcef
 import dev.th7bo.sidequest.ui.geometry.Rect
@@ -25,6 +26,7 @@ import net.minecraft.util.Util
 import org.joml.Matrix3x2f
 import org.lwjgl.glfw.GLFW
 import java.net.URI
+import kotlin.math.ln
 
 /**
  * A web page, inside the game.
@@ -65,18 +67,76 @@ class ProfileBrowserScreen(
 
     private var measurer: MinecraftTextMeasurer? = null
 
+    /**
+     * The browser is sized in **framebuffer pixels, not GUI units**, and that is the whole of why it looks
+     * sharp.
+     *
+     * A screen's `width` and `height` are GUI-scaled: at a GUI scale of 3 on a 1920×1080 window they are
+     * 640×360. Creating the browser at that size and then blitting it across the whole window asks Chromium
+     * to lay the page out for a 640-pixel-wide viewport — so the page picks its narrow layout, and then that
+     * is magnified threefold. Both complaints, "too zoomed in" and "pixelated", are that one mistake.
+     *
+     * Asking the window for its real size instead makes the texture exactly as many pixels as the region it
+     * is drawn into, which is a 1:1 blit and a desktop-width page.
+     */
     override fun init() {
         if (measurer == null) measurer = MinecraftTextMeasurer(minecraft!!.font)
 
+        val window = minecraft!!.window
+        val pixelWidth = window.width.coerceAtLeast(1)
+        val pixelHeight = window.height.coerceAtLeast(1)
+
         val existing = browser
         if (existing == null) {
-            browser = Mcef.create(home, width, height)
+            browser = Mcef.create(home, pixelWidth, pixelHeight)
         } else {
             // A resize re-runs `init`. The browser survives it and is simply told the new size, because
             // recreating it would reload the page and lose the reader's scroll position.
-            existing.resize(width.coerceAtLeast(1), height.coerceAtLeast(1))
+            existing.resize(pixelWidth, pixelHeight)
         }
         browser?.setFocus(true)
+        applyZoom()
+    }
+
+    /**
+     * How far a GUI coordinate is from a browser one.
+     *
+     * Taken as a ratio of the two sizes the window reports rather than from `guiScale`, because the integer
+     * scale does not divide the window exactly — Minecraft rounds the GUI-scaled size, so at some window
+     * sizes `width * guiScale` is a pixel or two wide of the framebuffer. Over a 1920-pixel span that
+     * rounding is a visible drift between where the cursor is drawn and where the page thinks it is.
+     */
+    private fun pixelsPerGuiUnitX(): Double {
+        val window = minecraft!!.window
+        return window.width.toDouble() / window.guiScaledWidth.coerceAtLeast(1)
+    }
+
+    private fun pixelsPerGuiUnitY(): Double {
+        val window = minecraft!!.window
+        return window.height.toDouble() / window.guiScaledHeight.coerceAtLeast(1)
+    }
+
+    /**
+     * The same click, in the browser's coordinates.
+     *
+     * [MouseButtonEvent] is a record, so this rebuilds one rather than mutating it. Necessary because the
+     * browser is no longer the same size as the screen: forwarding the untouched event would put every
+     * click at a third of the distance across the page it was aimed at.
+     */
+    private fun inBrowserSpace(event: MouseButtonEvent): MouseButtonEvent =
+        MouseButtonEvent(event.x() * pixelsPerGuiUnitX(), event.y() * pixelsPerGuiUnitY(), event.buttonInfo())
+
+    /**
+     * Applies the configured page zoom.
+     *
+     * Chromium counts zoom in multiplicative steps of 1.2 rather than in percent, so the setting is
+     * converted rather than passed through — level 0 is 100%, level 1 is 120%, and so on.
+     */
+    private fun applyZoom() {
+        val live = browser ?: return
+        val percent = SidequestSettings.Profiles.zoomPercent.toDouble().coerceAtLeast(MIN_ZOOM_PERCENT)
+        val level = ln(percent / PERCENT_FULL) / ln(CHROMIUM_ZOOM_STEP)
+        runCatching { live.cefBrowser.zoomLevel = level }
     }
 
     override fun extractRenderState(
@@ -275,17 +335,20 @@ class ProfileBrowserScreen(
     }
 
     override fun mouseClicked(event: MouseButtonEvent, doubled: Boolean): Boolean {
-        browser?.onMouseClicked(event, doubled)
+        browser?.onMouseClicked(inBrowserSpace(event), doubled)
         return true
     }
 
     override fun mouseReleased(event: MouseButtonEvent): Boolean {
-        browser?.onMouseReleased(event)
+        browser?.onMouseReleased(inBrowserSpace(event))
         return true
     }
 
     override fun mouseMoved(mouseX: Double, mouseY: Double) {
-        browser?.onMouseMoved(mouseX.toInt(), mouseY.toInt())
+        browser?.onMouseMoved(
+            (mouseX * pixelsPerGuiUnitX()).toInt(),
+            (mouseY * pixelsPerGuiUnitY()).toInt(),
+        )
     }
 
     override fun mouseScrolled(
@@ -294,7 +357,11 @@ class ProfileBrowserScreen(
         horizontalAmount: Double,
         verticalAmount: Double,
     ): Boolean {
-        browser?.onMouseScrolled(mouseX.toInt(), mouseY.toInt(), verticalAmount)
+        browser?.onMouseScrolled(
+            (mouseX * pixelsPerGuiUnitX()).toInt(),
+            (mouseY * pixelsPerGuiUnitY()).toInt(),
+            verticalAmount,
+        )
         return true
     }
 
@@ -321,5 +388,12 @@ class ProfileBrowserScreen(
 
         const val NANOS_PER_SECOND = 1_000_000_000.0
         const val OPAQUE_WHITE = -1
+
+        /** Chromium's zoom is multiplicative in steps of this, which is why a percentage needs converting. */
+        const val CHROMIUM_ZOOM_STEP = 1.2
+        const val PERCENT_FULL = 100.0
+
+        /** Below this the conversion goes to negative infinity, and a zero would black the page out. */
+        const val MIN_ZOOM_PERCENT = 25.0
     }
 }

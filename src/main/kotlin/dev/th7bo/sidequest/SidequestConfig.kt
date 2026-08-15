@@ -665,6 +665,22 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     visibleWhen = profilesOn
                 }
+                slider(
+                    id = id("profiles.zoom"),
+                    title = "Page zoom",
+                    description = "The page is drawn at your monitor's resolution, so 100% is what a " +
+                        "browser shows. Turn it up on a large or high-resolution screen.",
+                    value = bind(
+                        get = { SidequestSettings.Profiles.zoomPercent },
+                        set = { SidequestSettings.Profiles.zoomPercent = it },
+                        debugName = "profiles.zoom",
+                    ),
+                    range = 50..250,
+                    format = { "$it%" },
+                    validator = Validators.intRange(50..250),
+                ) {
+                    visibleWhen = profilesOn
+                }
             }
 
             section(

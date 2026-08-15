@@ -287,6 +287,18 @@ public object SidequestSettings {
          * a second monitor beats a window inside the game, and alt-tabbing costs nothing on one.
          */
         public var preferInGame: Boolean = true
+
+        /**
+         * How large the page is drawn, as a percentage.
+         *
+         * A hundred is what a real browser shows at, and it is the default because the window is rendered at
+         * the monitor's own resolution — so the page is the size it would be outside the game rather than a
+         * size derived from Minecraft's GUI scale.
+         *
+         * Kept as a preference because the right answer depends on the monitor rather than on the mod: a
+         * page at 100% on a 4K display is small, and somebody sitting back from a television wants more.
+         */
+        public var zoomPercent: Int = 100
     }
 
     // -- cosmetics -----------------------------------------------------------

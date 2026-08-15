@@ -40,6 +40,29 @@ The page fills the window, so everything is a key rather than a toolbar:
 `Esc` is handled before the page sees it, deliberately — a web page must not be able to swallow the only key
 that gets you out of it.
 
+## Sharpness and size
+
+The browser is created at the **window's framebuffer size, not the screen's GUI-scaled size**, and that
+distinction is the difference between a sharp page and a blurry one.
+
+A `Screen`'s `width` and `height` are GUI units: at GUI scale 3 on a 1920×1080 window they are 640×360.
+Building the browser at that size and blitting it across the whole window does two bad things at once —
+Chromium lays the page out for a 640-pixel viewport, so it picks its narrow layout, and then that layout is
+magnified threefold. "Too zoomed in" and "pixelated" are one bug wearing two hats.
+
+Two consequences worth knowing:
+
+- **Mouse coordinates have to be converted.** The screen reports GUI units and the browser expects pixels,
+  so every click, move and scroll is scaled on the way through. The ratio is taken from the two sizes the
+  window reports rather than from `guiScale`, because the integer scale does not divide the window exactly
+  and the rounding drifts by a pixel or two — enough to see over a 1920-pixel span.
+- **It costs more to draw.** At scale 3 the browser paints nine times the pixels it used to. Chromium only
+  repaints what changes, so an idle page is cheap and scrolling is not.
+
+**Page zoom** is a separate setting, defaulting to 100% — what a real browser shows, because the page is now
+rendered at the monitor's own resolution. Turn it up on a 4K display or a television. It maps onto
+Chromium's own zoom, which counts in multiplicative steps of 1.2 rather than in percent.
+
 ## It stays on SkyCrypt
 
 Chromium will follow any link it is given, and a general-purpose web browser is a much larger thing to have
