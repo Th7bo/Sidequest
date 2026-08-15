@@ -107,6 +107,7 @@ public class ProfileScreen(
     private var selectedTab = Tab.OVERVIEW
     private var isMaximised = false
     private var caretSeconds = 0f
+    private var visualRetrySeconds = 0f
     private var lastFrameNanos = 0L
     private var scrollOffset = 0f
     private var lastContentHeight = 0f
@@ -172,6 +173,14 @@ public class ProfileScreen(
         val delta = if (lastFrameNanos == 0L) 0f else ((now - lastFrameNanos) / NANOS_PER_SECOND).toFloat()
         lastFrameNanos = now
         caretSeconds += delta
+
+        // Ask again for anything that did not arrive. Cheap, because a key that resolved or is still in
+        // flight is already in `requestedItemIcons` and never leaves it — only an outright failure does.
+        visualRetrySeconds += delta
+        if (visualRetrySeconds >= VISUAL_RETRY_SECONDS) {
+            visualRetrySeconds = 0f
+            (state as? ViewState.Ready)?.profile?.let { preloadVisuals(it, selectedTab) }
+        }
 
         graphics.fill(0, 0, width, height, theme.tokens.colors.scrim.argb)
         val measure = measurer ?: return
@@ -1245,6 +1254,11 @@ public class ProfileScreen(
                             )
                             break
                         }
+                        // Nothing resolved: forget that it was asked for, so a later visit tries again.
+                        // A pet stable is forty lookups in one burst, and the database answering slowly for
+                        // some of them used to mark those permanently as "already requested" — they then
+                        // kept their placeholder for the life of the screen no matter how long you waited.
+                        if (!itemIcons.containsKey(key)) requestedItemIcons.remove(key)
                     }
                 }.awaitAll()
             }
@@ -1670,6 +1684,9 @@ public class ProfileScreen(
         val PET_PLACEHOLDER = ItemRef("minecraft:bone")
 
         const val NANOS_PER_SECOND = 1_000_000_000.0
+
+        /** How often to re-ask for icons that did not arrive. Slow enough that a real outage is not a flood. */
+        const val VISUAL_RETRY_SECONDS = 3f
         const val HERO_HEIGHT = 48f
         const val SKILL_CARD_HEIGHT = 43f
         const val GAP = 7f
