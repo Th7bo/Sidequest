@@ -316,9 +316,16 @@ public object SidequestSettings {
         /**
          * Whether Chromium is started in the background after joining a world.
          *
-         * Off by default, and it has to be. The first start downloads a couple of hundred megabytes, and
-         * doing that unasked because somebody installed a waypoint mod is not a decision to make for them.
-         * On, the first lookup is instant instead of a progress bar.
+         * Off by default for two reasons, and the second is the stronger one.
+         *
+         * The first start downloads a couple of hundred megabytes, and doing that unasked because somebody
+         * installed a waypoint mod is not a decision to make for them.
+         *
+         * **And loading Chromium at all currently risks a crash when the game exits.** Chromium brings the
+         * system GTK and Pango stack with it, including a second HarfBuzz, which then wins the symbol
+         * lookup over the copy inside LWJGL's FreeType — so closing a TrueType font at shutdown destroys a
+         * font object with the wrong library and segfaults. Turning this on would move that from "sessions
+         * where I looked somebody up" to "every session". See `docs/guide/profile-viewer.md`.
          */
         public var warmOnJoin: Boolean = false
 

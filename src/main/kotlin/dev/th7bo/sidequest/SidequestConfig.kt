@@ -701,8 +701,9 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 toggle(
                     id = id("profiles.warm_on_join"),
                     title = "Start the browser in advance",
-                    description = "Downloads and starts Chromium after you join, so the first lookup is " +
-                        "instant. The first run fetches a few hundred megabytes.",
+                    description = "Makes the first lookup instant. Downloads a few hundred megabytes the " +
+                        "first time — and loading Chromium can crash the game as it exits, so this turns " +
+                        "an occasional crash into one every session.",
                     value = bind(
                         get = { SidequestSettings.Profiles.warmOnJoin },
                         set = { SidequestSettings.Profiles.warmOnJoin = it },

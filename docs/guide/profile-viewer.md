@@ -125,6 +125,44 @@ One implementation note worth keeping: the render scale feeds the browser's **si
 same function**. They were briefly two expressions of the same ratio, which is exactly long enough to shrink
 the texture without moving the cursor and put every click in the wrong place.
 
+## Known: a segfault when the game exits
+
+Opening the browser can make Minecraft crash **on shutdown**, in native code:
+
+```
+SIGSEGV  libharfbuzz.so.0
+  hb_face_destroy ← hb_font_destroy
+  ← FreeType.FT_Done_Face
+  ← com.mojang.blaze3d.font.TrueTypeGlyphProvider.close()
+  ← FontManager
+```
+
+**What is happening.** LWJGL ships its own FreeType with HarfBuzz linked *into* it. Chromium, on Linux,
+brings the system GTK/Pango/fontconfig stack with it — including `/usr/lib/libharfbuzz.so.0`. Once both are
+in the process, the system copy wins the global symbol lookup, so LWJGL's FreeType ends up calling a
+different HarfBuzz than the one that built its font objects, and destroying one walks a mismatched struct.
+
+**Why it waits until exit.** `hb_font_destroy` is only ever reached from `FT_Done_Face`, so its entry is
+resolved *lazily, the first time a TrueType font is closed* — which is at shutdown. By then Chromium has
+been loaded and the wrong copy is what the lookup finds. The same path runs on a resource reload, so `F3+T`
+after opening the browser may do it too.
+
+**Whose fault.** Nobody's exactly, and everybody's a bit: it needs LWJGL's statically linked HarfBuzz, a
+system HarfBuzz, a TrueType font provider, and Chromium in one process. Sidequest supplies the TrueType
+fonts and the reason Chromium is there, so it is ours to know about.
+
+**What it costs.** Nothing but dignity, as far as observed: every mod finishes saving before the segfault —
+the crash is the last thing in the log. It does write a core dump each time, which will eat disk.
+
+**Avoiding it:**
+
+- Do not open the profile viewer, and Chromium never loads. This is why **Start the browser in advance is
+  off by default** — turning it on loads Chromium every session and would make an occasional crash a
+  certain one.
+- Untested but plausible: set `LD_BIND_NOW=1` in the instance's environment. Binding eagerly resolves
+  LWJGL's HarfBuzz calls when *its* FreeType loads, before Chromium exists, so the lazy-resolution race
+  never happens. Worth trying; it is a hypothesis, not a verified fix.
+
 ### Starting Chromium in advance
 
 Off by default. On, Chromium starts coming up when you join a world, so the first lookup is instant instead
