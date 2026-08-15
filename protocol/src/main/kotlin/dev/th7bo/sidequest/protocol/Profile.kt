@@ -41,6 +41,7 @@ public data class SkyBlockProfile(
     public val rift: ProfileRift? = null,
     public val experimentation: ProfileExperimentation? = null,
     public val chocolateFactory: ProfileChocolateFactory? = null,
+    public val crimsonIsle: ProfileCrimsonIsle? = null,
     public val currencies: List<ProfileMetric> = emptyList(),
     public val mining: List<ProfileMetric> = emptyList(),
     public val garden: List<ProfileMetric> = emptyList(),
@@ -112,6 +113,31 @@ public data class ProfileItemSlot(
     public val displayName: String? = null,
     public val count: Int = 1,
     public val lore: List<String> = emptyList(),
+)
+
+@Serializable
+public data class ProfileCrimsonIsle(
+    public val selectedFaction: String? = null,
+    public val mageReputation: Int = 0,
+    public val barbarianReputation: Int = 0,
+    public val kuudra: List<ProfileKuudraTier> = emptyList(),
+    public val dojo: List<ProfileDojoChallenge> = emptyList(),
+)
+
+@Serializable
+public data class ProfileKuudraTier(
+    public val id: String,
+    public val name: String,
+    public val completions: Int = 0,
+    public val highestWave: Int = 0,
+)
+
+@Serializable
+public data class ProfileDojoChallenge(
+    public val id: String,
+    public val name: String,
+    public val points: Int = -1,
+    public val time: Int = -1,
 )
 
 @Serializable

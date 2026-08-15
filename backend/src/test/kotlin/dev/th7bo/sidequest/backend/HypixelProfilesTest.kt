@@ -70,6 +70,9 @@ class HypixelProfilesTest {
         assertTrue(profile.inventories.isEmpty())
         assertTrue(profile.sections.any { it.id == "sacks" })
         assertEquals(3, profile.trophyFish.single { it.id == "blobfish" }.bronze)
+        assertEquals("Mage", profile.crimsonIsle?.selectedFaction)
+        assertEquals(12, profile.crimsonIsle?.kuudra?.first { it.id == "hot" }?.completions)
+        assertEquals(820, profile.crimsonIsle?.dojo?.first { it.id == "mob_kb" }?.points)
         assertEquals(
             1.0,
             profile.sections.first { it.id == "objectives" }.metrics.first { it.id == "objectives_complete" }.value,
@@ -223,6 +226,13 @@ class HypixelProfilesTest {
                       "dungeons": {
                         "dungeon_types": {"catacombs": {"experience": 5000, "tier_completions": {"1": 8}}},
                         "player_classes": {"mage": {"experience": 2500}}
+                      },
+                      "nether_island_player_data": {
+                        "selected_faction": "mages",
+                        "mages_reputation": 8200,
+                        "barbarians_reputation": 1300,
+                        "kuudra_completed_tiers": {"hot": 12, "highest_wave_hot": 5},
+                        "dojo": {"dojo_points_mob_kb": 820, "dojo_time_mob_kb": 9132}
                       }
                     }
                   }

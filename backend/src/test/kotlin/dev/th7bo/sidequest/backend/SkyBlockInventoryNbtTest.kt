@@ -34,6 +34,6 @@ class SkyBlockInventoryNbtTest {
         assertEquals(4, item.slot)
         assertEquals(3, item.count)
         assertEquals("ASPECT_OF_THE_END", item.internalName)
-        assertEquals("Aspect of the End", item.displayName)
+        assertEquals("§5Aspect of the End", item.displayName)
     }
 }

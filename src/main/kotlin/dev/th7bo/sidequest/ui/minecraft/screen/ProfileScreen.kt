@@ -18,6 +18,7 @@ import dev.th7bo.sidequest.protocol.ProfileSlayer
 import dev.th7bo.sidequest.protocol.ProfileSkillTree
 import dev.th7bo.sidequest.protocol.ProfileAttribute
 import dev.th7bo.sidequest.protocol.ProfileChocolateFactory
+import dev.th7bo.sidequest.protocol.ProfileCrimsonIsle
 import dev.th7bo.sidequest.protocol.ProfileExperimentation
 import dev.th7bo.sidequest.protocol.ProfileRift
 import dev.th7bo.sidequest.protocol.ProfileTrophyFish
@@ -45,6 +46,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import net.minecraft.client.gui.GuiGraphicsExtractor
+import net.minecraft.ChatFormatting
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.CharacterEvent
 import net.minecraft.client.input.KeyEvent
@@ -200,6 +202,7 @@ public class ProfileScreen(
         } finally {
             renderer.endFrame()
         }
+        if (selectedTab == Tab.INVENTORY) paintInventoryTooltip(graphics)
     }
 
     private fun paintContent(renderer: MinecraftUiRenderer) {
@@ -259,7 +262,6 @@ public class ProfileScreen(
                 Tab.MORE -> paintMore(renderer, profile, viewport.x, start, viewport.width)
             }
             lastContentHeight = (end - start).coerceAtLeast(0f)
-            if (selectedTab == Tab.INVENTORY) paintInventoryTooltip(renderer, viewport)
         } finally {
             renderer.popClip()
         }
@@ -456,8 +458,45 @@ public class ProfileScreen(
             y = paintDungeons(renderer, profile, x, y, width) + GAP
         }
         if (profile.bestiary.isNotEmpty()) y = paintBestiary(renderer, profile.bestiary, x, y, width) + GAP
-        y = paintProfileSections(renderer, profile, setOf("nether_island_player_data"), x, y, width, emptyWhenMissing = false)
+        profile.crimsonIsle?.let { y = paintCrimsonIsle(renderer, it, x, y, width) + GAP }
         return if (y == top) emptyState(renderer, "Combat API disabled", x, y, width) else y
+    }
+
+    private fun paintCrimsonIsle(renderer: MinecraftUiRenderer, crimson: ProfileCrimsonIsle, x: Float, top: Float, width: Float): Float {
+        var y = sectionTitle(renderer, "Crimson Isle", "minecraft:netherrack", x, top, width)
+        val reputation = Rect(x, y, width, 58f)
+        surface(renderer, reputation, strong = true)
+        renderer.item(ItemRef(if (crimson.selectedFaction == "Barbarian") "minecraft:netherite_axe" else "minecraft:blaze_rod"), Rect(x + 9f, y + 14f, 28f, 28f))
+        text(renderer, crimson.selectedFaction?.let { "$it faction" } ?: "No faction selected", x + 45f, y + 8f, TextRole.TITLE)
+        text(renderer, "Mage  ${formatNumber(crimson.mageReputation.toDouble())} · ${factionRank(crimson.mageReputation)}", x + 45f, y + 27f, TextRole.CAPTION, Color(0xFFAA55FFu.toInt()))
+        text(renderer, "Barbarian  ${formatNumber(crimson.barbarianReputation.toDouble())} · ${factionRank(crimson.barbarianReputation)}", x + 45f, y + 42f, TextRole.CAPTION, Color(0xFFFF5555u.toInt()))
+        y = reputation.bottom + GAP
+
+        y = sectionTitle(renderer, "Kuudra", "minecraft:magma_cream", x, y, width)
+        val kuudraColumns = columns(width, 125f, 5)
+        val kuudraWidth = (width - 7f * (kuudraColumns - 1)) / kuudraColumns
+        crimson.kuudra.forEachIndexed { index, tier ->
+            val box = Rect(x + (index % kuudraColumns) * (kuudraWidth + 7f), y + (index / kuudraColumns) * 53f, kuudraWidth, 46f)
+            surface(renderer, box)
+            renderer.item(ItemRef(kuudraItem(tier.id)), Rect(box.x + 7f, box.y + 11f, 24f, 24f))
+            text(renderer, tier.name, box.x + 37f, box.y + 6f, TextRole.LABEL, kuudraColor(tier.id), maxWidth = box.width - 43f)
+            text(renderer, "${formatNumber(tier.completions.toDouble())} runs", box.x + 37f, box.y + 22f, TextRole.CAPTION, maxWidth = box.width - 43f)
+            text(renderer, "Wave ${tier.highestWave}", box.x + 37f, box.y + 34f, TextRole.CAPTION, maxWidth = box.width - 43f)
+        }
+        y += ceil(crimson.kuudra.size / kuudraColumns.toFloat()).toInt() * 53f + GAP
+
+        y = sectionTitle(renderer, "Dojo", "minecraft:golden_helmet", x, y, width)
+        val dojoColumns = columns(width, 145f, 4)
+        val dojoWidth = (width - 7f * (dojoColumns - 1)) / dojoColumns
+        crimson.dojo.forEachIndexed { index, challenge ->
+            val box = Rect(x + (index % dojoColumns) * (dojoWidth + 7f), y + (index / dojoColumns) * 47f, dojoWidth, 40f)
+            surface(renderer, box)
+            renderer.item(ItemRef(dojoItem(challenge.id)), Rect(box.x + 7f, box.y + 8f, 23f, 23f))
+            text(renderer, challenge.name, box.x + 36f, box.y + 5f, TextRole.LABEL, maxWidth = box.width - 42f)
+            val points = challenge.points.takeIf { it >= 0 }
+            text(renderer, points?.let { "$it pts · ${dojoGrade(it)}" } ?: "Not attempted", box.x + 36f, box.y + 22f, TextRole.CAPTION, points?.let(::dojoGradeColor) ?: theme.textColor(TextRole.CAPTION), maxWidth = box.width - 42f)
+        }
+        return y + ceil(crimson.dojo.size / dojoColumns.toFloat()).toInt() * 47f
     }
 
     private fun progressCards(renderer: MinecraftUiRenderer, values: List<ProfileProgress>, x: Float, top: Float, width: Float): Float {
@@ -561,28 +600,42 @@ public class ProfileScreen(
         return y + rows * slot
     }
 
-    private fun paintInventoryTooltip(renderer: MinecraftUiRenderer, viewport: Rect) {
+    private fun paintInventoryTooltip(graphics: GuiGraphicsExtractor) {
         val item = inventoryHitboxes.lastOrNull { (_, bounds) -> bounds.contains(pointer) }?.first ?: return
-        val lines = buildList {
-            add(item.displayName ?: item.internalName?.humanName() ?: "Unknown item")
-            addAll(item.lore.take(18))
-            if (item.count > 1) add("Count: ${item.count}")
+        val lines = buildList<Component> {
+            add(legacyComponent(item.displayName ?: item.internalName?.humanName() ?: "Unknown item"))
+            item.lore.take(24).mapTo(this, ::legacyComponent)
+            if (item.count > 1) add(Component.literal("Count: ${item.count}").withStyle(ChatFormatting.GRAY))
         }
-        if (lines.isEmpty()) return
-        val style = theme.textStyle(TextRole.CAPTION)
-        val measured = lines.map { renderer.textMeasurer.measure(it, style, 230f, overflow = TextOverflow.ELLIPSIS) }
-        val width = (measured.maxOfOrNull { it.size.width } ?: 0f) + 12f
-        val height = measured.sumOf { it.size.height.toDouble() }.toFloat() + 10f
-        val x = (pointer.x + 10f).coerceAtMost(viewport.right - width - 3f).coerceAtLeast(viewport.x + 3f)
-        val y = (pointer.y + 9f).coerceAtMost(viewport.bottom - height - 3f).coerceAtLeast(viewport.y + 3f)
-        val box = Rect(x, y, width, height)
-        renderer.roundedRect(box, theme.tokens.radii.small, theme.tokens.colors.windowBackground.withAlpha(.98f))
-        renderer.border(box, theme.tokens.radii.small, Dp(1f), theme.tokens.colors.accent.withAlpha(.75f))
-        var lineY = y + 5f
-        measured.forEachIndexed { index, line ->
-            renderer.text(line, Vec2(x + 6f, lineY), if (index == 0) theme.tokens.colors.accent else theme.textColor(TextRole.CAPTION))
-            lineY += line.size.height
+        graphics.setComponentTooltipForNextFrame(minecraft.font, lines, pointer.x.roundToInt(), pointer.y.roundToInt())
+    }
+
+    private fun legacyComponent(value: String): Component {
+        val result = Component.empty()
+        val formats = mutableListOf<ChatFormatting>()
+        var start = 0
+        var index = 0
+        fun append(end: Int) {
+            if (end > start) result.append(Component.literal(value.substring(start, end)).withStyle(*formats.toTypedArray()))
         }
+        while (index + 1 < value.length) {
+            if (value[index] != ChatFormatting.PREFIX_CODE) { index++; continue }
+            append(index)
+            val code = value[index + 1].lowercaseChar()
+            val format = ChatFormatting.getByCode(code)
+            when {
+                code == 'r' -> formats.clear()
+                code in '0'..'9' || code in 'a'..'f' -> {
+                    formats.clear()
+                    if (format != null) formats += format
+                }
+                format != null -> formats += format
+            }
+            index += 2
+            start = index
+        }
+        append(value.length)
+        return result
     }
 
     private fun paintBestiary(renderer: MinecraftUiRenderer, locations: List<ProfileBestiaryLocation>, x: Float, top: Float, width: Float): Float {
@@ -1234,6 +1287,57 @@ public class ProfileScreen(
         "archer" -> "minecraft:bow"
         "tank" -> "minecraft:iron_chestplate"
         else -> "minecraft:experience_bottle"
+    }
+
+    private fun factionRank(reputation: Int): String = when {
+        reputation >= 12_000 -> "Hero"
+        reputation >= 7_000 -> "Honored"
+        reputation >= 3_000 -> "Trusted"
+        reputation >= 1_000 -> "Friendly"
+        else -> "Neutral"
+    }
+
+    private fun kuudraItem(id: String): String = when (id) {
+        "hot" -> "minecraft:magma_cream"
+        "burning" -> "minecraft:blaze_powder"
+        "fiery" -> "minecraft:fire_charge"
+        "infernal" -> "minecraft:nether_star"
+        else -> "minecraft:lava_bucket"
+    }
+
+    private fun kuudraColor(id: String): Color = when (id) {
+        "hot" -> Color.rgb(255, 170, 0)
+        "burning" -> Color.rgb(255, 85, 85)
+        "fiery" -> Color.rgb(170, 0, 0)
+        "infernal" -> Color.rgb(170, 0, 170)
+        else -> theme.textColor(TextRole.LABEL)
+    }
+
+    private fun dojoItem(id: String): String = when (id) {
+        "mob_kb" -> "minecraft:slime_ball"
+        "wall_jump" -> "minecraft:rabbit_foot"
+        "archer" -> "minecraft:bow"
+        "snake" -> "minecraft:feather"
+        "sword_swap" -> "minecraft:iron_sword"
+        "fireball" -> "minecraft:fire_charge"
+        else -> "minecraft:target"
+    }
+
+    private fun dojoGrade(points: Int): String = when {
+        points >= 1_000 -> "S"
+        points >= 800 -> "A"
+        points >= 600 -> "B"
+        points >= 400 -> "C"
+        points >= 200 -> "D"
+        else -> "F"
+    }
+
+    private fun dojoGradeColor(points: Int): Color = when {
+        points >= 1_000 -> Color.rgb(255, 170, 0)
+        points >= 800 -> Color.rgb(255, 85, 255)
+        points >= 600 -> Color.rgb(85, 85, 255)
+        points >= 200 -> Color.rgb(85, 255, 85)
+        else -> Color.rgb(255, 85, 85)
     }
 
     private fun sectionItem(section: ProfileSection): String = when (section.id) {

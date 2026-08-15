@@ -11,9 +11,12 @@ import dev.th7bo.sidequest.protocol.ProfileItemSlot
 import dev.th7bo.sidequest.protocol.ProfileLoadout
 import dev.th7bo.sidequest.protocol.ProfileAttribute
 import dev.th7bo.sidequest.protocol.ProfileChocolateFactory
+import dev.th7bo.sidequest.protocol.ProfileCrimsonIsle
+import dev.th7bo.sidequest.protocol.ProfileDojoChallenge
 import dev.th7bo.sidequest.protocol.ProfileExperiment
 import dev.th7bo.sidequest.protocol.ProfileExperimentation
 import dev.th7bo.sidequest.protocol.ProfileRabbitEmployee
+import dev.th7bo.sidequest.protocol.ProfileKuudraTier
 import dev.th7bo.sidequest.protocol.ProfileRift
 import dev.th7bo.sidequest.protocol.ProfileTimecharm
 import dev.th7bo.sidequest.protocol.ProfileTrophyFish
@@ -417,6 +420,7 @@ internal object HypixelProfileParser {
         val rift = parseRift(member)
         val experimentation = parseExperimentation(member.obj("experimentation"))
         val chocolateFactory = parseChocolateFactory(member.obj("events"))
+        val crimsonIsle = parseCrimsonIsle(member.obj("nether_island_player_data"))
         val playerStats = member.obj("player_stats")
         val kills = playerStats?.entries?.filter { it.key.startsWith("kills_") }
             ?.sumOf { (it.value as? JsonPrimitive)?.longOrNull ?: 0L }
@@ -445,7 +449,6 @@ internal object HypixelProfileParser {
                 if (metrics.isNotEmpty()) add(ProfileSection(id, name, metrics))
             }
 
-            addSection("nether_island_player_data", "Crimson Isle")
             addSection("forge", "Forge")
             member.obj("jacobs_contest")?.let(::parseFarmingSummary)?.takeIf { it.isNotEmpty() }
                 ?.let { add(ProfileSection("farming_summary", "Farming progress", it)) }
@@ -524,6 +527,7 @@ internal object HypixelProfileParser {
             rift = rift,
             experimentation = experimentation,
             chocolateFactory = chocolateFactory,
+            crimsonIsle = crimsonIsle,
             currencies = currencies,
             mining = mining,
             stats = stats,
@@ -800,6 +804,32 @@ private fun parseChocolateFactory(events: JsonObject?): ProfileChocolateFactory?
         employees = employees,
     )
 }
+
+private fun parseCrimsonIsle(root: JsonObject?): ProfileCrimsonIsle? {
+    if (root == null) return null
+    val kuudra = root.obj("kuudra_completed_tiers")
+    val dojo = root.obj("dojo")
+    return ProfileCrimsonIsle(
+        selectedFaction = root.string("selected_faction")?.let(CRIMSON_FACTIONS::get),
+        mageReputation = (root.int("mages_reputation") ?: 0).coerceAtLeast(0),
+        barbarianReputation = (root.int("barbarians_reputation") ?: 0).coerceAtLeast(0),
+        kuudra = KUUDRA_TIERS.map { (id, name) ->
+            ProfileKuudraTier(id, name, kuudra?.int(id) ?: 0, kuudra?.int("highest_wave_$id") ?: 0)
+        },
+        dojo = DOJO_CHALLENGES.map { (id, name) ->
+            ProfileDojoChallenge(id, name, dojo?.int("dojo_points_$id") ?: -1, dojo?.int("dojo_time_$id") ?: -1)
+        },
+    )
+}
+
+private val CRIMSON_FACTIONS = mapOf("mages" to "Mage", "barbarians" to "Barbarian")
+private val KUUDRA_TIERS = linkedMapOf(
+    "none" to "Basic", "hot" to "Hot", "burning" to "Burning", "fiery" to "Fiery", "infernal" to "Infernal",
+)
+private val DOJO_CHALLENGES = linkedMapOf(
+    "mob_kb" to "Force", "wall_jump" to "Stamina", "archer" to "Mastery", "snake" to "Swiftness",
+    "sword_swap" to "Discipline", "fireball" to "Tenacity", "lock_head" to "Control",
+)
 
 private fun rarityOrder(rarity: String): Int = when (rarity.uppercase()) {
     "DIVINE" -> 0; "MYTHIC" -> 1; "LEGENDARY" -> 2; "EPIC" -> 3; "RARE" -> 4; "UNCOMMON" -> 5; else -> 6

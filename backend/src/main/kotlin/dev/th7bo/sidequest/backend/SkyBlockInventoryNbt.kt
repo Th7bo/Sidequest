@@ -26,8 +26,10 @@ internal object SkyBlockInventoryNbt {
                 val attributes = tag?.get("ExtraAttributes") as? Map<*, *>
                 val display = tag?.get("display") as? Map<*, *>
                 val internalName = attributes?.get("id") as? String
-                val displayName = (display?.get("Name") as? String)?.replace(COLOR_CODE, "")
-                val lore = (display?.get("Lore") as? List<*>)?.mapNotNull { (it as? String)?.replace(COLOR_CODE, "") }.orEmpty()
+                // Keep Hypixel's legacy formatting intact. Minecraft's native tooltip renderer understands
+                // the same colours once the client converts these lines to components.
+                val displayName = display?.get("Name") as? String
+                val lore = (display?.get("Lore") as? List<*>)?.mapNotNull { it as? String }.orEmpty()
                 ProfileItemSlot(
                     slot = (item["Slot"] as? Number)?.toInt() ?: index,
                     internalName = internalName,
@@ -91,7 +93,6 @@ internal object SkyBlockInventoryNbt {
         }
     }
 
-    private val COLOR_CODE = Regex("§[0-9A-FK-ORa-fk-or]")
     private const val END = 0
     private const val BYTE = 1
     private const val SHORT = 2

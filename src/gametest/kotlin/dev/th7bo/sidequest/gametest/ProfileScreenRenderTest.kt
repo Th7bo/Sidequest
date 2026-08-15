@@ -8,11 +8,14 @@ import dev.th7bo.sidequest.protocol.ProfileBestiaryLocation
 import dev.th7bo.sidequest.protocol.ProfileBestiaryMob
 import dev.th7bo.sidequest.protocol.ProfileAttribute
 import dev.th7bo.sidequest.protocol.ProfileChocolateFactory
+import dev.th7bo.sidequest.protocol.ProfileCrimsonIsle
+import dev.th7bo.sidequest.protocol.ProfileDojoChallenge
 import dev.th7bo.sidequest.protocol.ProfileExperiment
 import dev.th7bo.sidequest.protocol.ProfileExperimentation
 import dev.th7bo.sidequest.protocol.ProfileInventory
 import dev.th7bo.sidequest.protocol.ProfileItemSlot
 import dev.th7bo.sidequest.protocol.ProfileLoadout
+import dev.th7bo.sidequest.protocol.ProfileKuudraTier
 import dev.th7bo.sidequest.protocol.ProfileRabbitEmployee
 import dev.th7bo.sidequest.protocol.ProfileRift
 import dev.th7bo.sidequest.protocol.ProfileTimecharm
@@ -85,6 +88,9 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         onClient(context) { screen.scrollForTest(540f) }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("profile_structured_bestiary")
+        onClient(context) { screen.scrollForTest(880f) }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_crimson_isle")
 
         onClient(context) { screen.selectTabForTest("Inventory") }
         context.waitTicks(SETTLE_TICKS * 2)
@@ -203,7 +209,7 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         inventories = listOf(
             ProfileInventory("inv_contents", "Inventory", 9, listOf(
                 ProfileItemSlot(0, "ASPECT_OF_THE_END", "Aspect of the End"),
-                ProfileItemSlot(1, "REVENANT_FLESH", "Revenant Flesh", 64, listOf("Right-click to view recipes!", "RARE")),
+                ProfileItemSlot(1, "REVENANT_FLESH", "§5Revenant Flesh", 64, listOf("§7Right-click to view recipes!", "§9RARE")),
                 ProfileItemSlot(2, "NULL_SPHERE", "Null Sphere", 32),
                 ProfileItemSlot(8, "WOLF_TOOTH", "Wolf Tooth", 12),
                 ProfileItemSlot(27, "DERELICT_ASHE", "Derelict Ashe", 4),
@@ -268,6 +274,22 @@ class ProfileScreenRenderTest : FabricClientGameTest {
             ProfileRabbitEmployee("rabbit_bro", "Rabbit Bro", 218), ProfileRabbitEmployee("rabbit_cousin", "Rabbit Cousin", 184),
             ProfileRabbitEmployee("rabbit_grandma", "Rabbit Grandma", 142),
         )),
+        crimsonIsle = ProfileCrimsonIsle(
+            selectedFaction = "Mage",
+            mageReputation = 12_840,
+            barbarianReputation = 3_420,
+            kuudra = listOf(
+                ProfileKuudraTier("none", "Basic", 184, 6), ProfileKuudraTier("hot", "Hot", 142, 6),
+                ProfileKuudraTier("burning", "Burning", 98, 6), ProfileKuudraTier("fiery", "Fiery", 42, 6),
+                ProfileKuudraTier("infernal", "Infernal", 17, 5),
+            ),
+            dojo = listOf(
+                ProfileDojoChallenge("mob_kb", "Force", 1_042), ProfileDojoChallenge("wall_jump", "Stamina", 884),
+                ProfileDojoChallenge("archer", "Mastery", 761), ProfileDojoChallenge("snake", "Swiftness", 628),
+                ProfileDojoChallenge("sword_swap", "Discipline", 512), ProfileDojoChallenge("fireball", "Tenacity", 389),
+                ProfileDojoChallenge("lock_head", "Control", -1),
+            ),
+        ),
         loadouts = listOf(ProfileLoadout("1", "Mining", true, powerStone = "Scorching"), ProfileLoadout("2", "Dungeons")),
         currencies = listOf(
             ProfileMetric("essence_wither_current", "Wither essence", 18_420.0),
