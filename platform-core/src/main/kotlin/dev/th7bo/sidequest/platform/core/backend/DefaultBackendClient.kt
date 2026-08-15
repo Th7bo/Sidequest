@@ -37,12 +37,15 @@ import dev.th7bo.sidequest.protocol.ServerInfo
 import dev.th7bo.sidequest.protocol.ServerTime
 import dev.th7bo.sidequest.protocol.SessionList
 import dev.th7bo.sidequest.protocol.SessionTokens
+import dev.th7bo.sidequest.protocol.SkyBlockProfile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import java.util.UUID
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import kotlin.math.min
 import kotlin.random.Random
 
@@ -361,6 +364,16 @@ public class DefaultBackendClient(
         EventBatch(messages),
         EventBatchResult.serializer(),
     )
+
+    /** Fetches one native profile summary through the authenticated, key-holding backend. */
+    public suspend fun fetchSkyBlockProfile(username: String, profile: String? = null): ApiResult<SkyBlockProfile> {
+        val player = URLEncoder.encode(username, StandardCharsets.UTF_8)
+        val selected = profile?.let { "&profile=" + URLEncoder.encode(it, StandardCharsets.UTF_8) }.orEmpty()
+        return get(
+            "${Endpoints.SKYBLOCK_PROFILE}?player=$player$selected",
+            SkyBlockProfile.serializer(),
+        )
+    }
 
     // -- the request machinery ---------------------------------------------
 

@@ -9,13 +9,3 @@ fabric-api = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fab
 
 # The Fabric mod that provides the Hypixel Mod API classes at runtime.
 hypixel-mod-api-fabric = { module = "maven.modrinth:hypixel-mod-api", version = "1.0.2+build.1+mc26.1" }
-
-# The embedded browser, for the profile viewer. Optional at runtime, like the Hypixel Mod API above.
-#
-# A version behind 26.2's on purpose: MCEF 0.3.3 dropped its 26.1.2 listing, and 0.3.2 is the newest build
-# that names 26.1.2 among its supported versions.
-mcef = { module = "maven.modrinth:mcef-modern", version = "0.3.2+mc26.1.jcef143.0.14" }
-
-# java-cef's Java API. See the note in the 26.2 catalog — this must be the version MCEF nests, and 0.3.2
-# nests Chromium 143 rather than 146.
-jcef-api = { module = "me.friwi:jcef-api", version = "jcef-cffac27+cef-143.0.14+gdd46a37+chromium-143.0.7499.193" }

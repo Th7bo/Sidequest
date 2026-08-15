@@ -12,8 +12,7 @@ import dev.th7bo.sidequest.ui.theme.Theme
  * Where the pieces of the profile window go.
  *
  * Split out from the screen that draws it so that it can be tested and looked at without a running game.
- * The screen is the only thing that can hold a browser, and a browser is the one thing that cannot exist in
- * a test — so everything *except* the browser lives here, and what is left over there is input plumbing.
+ * The chrome stays reusable while the native screen owns data loading and its stat layout.
  *
  * Coordinates are logical units throughout; nothing here knows about GUI scale or framebuffers.
  */
@@ -22,7 +21,7 @@ public data class ProfileWindowLayout(
     public val window: Rect,
     /** The chrome strip along the top. */
     public val bar: Rect,
-    /** Where the page goes. */
+    /** Where profile content goes. */
     public val content: Rect,
     public val search: Rect,
     /** Steps back through the quick-switch list. Zero-width when there is nobody to step to. */
@@ -38,7 +37,7 @@ public data class ProfileWindowLayout(
          * Lays the window out inside [viewport].
          *
          * **The content is inset from the frame's rounded edge by more than a hairline, deliberately.** The
-         * page is a rectangle with square corners, so a content area flush with the frame would poke its
+         * content is rectangular, so an area flush with the frame would poke its
          * corners out through the rounding. Clearing an arc of radius `r` needs an inset of at least
          * `r(1 - 1/√2)` — about three tenths of it — and [CONTENT_INSET] is comfortably past that for every
          * radius the themes use.
@@ -101,7 +100,7 @@ public data class ProfileWindowLayout(
         /** How much screen is left around the window. */
         public const val MARGIN: Float = 18f
 
-        /** How far the page sits inside the frame. See [of]. */
+        /** How far the content sits inside the frame. See [of]. */
         public const val CONTENT_INSET: Float = 6f
 
         public const val BAR_HEIGHT: Float = 22f
@@ -126,16 +125,13 @@ public data class ProfileWindowState(
     /** Where the cursor is, for hover states, or null when it is elsewhere. */
     public val pointer: Vec2? = null,
     public val title: String = "SkyBlock Profiles",
-    /** Somebody else's site and somebody else's work. Not optional. */
-    public val credit: String = "powered by SkyCrypt",
+    /** The source behind the content. */
+    public val credit: String = "official Hypixel API",
     public val placeholder: String = "Search a player",
 )
 
 /**
- * Draws the window around the page.
- *
- * Everything except the page itself, which is a GPU texture only the game can supply — so this paints the
- * frame, leaves a hole, and the screen blits into it.
+ * Draws the window around native profile content.
  */
 public object ProfileWindowChrome {
 
@@ -155,7 +151,7 @@ public object ProfileWindowChrome {
         )
     }
 
-    /** A flat fill where the page goes, for the frames before the browser has painted anything. */
+    /** A flat fill behind the profile content and loading state. */
     public fun paintPagePlaceholder(renderer: UiRenderer, theme: Theme, layout: ProfileWindowLayout) {
         renderer.fillRect(layout.content, theme.tokens.colors.windowBackground)
     }
@@ -301,7 +297,7 @@ public object ProfileWindowChrome {
         }
     }
 
-    /** A message along the bottom of the page, fading. */
+    /** A message along the bottom of the content, fading. */
     public fun paintNotice(
         renderer: UiRenderer,
         theme: Theme,

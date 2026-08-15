@@ -652,66 +652,6 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     keywords("skycrypt", "stats", "profile")
                 }
-                toggle(
-                    id = id("profiles.in_game"),
-                    title = "Open inside the game",
-                    description = "Needs the MCEF mod, which downloads Chromium the first time. " +
-                        "Without it, and with this off, pages open in your own browser instead.",
-                    value = bind(
-                        get = { SidequestSettings.Profiles.preferInGame },
-                        set = { SidequestSettings.Profiles.preferInGame = it },
-                        debugName = "profiles.in_game",
-                    ),
-                ) {
-                    visibleWhen = profilesOn
-                }
-                slider(
-                    id = id("profiles.zoom"),
-                    title = "Page zoom",
-                    description = "The page is drawn at your monitor's resolution, so 100% is what a " +
-                        "browser shows. Turn it up on a large or high-resolution screen.",
-                    value = bind(
-                        get = { SidequestSettings.Profiles.zoomPercent },
-                        set = { SidequestSettings.Profiles.zoomPercent = it },
-                        debugName = "profiles.zoom",
-                    ),
-                    range = 50..250,
-                    format = { "$it%" },
-                    validator = Validators.intRange(50..250),
-                ) {
-                    visibleWhen = profilesOn
-                }
-                slider(
-                    id = id("profiles.render_scale"),
-                    title = "Render quality",
-                    description = "How many pixels the page is drawn with. Lower is softer and much " +
-                        "cheaper to scroll; 100% is pixel-for-pixel with your monitor.",
-                    value = bind(
-                        get = { SidequestSettings.Profiles.renderScalePercent },
-                        set = { SidequestSettings.Profiles.renderScalePercent = it },
-                        debugName = "profiles.render_scale",
-                    ),
-                    range = 25..100,
-                    format = { "$it%" },
-                    validator = Validators.intRange(25..100),
-                ) {
-                    visibleWhen = profilesOn
-                    keywords("performance", "fps", "sharpness", "scroll")
-                }
-                toggle(
-                    id = id("profiles.warm_on_join"),
-                    title = "Start the browser in advance",
-                    description = "Makes the first lookup instant. Downloads a few hundred megabytes the " +
-                        "first time — and loading Chromium can crash the game as it exits, so this turns " +
-                        "an occasional crash into one every session.",
-                    value = bind(
-                        get = { SidequestSettings.Profiles.warmOnJoin },
-                        set = { SidequestSettings.Profiles.warmOnJoin = it },
-                        debugName = "profiles.warm_on_join",
-                    ),
-                ) {
-                    visibleWhen = profilesOn
-                }
                 list(
                     id = id("profiles.recent"),
                     title = "Recently viewed",

@@ -165,6 +165,9 @@ public object Endpoints {
     /** Events since a sequence number, for a client that has been away. */
     public const val EVENTS_SINCE: String = "$BASE/events/since"
 
+    /** A display-ready SkyBlock profile, fetched with the server's Hypixel application key. */
+    public const val SKYBLOCK_PROFILE: String = "$BASE/skyblock/profile"
+
     // -- realtime -----------------------------------------------------------
 
     /** The WebSocket. Authenticated by an access token in the query, see the auth notes. */

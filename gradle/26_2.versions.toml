@@ -9,12 +9,3 @@ fabric-api = { module = "net.fabricmc.fabric-api:fabric-api", version.ref = "fab
 
 # The Fabric mod that provides the Hypixel Mod API classes at runtime.
 hypixel-mod-api-fabric = { module = "maven.modrinth:hypixel-mod-api", version = "1.0.2+build.1+mc26.1" }
-
-# The embedded browser, for the profile viewer. Optional at runtime, like the Hypixel Mod API above.
-mcef = { module = "maven.modrinth:mcef-modern", version = "0.3.3+mc26.2.jcef146.0.10" }
-
-# java-cef's Java API. MCEF nests this inside its own jar, so it is present at runtime whenever MCEF is —
-# but a nested jar is invisible to the compiler, and navigation control needs `CefBrowser`. The version is
-# not free to choose: it must be the one MCEF nests, or the class the compiler saw is not the class the JVM
-# loads. Checked against `META-INF/jars/` inside the MCEF jar itself.
-jcef-api = { module = "me.friwi:jcef-api", version = "jcef-d3de827+cef-146.0.10+g8219561+chromium-146.0.7680.179" }

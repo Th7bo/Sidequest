@@ -270,64 +270,9 @@ public object SidequestSettings {
 
     // -- profile viewer ------------------------------------------------------
 
-    /**
-     * Looking somebody up on SkyCrypt.
-     *
-     * The in-game window needs the `mcef-modern` mod, which brings a couple of hundred megabytes of
-     * Chromium with it. Nobody is made to install that — with the mod absent, or with [preferInGame] off,
-     * the viewer opens the same page in the player's own browser instead.
-     */
+    /** Looking somebody's SkyBlock stats up in Sidequest's native profile screen. */
     public object Profiles {
         public var isEnabled: Boolean = true
-
-        /**
-         * Whether to use the in-game window when it is available.
-         *
-         * Off means "always use my real browser", which is a reasonable preference and not a degraded mode:
-         * a second monitor beats a window inside the game, and alt-tabbing costs nothing on one.
-         */
-        public var preferInGame: Boolean = true
-
-        /**
-         * How large the page is drawn, as a percentage.
-         *
-         * A hundred is what a real browser shows at, and it is the default because the window is rendered at
-         * the monitor's own resolution — so the page is the size it would be outside the game rather than a
-         * size derived from Minecraft's GUI scale.
-         *
-         * Kept as a preference because the right answer depends on the monitor rather than on the mod: a
-         * page at 100% on a 4K display is small, and somebody sitting back from a television wants more.
-         */
-        public var zoomPercent: Int = 100
-
-        /**
-         * How large the page is *rendered*, before being scaled back up to fill the window.
-         *
-         * Distinct from [zoomPercent], which changes how big things look. This changes how many pixels are
-         * painted to show them, and it is the lever for scroll cost: Chromium repaints the whole viewport
-         * while a page scrolls, so the bill is per pixel per frame.
-         *
-         * Defaulted below full because full resolution was reported as heavy to scroll, and four fifths is a
-         * third fewer pixels for a softness most people will not find without being told to look. Anybody
-         * who wants it exact sets a hundred.
-         */
-        public var renderScalePercent: Int = 80
-
-        /**
-         * Whether Chromium is started in the background after joining a world.
-         *
-         * Off by default for two reasons, and the second is the stronger one.
-         *
-         * The first start downloads a couple of hundred megabytes, and doing that unasked because somebody
-         * installed a waypoint mod is not a decision to make for them.
-         *
-         * **And loading Chromium at all currently risks a crash when the game exits.** Chromium brings the
-         * system GTK and Pango stack with it, including a second HarfBuzz, which then wins the symbol
-         * lookup over the copy inside LWJGL's FreeType — so closing a TrueType font at shutdown destroys a
-         * font object with the wrong library and segfaults. Turning this on would move that from "sessions
-         * where I looked somebody up" to "every session". See `docs/guide/profile-viewer.md`.
-         */
-        public var warmOnJoin: Boolean = false
 
         /**
          * Who has been looked up lately, newest first.

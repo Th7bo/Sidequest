@@ -56,6 +56,12 @@ public data class BackendConfig(
      */
     public val requestsPerMinute: Int = 240,
 
+    /**
+     * Hypixel application credential. Server-side only: it must never be sent to a mod client or persisted
+     * in group state. Null disables the profile endpoint without affecting the rest of the backend.
+     */
+    public val hypixelApiKey: String? = null,
+
     // -- Discord ------------------------------------------------------------
 
     /**
@@ -119,6 +125,7 @@ public data class BackendConfig(
                 operatorToken = getenv("SIDEQUEST_OPERATOR_TOKEN")?.takeIf { it.isNotBlank() },
                 ownerAccountId = AccountId(getenv("SIDEQUEST_OWNER_ACCOUNT") ?: "owner"),
                 requestsPerMinute = getenv("SIDEQUEST_RATE_LIMIT")?.toIntOrNull() ?: 240,
+                hypixelApiKey = getenv("SIDEQUEST_HYPIXEL_API_KEY")?.takeIf { it.isNotBlank() },
                 discordClientId = getenv("SIDEQUEST_DISCORD_CLIENT_ID")?.takeIf { it.isNotBlank() },
                 discordClientSecret = getenv("SIDEQUEST_DISCORD_CLIENT_SECRET")?.takeIf { it.isNotBlank() },
                 discordGuildId = getenv("SIDEQUEST_DISCORD_GUILD_ID")?.takeIf { it.isNotBlank() },

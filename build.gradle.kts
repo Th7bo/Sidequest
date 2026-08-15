@@ -113,17 +113,6 @@ dependencies {
     // has to keep working for anyone without the mod.
     compileOnly(libs.hypixel.mod.api)
 
-    // The embedded browser, on exactly the same terms as the Hypixel Mod API above: compile-only, provided
-    // at runtime by a mod the player installs, and every reference behind an `isModLoaded` guard.
-    //
-    // Kept *out* of the jar rather than nested, for two reasons. MCEF downloads a couple of hundred
-    // megabytes of Chromium on first run, which is not something to inflict on somebody who only wanted the
-    // waypoints; and MCEF is LGPL, which is comfortable to link against as a separate mod and much less so
-    // to bundle into a closed-source one.
-    compileOnly(lib("mcef"))
-    // Nested inside MCEF at runtime, invisible to the compiler. See the catalog note.
-    compileOnly(lib("jcef-api"))
-
     implementation(lib("fabric-api"))
     // Loom takes the dev-launch loader from the runtime classpath. Declared
     // `compileOnly` it is invisible there, and the launcher silently falls back to a

@@ -30,6 +30,8 @@ services:
 
       # The fallback. Generate one with: head -c 32 /dev/urandom | base64
       SIDEQUEST_OPERATOR_TOKEN: ${SIDEQUEST_OPERATOR_TOKEN:?set this to a long random string}
+      # Server-side only. Empty keeps the backend running but disables native profile lookups.
+      SIDEQUEST_HYPIXEL_API_KEY: ${SIDEQUEST_HYPIXEL_API_KEY:-}
       # Optional.
       # SIDEQUEST_OWNER_ACCOUNT: owner
       # SIDEQUEST_RATE_LIMIT: 240

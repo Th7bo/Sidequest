@@ -63,6 +63,9 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.seconds
 
+private val MINECRAFT_NAME = Regex("[A-Za-z0-9_]{1,16}")
+private val PROFILE_NAME = Regex("[A-Za-z0-9_ -]{1,32}")
+
 /**
  * Everything the server is made of, assembled.
  *
@@ -88,6 +91,9 @@ public class SidequestBackend(
     public val hub: RealtimeHub = RealtimeHub(store)
 
     private val rateLimiter = RateLimiter(config.requestsPerMinute, now)
+
+    /** The one holder of the server-wide Hypixel caches. */
+    private val profileService = HypixelProfileService(config.hypixelApiKey, now)
 
     private val logger = org.slf4j.LoggerFactory.getLogger(SidequestBackend::class.java)
 
@@ -422,6 +428,34 @@ public class SidequestBackend(
             )
         }
 
+        get(Endpoints.SKYBLOCK_PROFILE) {
+            call.authenticated(TokenScope.READ) ?: return@get
+            val username = call.request.queryParameters["player"]?.trim().orEmpty()
+            val profile = call.request.queryParameters["profile"]?.trim()?.takeIf { it.isNotEmpty() }
+            if (!MINECRAFT_NAME.matches(username) || (profile != null && !PROFILE_NAME.matches(profile))) {
+                call.fail(HttpStatusCode.BadRequest, ApiErrorCode.BAD_REQUEST, "invalid player or profile name")
+                return@get
+            }
+
+            try {
+                call.respondWithTime(profileService.lookup(username, profile))
+            } catch (failure: ProfileLookupFailure.NotConfigured) {
+                call.fail(HttpStatusCode.ServiceUnavailable, ApiErrorCode.UNAVAILABLE, failure.message.orEmpty())
+            } catch (failure: ProfileLookupFailure.NotFound) {
+                call.fail(HttpStatusCode.NotFound, ApiErrorCode.NOT_FOUND, failure.message.orEmpty())
+            } catch (failure: ProfileLookupFailure.RateLimited) {
+                call.fail(
+                    HttpStatusCode.TooManyRequests,
+                    ApiErrorCode.RATE_LIMITED,
+                    failure.message.orEmpty(),
+                    failure.retryAfterSeconds?.times(1_000),
+                )
+            } catch (failure: ProfileLookupFailure.Upstream) {
+                logger.warn("Profile lookup failed: {}", failure.message)
+                call.fail(HttpStatusCode.BadGateway, ApiErrorCode.UNAVAILABLE, failure.message.orEmpty())
+            }
+        }
+
         // -- realtime -------------------------------------------------------
 
         webSocket(Endpoints.REALTIME) {
@@ -748,9 +782,22 @@ public class SidequestBackend(
         respond(body)
     }
 
-    private suspend fun ApplicationCall.fail(status: HttpStatusCode, code: ApiErrorCode, message: String) {
+    private suspend fun ApplicationCall.fail(
+        status: HttpStatusCode,
+        code: ApiErrorCode,
+        message: String,
+        retryAfterMillis: Long? = null,
+    ) {
         withProtocolHeaders()
-        respond(status, ApiError(code, message, requestId = request.headers[Protocol.REQUEST_ID_HEADER]))
+        respond(
+            status,
+            ApiError(
+                code,
+                message,
+                retryAfterMillis = retryAfterMillis,
+                requestId = request.headers[Protocol.REQUEST_ID_HEADER],
+            ),
+        )
     }
 
     private fun ApplicationCall.withProtocolHeaders() {

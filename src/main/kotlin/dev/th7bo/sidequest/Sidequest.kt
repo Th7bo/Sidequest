@@ -5,9 +5,6 @@ import dev.th7bo.sidequest.features.DebtTracker
 import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.DiscordPresence
 import dev.th7bo.sidequest.features.ProfileViewer
-import dev.th7bo.sidequest.platform.core.profile.SkyCryptUrls
-import dev.th7bo.sidequest.platform.minecraft.EmbeddedBrowsers
-import dev.th7bo.sidequest.ui.minecraft.screen.ProfileLoadingScreen
 import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.PlaytimeTracker
 import dev.th7bo.sidequest.features.PingSystem
@@ -57,6 +54,7 @@ import dev.th7bo.sidequest.ui.minecraft.hud.SidequestHudLayer
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestConfigScreen
 import dev.th7bo.sidequest.ui.minecraft.screen.SidequestHudEditorScreen
 import dev.th7bo.sidequest.ui.minecraft.screen.PingWheelScreen
+import dev.th7bo.sidequest.ui.minecraft.screen.ProfileScreen
 import dev.th7bo.sidequest.ui.state.UiScheduler
 import dev.th7bo.sidequest.ui.theme.DarkTheme
 import dev.th7bo.sidequest.ui.theme.HighContrastDarkTheme
@@ -68,6 +66,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import dev.th7bo.sidequest.protocol.ApiErrorCode
+import dev.th7bo.sidequest.protocol.ApiResult
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
@@ -406,24 +406,7 @@ object Sidequest : ClientModInitializer {
      */
     /** Wires the platform's first-join hook to the configured server. Called once from the initializer. */
     fun installBackendHook() {
-        platform.onFirstJoin = {
-            applyBackendConfig()
-            warmBrowserIfWanted()
-        }
-    }
-
-    /**
-     * Starts Chromium coming up in the background, if asked to.
-     *
-     * **Opt-in, and it has to be.** The first start downloads a couple of hundred megabytes; doing that
-     * unasked because somebody installed a mod for the waypoints is not a decision to make for them. With
-     * it on, the first lookup is instant instead of a progress bar.
-     */
-    private fun warmBrowserIfWanted() {
-        if (!SidequestSettings.Profiles.isEnabled) return
-        if (!SidequestSettings.Profiles.warmOnJoin) return
-        if (!SidequestSettings.Profiles.preferInGame) return
-        EmbeddedBrowsers.beginStartup()
+        platform.onFirstJoin = { applyBackendConfig() }
     }
 
     fun applyBackendConfig() {
@@ -655,53 +638,26 @@ object Sidequest : ClientModInitializer {
 
     private lateinit var profiles: ProfileViewer
 
-    /**
-     * Opens somebody's SkyCrypt page.
-     *
-     * Three outcomes, and only one of them is the interesting one. With the browser mod present and the
-     * setting on, the page opens in a window inside the game; otherwise it opens in the player's own
-     * browser, which is not a degraded mode so much as the other reasonable answer — a second monitor beats
-     * a window inside Minecraft.
-     *
-     * The address is built by [SkyCryptUrls], which refuses anything that is not a username. The feature
-     * has already checked, and this checks again: it is the last point before a URL is handed to a browser
-     * or to the operating system, and both of those will open whatever they are given.
-     *
-     * Deferred with `schedule` like every other screen the mod opens from a command — chat closes itself
-     * after a command returns, so a screen opened inline shows for one frame and is then replaced by null.
-     */
+    /** Opens the native viewer immediately; its network work continues away from the client thread. */
     fun openProfile(username: String, profile: String?) {
-        val url = SkyCryptUrls.statsUrl(username, profile) ?: return
         val client = Minecraft.getInstance()
-
-        val wantsInGame = SidequestSettings.Profiles.preferInGame && EmbeddedBrowsers.isInstalled
-        if (!wantsInGame) {
-            openInSystemBrowser(url)
-            tellPlayer("Opened $username on SkyCrypt in your browser")
-            return
-        }
-
         client.schedule {
             client.setScreenAndShow(
-                ProfileLoadingScreen(
+                ProfileScreen(
                     username = username,
                     profile = profile,
                     theme = activeTheme(),
-                    // Back to whatever was open, which for the player menu is the menu itself.
+                    // Commands close chat after returning; there is no stable parent screen to restore.
                     parent = null,
-                    openOutside = { openInSystemBrowser(url) },
+                    fetch = { name, selected ->
+                        platform.backend?.fetchSkyBlockProfile(name, selected)
+                            ?: ApiResult.failure(ApiErrorCode.UNAVAILABLE, "The backend is not connected.")
+                    },
                     quickSwitch = { if (::profiles.isInitialized) profiles.quickSwitch() else emptyList() },
-                    remember = { name -> if (::profiles.isInitialized) profiles.remember(name) else Unit },
+                    remember = { name -> if (::profiles.isInitialized) profiles.remember(name) },
                 ),
             )
         }
-    }
-
-    /** Hands a URL to the desktop. Re-checked here because this is where it leaves the mod. */
-    private fun openInSystemBrowser(url: String) {
-        if (!SkyCryptUrls.isAllowed(url)) return
-        runCatching { net.minecraft.util.Util.getPlatform().openUri(java.net.URI(url)) }
-            .onFailure { logger.warn("Could not open {}", url, it) }
     }
 
     /**

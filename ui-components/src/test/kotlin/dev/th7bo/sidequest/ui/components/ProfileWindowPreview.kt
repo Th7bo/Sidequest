@@ -45,7 +45,7 @@ class ProfileWindowPreview {
         // Standing in for the page, in something obviously not a real screenshot.
         renderer.fillRect(layout.content, Color.parse("#0F1216"))
         renderer.text(
-            renderer.textMeasurer.measure("(the SkyCrypt page renders here)", DarkTheme.tokens.typography.body),
+            renderer.textMeasurer.measure("(native profile stats render here)", DarkTheme.tokens.typography.body),
             Vec2(layout.content.x + 12f, layout.content.y + 12f),
             Color.parse("#55607A"),
         )

@@ -30,6 +30,11 @@ public fun main(args: Array<String>) {
                 "set it to a long random string to allow devices to be approved.",
         )
     }
+    if (config.hypixelApiKey == null) {
+        println(
+            "Sidequest: SIDEQUEST_HYPIXEL_API_KEY is not set. Native SkyBlock profile lookups are disabled.",
+        )
+    }
 
     println("Sidequest backend on ${config.host}:${config.port}, state at ${config.statePath.toAbsolutePath()}")
 

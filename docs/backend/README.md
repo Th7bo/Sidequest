@@ -29,6 +29,7 @@ fourteen-line adapter onto Ktor's in-process client.
 
 ```bash
 export SIDEQUEST_OPERATOR_TOKEN="$(head -c 32 /dev/urandom | base64)"
+export SIDEQUEST_HYPIXEL_API_KEY="your Hypixel developer application key"
 export SIDEQUEST_STATE=/var/lib/sidequest/state.json
 ./gradlew :backend:run
 ```
@@ -41,6 +42,7 @@ export SIDEQUEST_STATE=/var/lib/sidequest/state.json
 | `SIDEQUEST_OPERATOR_TOKEN` | *unset* | **no default** — see below |
 | `SIDEQUEST_OWNER_ACCOUNT` | `owner` | the account the operator token acts as |
 | `SIDEQUEST_RATE_LIMIT` | `240` | requests per minute per device |
+| `SIDEQUEST_HYPIXEL_API_KEY` | *unset* | enables authenticated native SkyBlock profile lookups |
 
 Configuration comes from the environment rather than a file, because the one value that matters is a
 secret and a secret in a file ends up in a backup, a screenshot or a git repository.
@@ -48,6 +50,10 @@ secret and a secret in a file ends up in a backup, a screenshot or a git reposit
 **The operator token has no default.** Inventing one would mean every deployment that did not set it
 shipped with the same credential. Unset is a supported state: pairing is then disabled, which is correct
 for a server whose group is already set up — a credential that is not present cannot be stolen.
+
+**The Hypixel key stays server-side.** Get an application key from Hypixel's developer dashboard and set
+`SIDEQUEST_HYPIXEL_API_KEY` to enable `/sqprofile`. If it is absent, the rest of the backend continues to
+work and the profile screen reports that its data service is unavailable.
 
 ## Deploying it
 

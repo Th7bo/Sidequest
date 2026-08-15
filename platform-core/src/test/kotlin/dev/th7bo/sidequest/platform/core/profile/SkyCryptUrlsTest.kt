@@ -7,11 +7,10 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * The two doors into the embedded browser.
+ * The two checks around the external-browser fallback.
  *
- * This file is longer than the code it tests, on purpose. Sidequest is about to contain a real Chromium, and
- * the difference between "a SkyCrypt viewer" and "a web browser somebody can steer" is entirely these two
- * functions. Both halves are here: what a person may type in, and where the page may go afterwards.
+ * This file is longer than the code it tests, on purpose. The operating system opens whatever it is handed,
+ * so both halves are here: what a person may type and which final address may cross that boundary.
  *
  * The host cases are the ones worth reading. Every hostile address below *contains the string*
  * `sky.shiiyu.moe` — that is the whole trick, and it is why the check parses rather than searches.

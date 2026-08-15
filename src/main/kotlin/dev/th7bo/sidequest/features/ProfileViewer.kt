@@ -20,9 +20,8 @@ import dev.th7bo.sidequest.platform.player.PlayerActionEntry
  * callback the mod supplies, for the usual reason that a feature cannot reach Minecraft. What lives here is
  * the part worth testing by reading: which name gets looked up, and what happens when it is not a name.
  *
- * **A username is validated before it becomes a URL**, in [SkyCryptUrls], which is also where the embedded
- * browser's allowlist lives. A profile viewer that will fetch whatever it is handed is a browser, and this
- * one is deliberately not that.
+ * **A username is validated before it becomes a request**, using the same strict Minecraft-name rule as
+ * [SkyCryptUrls]. The native viewer never accepts an arbitrary address.
  */
 class ProfileViewer(
     /** Who the player is, so the bare command means "me". */
@@ -35,7 +34,7 @@ class ProfileViewer(
         id = SqId.sidequest("profile.viewer"),
         displayName = "Profile viewer",
         category = FeatureCategory.SOCIAL,
-        description = "Opens a player's SkyCrypt stats in a window inside the game",
+        description = "Opens a player's SkyBlock stats in a native in-game screen",
     )
 
     private lateinit var context: FeatureContext
@@ -66,7 +65,7 @@ class ProfileViewer(
                     PlayerAction(
                         id = SqId.sidequest("action.profile.view"),
                         label = "View SkyBlock stats",
-                        description = "Opens their SkyCrypt page",
+                        description = "Opens their SkyBlock profile",
                         order = ORDER,
                     ),
                 ) {

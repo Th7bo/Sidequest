@@ -3,21 +3,19 @@ package dev.th7bo.sidequest.platform.core.profile
 import java.net.URI
 
 /**
- * Where a player's stats live, and what the embedded browser is allowed to visit.
+ * Where the optional external-browser fallback points.
  *
  * Pure string work, kept away from Minecraft so it can be tested — which matters more here than the size of
- * the file suggests. This is the one place in the mod that turns something a **person typed** into a URL a
- * **browser loads**, and an embedded Chromium that can be steered to an arbitrary address is a different and
- * much larger thing than a profile viewer.
+ * the file suggests. This is the one place in the mod that turns something a **person typed** into a URL the
+ * **operating system opens**. The native viewer does not consume URLs at all.
  *
  * Two separate jobs, and they fail in opposite directions:
  *
  * - [statsUrl] **refuses** input it does not recognise rather than escaping it. A Minecraft username is
  *   sixteen characters of `[A-Za-z0-9_]` and nothing else, so anything else is a mistake to reject, not a
  *   string to encode. Escaping invites the question "did I escape it correctly"; refusing does not.
- * - [isAllowed] decides whether a page the browser has *already* navigated to may stay. That one has to be
- *   strict about hosts, because every classic URL trick is an attempt to make a hostile host read as a
- *   friendly one.
+ * - [isAllowed] checks the address again at the operating-system boundary. It is strict about hosts because
+ *   every classic URL trick is an attempt to make a hostile host read as a friendly one.
  */
 public object SkyCryptUrls {
 
