@@ -4,6 +4,10 @@ import dev.th7bo.sidequest.features.CustomFriends
 import dev.th7bo.sidequest.features.DebtTracker
 import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.DiscordPresence
+import dev.th7bo.sidequest.features.ProfileViewer
+import dev.th7bo.sidequest.platform.core.profile.SkyCryptUrls
+import dev.th7bo.sidequest.platform.minecraft.EmbeddedBrowsers
+import dev.th7bo.sidequest.ui.minecraft.screen.ProfileLoadingScreen
 import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.PlaytimeTracker
 import dev.th7bo.sidequest.features.PingSystem
@@ -591,6 +595,11 @@ object Sidequest : ClientModInitializer {
         // switch off has to take the presence down, not wait for a restart.
         discordPresence = DiscordPresence(settings = SidequestSettings.Discord::snapshot)
 
+        profiles = ProfileViewer(
+            localName = { platform.client.localPlayerName },
+            open = ::openProfile,
+        )
+
         val refusals = platform.start(
             sessionDiagnostics,
             developerTools,
@@ -605,6 +614,7 @@ object Sidequest : ClientModInitializer {
             pings,
             readyChecks,
             discordPresence,
+            profiles,
         )
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
@@ -622,6 +632,55 @@ object Sidequest : ClientModInitializer {
     private lateinit var debts: DebtTracker
 
     private lateinit var discordPresence: DiscordPresence
+
+    private lateinit var profiles: ProfileViewer
+
+    /**
+     * Opens somebody's SkyCrypt page.
+     *
+     * Three outcomes, and only one of them is the interesting one. With the browser mod present and the
+     * setting on, the page opens in a window inside the game; otherwise it opens in the player's own
+     * browser, which is not a degraded mode so much as the other reasonable answer — a second monitor beats
+     * a window inside Minecraft.
+     *
+     * The address is built by [SkyCryptUrls], which refuses anything that is not a username. The feature
+     * has already checked, and this checks again: it is the last point before a URL is handed to a browser
+     * or to the operating system, and both of those will open whatever they are given.
+     *
+     * Deferred with `schedule` like every other screen the mod opens from a command — chat closes itself
+     * after a command returns, so a screen opened inline shows for one frame and is then replaced by null.
+     */
+    fun openProfile(username: String, profile: String?) {
+        val url = SkyCryptUrls.statsUrl(username, profile) ?: return
+        val client = Minecraft.getInstance()
+
+        val wantsInGame = SidequestSettings.Profiles.preferInGame && EmbeddedBrowsers.isInstalled
+        if (!wantsInGame) {
+            openInSystemBrowser(url)
+            tellPlayer("Opened $username on SkyCrypt in your browser")
+            return
+        }
+
+        client.schedule {
+            client.setScreenAndShow(
+                ProfileLoadingScreen(
+                    username = username,
+                    profile = profile,
+                    theme = activeTheme(),
+                    // Back to whatever was open, which for the player menu is the menu itself.
+                    parent = null,
+                    openOutside = { openInSystemBrowser(url) },
+                ),
+            )
+        }
+    }
+
+    /** Hands a URL to the desktop. Re-checked here because this is where it leaves the mod. */
+    private fun openInSystemBrowser(url: String) {
+        if (!SkyCryptUrls.isAllowed(url)) return
+        runCatching { net.minecraft.util.Util.getPlatform().openUri(java.net.URI(url)) }
+            .onFailure { logger.warn("Could not open {}", url, it) }
+    }
 
     /**
      * Opens the waypoint manager.

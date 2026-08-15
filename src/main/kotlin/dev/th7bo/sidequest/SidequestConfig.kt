@@ -41,6 +41,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     val titleScreenOn = mutableStateOf(SidequestSettings.TitleScreen.isEnabled, "title.enabled")
     val levelsOn = mutableStateOf(SidequestSettings.Levels.isEnabled, "levels.enabled")
     val discordOn = mutableStateOf(SidequestSettings.Discord.isEnabled, "discord.enabled")
+    val profilesOn = mutableStateOf(SidequestSettings.Profiles.isEnabled, "profiles.enabled")
 
     /** Every change pushes into the services. See [SidequestSettings.applyToPlatform]. */
     fun applied() = SidequestSettings.applyToPlatform()
@@ -629,6 +630,40 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     destructive = true,
                 ) {
                     Sidequest.signOutOfBackend()
+                }
+            }
+
+            section(
+                "Profile viewer",
+                description = "Looking players up on SkyCrypt",
+                icon = GlyphIconIds.friends,
+                collapsible = true,
+                startsCollapsed = true,
+            ) {
+                toggle(
+                    id = id("profiles.enabled"),
+                    title = "Profile viewer",
+                    description = "Adds /sqprofile and a stats entry to the player menu",
+                    value = bind(
+                        get = { SidequestSettings.Profiles.isEnabled },
+                        set = { SidequestSettings.Profiles.isEnabled = it; profilesOn.value = it },
+                        debugName = "profiles.enabled",
+                    ),
+                ) {
+                    keywords("skycrypt", "stats", "profile")
+                }
+                toggle(
+                    id = id("profiles.in_game"),
+                    title = "Open inside the game",
+                    description = "Needs the MCEF mod, which downloads Chromium the first time. " +
+                        "Without it, and with this off, pages open in your own browser instead.",
+                    value = bind(
+                        get = { SidequestSettings.Profiles.preferInGame },
+                        set = { SidequestSettings.Profiles.preferInGame = it },
+                        debugName = "profiles.in_game",
+                    ),
+                ) {
+                    visibleWhen = profilesOn
                 }
             }
 

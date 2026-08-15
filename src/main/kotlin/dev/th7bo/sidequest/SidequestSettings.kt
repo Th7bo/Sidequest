@@ -268,6 +268,27 @@ public object SidequestSettings {
         )
     }
 
+    // -- profile viewer ------------------------------------------------------
+
+    /**
+     * Looking somebody up on SkyCrypt.
+     *
+     * The in-game window needs the `mcef-modern` mod, which brings a couple of hundred megabytes of
+     * Chromium with it. Nobody is made to install that — with the mod absent, or with [preferInGame] off,
+     * the viewer opens the same page in the player's own browser instead.
+     */
+    public object Profiles {
+        public var isEnabled: Boolean = true
+
+        /**
+         * Whether to use the in-game window when it is available.
+         *
+         * Off means "always use my real browser", which is a reasonable preference and not a degraded mode:
+         * a second monitor beats a window inside the game, and alt-tabbing costs nothing on one.
+         */
+        public var preferInGame: Boolean = true
+    }
+
     // -- cosmetics -----------------------------------------------------------
 
     public object Cosmetics {

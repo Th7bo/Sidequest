@@ -30,6 +30,7 @@
     "fabric-language-kotlin": ">=${fabric_language_kotlin}"
   },
   "suggests": {
-    "hypixel-modapi": "*"
+    "hypixel-modapi": "*",
+    "mcef-modern": "*"
   }
 }
