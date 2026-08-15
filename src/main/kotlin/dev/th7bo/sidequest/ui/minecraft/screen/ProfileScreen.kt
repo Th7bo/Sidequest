@@ -570,7 +570,7 @@ public class ProfileScreen(
         val featured = pets.firstOrNull { it.active } ?: pets.first()
         val feature = Rect(x, y, width, 94f)
         surface(renderer, feature, strong = true)
-        val featuredIcon = itemIcons[petVisualKey(featured)] ?: ItemRef("minecraft:player_head")
+        val featuredIcon = itemIcons[petVisualKey(featured)] ?: PET_PLACEHOLDER
         renderer.item(featuredIcon, Rect(feature.x + 14f, feature.y + 14f, 66f, 66f))
         renderer.fillRect(Rect(feature.x, feature.y + 10f, 3f, feature.height - 20f), rarityColor(featured.rarity))
         text(renderer, featured.name, feature.x + 94f, feature.y + 14f, TextRole.TITLE, rarityColor(featured.rarity))
@@ -586,7 +586,7 @@ public class ProfileScreen(
         pets.forEachIndexed { index, pet ->
             val box = Rect(x + (index % gridColumns) * cell, y + (index / gridColumns) * cell, 52f, 52f)
             surface(renderer, box, pet.active)
-            renderer.item(itemIcons[petVisualKey(pet)] ?: ItemRef("minecraft:player_head"), Rect(box.x + 8f, box.y + 6f, 36f, 36f))
+            renderer.item(itemIcons[petVisualKey(pet)] ?: PET_PLACEHOLDER, Rect(box.x + 8f, box.y + 6f, 36f, 36f))
             renderer.fillRect(Rect(box.x + 5f, box.bottom - 5f, box.width - 10f, 2f), rarityColor(pet.rarity))
         }
         return y + ceil(pets.size / gridColumns.toFloat()).toInt() * cell
@@ -1658,6 +1658,17 @@ public class ProfileScreen(
     }
 
     private companion object {
+        /**
+         * What a pet whose picture has not arrived draws as.
+         *
+         * **Not a bare player head, and for two reasons.** It reads as a blank Steve — which looks like the
+         * pet being broken rather than like a picture still loading — and, less obviously, a head with no
+         * profile component contributes nothing to the item's model identity, so every one of them batches
+         * as the same item. A row of pets waiting on the database then renders as a single repeated icon
+         * rather than as several placeholders.
+         */
+        val PET_PLACEHOLDER = ItemRef("minecraft:bone")
+
         const val NANOS_PER_SECOND = 1_000_000_000.0
         const val HERO_HEIGHT = 48f
         const val SKILL_CARD_HEIGHT = 43f

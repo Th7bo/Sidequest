@@ -243,6 +243,9 @@ class ProfileScreenRenderTest : FabricClientGameTest {
                 ProfileItemSlot(2, "NULL_SPHERE", "Null Sphere", 32),
                 ProfileItemSlot(8, "WOLF_TOOTH", "Wolf Tooth", 12),
                 ProfileItemSlot(27, "DERELICT_ASHE", "Derelict Ashe", 4),
+                // A pet, already resolved out of its `petInfo` by the backend. Every pet stack calls itself
+                // `PET`, which the database has never heard of, and drew the missing-item barrier.
+                ProfileItemSlot(28, "TIGER;4", "§6[Lvl 100] §6Tiger", 1, listOf("§7Legendary pet")),
             )),
             ProfileInventory("inv_armor", "Armor", 4, listOf(
                 ProfileItemSlot(0, "WOLF_TOOTH", "Helmet"), ProfileItemSlot(1, "NULL_SPHERE", "Chestplate"),

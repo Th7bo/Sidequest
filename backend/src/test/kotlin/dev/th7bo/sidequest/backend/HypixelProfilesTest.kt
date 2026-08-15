@@ -164,6 +164,28 @@ class HypixelProfilesTest {
     }
 
     /**
+     * A count Hypixel wrote with a decimal point is still a count.
+     *
+     * SkyBlock stores most of a profile as doubles, so `2850.0` and `2850` both turn up for a value that is
+     * conceptually an integer — and `"2850.0".toIntOrNull()` is null, which every call site turns into a
+     * default of zero. A player with real Crimson Isle reputation read as having none.
+     */
+    @Test
+    fun `whole numbers written as decimals are still read`() {
+        val crimson = requireNotNull(parseWithTables().crimsonIsle)
+
+        assertEquals(8200, crimson.mageReputation, "written as 8200.0 by Hypixel")
+        assertEquals(12, crimson.kuudra.single { it.id == "hot" }.completions)
+        assertEquals(820, crimson.dojo.single { it.id == "mob_kb" }.points)
+    }
+
+    /** Siding with one faction drives the other's standing below zero; that is a fact, not an error. */
+    @Test
+    fun `a negative reputation is reported rather than clamped`() {
+        assertEquals(-1300, requireNotNull(parseWithTables().crimsonIsle).barbarianReputation)
+    }
+
+    /**
      * A shard resolves to the item it is actually filed under, not to `SHARD_<name>`.
      *
      * That derived id does not exist in the item database for any shard in the game, which is why the whole
@@ -360,10 +382,10 @@ class HypixelProfilesTest {
                       },
                       "nether_island_player_data": {
                         "selected_faction": "mages",
-                        "mages_reputation": 8200,
-                        "barbarians_reputation": 1300,
-                        "kuudra_completed_tiers": {"hot": 12, "highest_wave_hot": 5},
-                        "dojo": {"dojo_points_mob_kb": 820, "dojo_time_mob_kb": 9132}
+                        "mages_reputation": 8200.0,
+                        "barbarians_reputation": -1300.0,
+                        "kuudra_completed_tiers": {"hot": 12.0, "highest_wave_hot": 5},
+                        "dojo": {"dojo_points_mob_kb": 820.0, "dojo_time_mob_kb": 9132}
                       }
                     }
                   }

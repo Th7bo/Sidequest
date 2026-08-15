@@ -32,13 +32,54 @@ internal object SkyBlockInventoryNbt {
                 val lore = (display?.get("Lore") as? List<*>)?.mapNotNull { it as? String }.orEmpty()
                 ProfileItemSlot(
                     slot = (item["Slot"] as? Number)?.toInt() ?: index,
-                    internalName = internalName,
+                    internalName = petIdentity(attributes) ?: internalName,
                     displayName = displayName,
                     count = ((item["Count"] as? Number)?.toInt() ?: 1).coerceAtLeast(1),
                     lore = lore,
                 )
             }
         }
+    }
+
+    /**
+     * What a pet in somebody's inventory actually is.
+     *
+     * **Every pet stack calls itself `PET`.** Its identity lives in `ExtraAttributes.petInfo`, which is not
+     * a compound but a *string* of JSON — verified against SkyCrypt, which parses the same field the same
+     * way. So the plain id resolves to nothing in the item database, and a pet in an inventory drew the
+     * missing-item barrier while the same pet on the Pets tab drew correctly.
+     *
+     * A skin wins over the animal, because a skinned pet does not look like the pet. Hypixel writes the skin
+     * without the prefix the database files it under, exactly as it does in `pets_data`.
+     */
+    internal fun petIdentity(attributes: Map<*, *>?): String? {
+        val info = attributes?.get("petInfo") as? String ?: return null
+        val skin = jsonField(info, "skin")
+        if (skin != null) return "PET_SKIN_" + skin.uppercase()
+        val type = jsonField(info, "type")?.uppercase() ?: return null
+        val tier = NeuConstants.petTierFor(jsonField(info, "tier").orEmpty()) ?: return null
+        return "$type;$tier"
+    }
+
+    /**
+     * One string field out of a small JSON object.
+     *
+     * Hand-read rather than deserialised: the payload is a nested string inside binary NBT, three fields of
+     * it are wanted, and handing an arbitrary blob from a stranger's profile to a parser to reach them is
+     * more surface than the job needs.
+     */
+    private fun jsonField(json: String, name: String): String? {
+        val at = json.indexOf("\"$name\"")
+        if (at < 0) return null
+        val colon = json.indexOf(':', at + name.length + 2)
+        if (colon < 0) return null
+        val start = json.indexOf('"', colon + 1)
+        if (start < 0) return null
+        // A `null` value has no quotes of its own, so a naive search would run on into the next field.
+        if (json.subSequence(colon + 1, start).any { !it.isWhitespace() }) return null
+        val end = json.indexOf('"', start + 1)
+        if (end < 0) return null
+        return json.substring(start + 1, end).takeIf { it.isNotEmpty() }
     }
 
     private class Reader(private val input: DataInputStream) {

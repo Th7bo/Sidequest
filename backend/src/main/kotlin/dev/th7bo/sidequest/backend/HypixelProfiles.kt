@@ -706,7 +706,12 @@ private fun parseSkillTrees(member: JsonObject, neu: NeuTables): List<ProfileSki
                 selectedSlot = presets?.pathObject("selected_skill_tree_slot")?.int(id) ?: 1,
                 slots = slots,
                 columns = layout?.columns ?: 7,
-                rows = layout?.rows ?: if (id == "mining") 10 else 7,
+                // Deep enough for the layout *and* for anything Hypixel sent that the layout has not heard
+                // of yet, which lands in rows below it. A tree that gained a tier this week is still whole.
+                rows = maxOf(
+                    layout?.rows ?: if (id == "mining") 10 else 7,
+                    slots.flatMap { it.nodes }.maxOfOrNull { it.row + 1 } ?: 0,
+                ),
             )
         }
     }
@@ -743,12 +748,28 @@ private fun treeNodes(
         )
     }
 
-    // Whatever Hypixel sent that no perk claimed. Shown rather than dropped, so a rename upstream is visible.
+    // Whatever Hypixel sent that no perk claimed.
+    //
+    // **Shown rather than dropped, and this is not a corner case.** Hypixel revamps these trees — the Heart
+    // of the Forest gained a tier and moved its perks around — and the description tables take days to catch
+    // up. Until they do, a new perk has no layout entry, and dropping it would hide progression the player
+    // can see in their own game. So the unclaimed ids are laid out in rows of their own beneath the tree,
+    // where they read as an extra strip of perks rather than as a pile on one square.
+    val extraRow = layout?.rows ?: 0
+    val width = (layout?.columns ?: 7).coerceAtLeast(1)
     val leftovers = values.keys
         .filter { it !in claimed && !it.startsWith("toggle_") && "selected" !in it }
-        .mapNotNull { id ->
-            val level = (values[id] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
-            ProfileSkillTreeNode(id, id.humanName(), level, column = 3, row = 0, maxLevel = level.coerceAtLeast(1))
+        .sorted()
+        .mapIndexedNotNull { index, id ->
+            val level = (values[id] as? JsonPrimitive)?.intOrNull ?: return@mapIndexedNotNull null
+            ProfileSkillTreeNode(
+                id = id,
+                name = id.humanName(),
+                level = level,
+                column = index % width,
+                row = extraRow + index / width,
+                maxLevel = level.coerceAtLeast(1),
+            )
         }
 
     return (fromLayout + leftovers).sortedWith(compareBy({ it.row }, { it.column }))
@@ -1022,8 +1043,10 @@ private fun parseCrimsonIsle(root: JsonObject?): ProfileCrimsonIsle? {
     val dojo = root.obj("dojo")
     return ProfileCrimsonIsle(
         selectedFaction = root.string("selected_faction")?.let(CRIMSON_FACTIONS::get),
-        mageReputation = (root.int("mages_reputation") ?: 0).coerceAtLeast(0),
-        barbarianReputation = (root.int("barbarians_reputation") ?: 0).coerceAtLeast(0),
+        // Reported as-is, including a negative. Siding with one faction drives the other's standing below
+        // zero, and clamping that to zero told a player they were neutral with a faction that hates them.
+        mageReputation = root.int("mages_reputation") ?: 0,
+        barbarianReputation = root.int("barbarians_reputation") ?: 0,
         kuudra = KUUDRA_TIERS.map { (id, name) ->
             ProfileKuudraTier(id, name, kuudra?.int(id) ?: 0, kuudra?.int("highest_wave_$id") ?: 0)
         },
@@ -1111,8 +1134,21 @@ private fun JsonObject.obj(name: String): JsonObject? = get(name) as? JsonObject
 private fun JsonObject.array(name: String): JsonArray? = get(name) as? JsonArray
 private fun JsonObject.string(name: String): String? = (get(name) as? JsonPrimitive)?.content
 private fun JsonObject.number(name: String): Double? = (get(name) as? JsonPrimitive)?.doubleOrNull
-private fun JsonObject.int(name: String): Int? = (get(name) as? JsonPrimitive)?.intOrNull
-private fun JsonObject.long(name: String): Long? = (get(name) as? JsonPrimitive)?.longOrNull
+
+/**
+ * A whole number, however Hypixel chose to write it.
+ *
+ * **`intOrNull` alone is not enough, and the failure is silent.** SkyBlock stores most of a profile as
+ * doubles, so a value that is conceptually an integer arrives as `2850.0` about as often as `2850` — and
+ * `"2850.0".toIntOrNull()` is null, which every call site here turns into a default of zero. That is what
+ * made a player with real Crimson Isle reputation read as having none, and it would have done the same to
+ * any other count Hypixel happened to serialise with a decimal point.
+ */
+private fun JsonObject.int(name: String): Int? =
+    (get(name) as? JsonPrimitive)?.let { it.intOrNull ?: it.doubleOrNull?.toInt() }
+
+private fun JsonObject.long(name: String): Long? =
+    (get(name) as? JsonPrimitive)?.let { it.longOrNull ?: it.doubleOrNull?.toLong() }
 private fun JsonObject.boolean(name: String): Boolean? =
     (get(name) as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
 private fun JsonObject.pathObject(vararg names: String): JsonObject? {

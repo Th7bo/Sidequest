@@ -115,6 +115,13 @@ public object MinecraftItemStacks {
 
     private const val TEXTURES = "textures"
 
-    /** The profile needs a name and nothing reads it — the head is drawn from the texture, not the owner. */
+    /**
+     * The profile needs a name and nothing reads it — the head is drawn from the texture, not the owner.
+     *
+     * Checked rather than assumed, after a screen of heads all drew the same skin and this looked like the
+     * shared key responsible: in 26.2 both caches involved are keyed by the whole profile — `SkinManager` on
+     * `(UUID, textures property)` and `PlayerSkinRenderCache` on the `ResolvableProfile` — and the UUID here
+     * is already derived from the texture. The name genuinely does not participate.
+     */
     private const val SKIN_HOLDER = "Sidequest"
 }

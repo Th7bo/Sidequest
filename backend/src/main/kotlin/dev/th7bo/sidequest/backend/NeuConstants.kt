@@ -119,6 +119,22 @@ internal object NeuConstants {
         }
     }
 
+    /**
+     * The database's rarity number for a pet tier.
+     *
+     * Its ladder, not Hypixel's wording: pets are filed as `TIGER;3`, and the number is the position in
+     * common, uncommon, rare, epic, legendary, mythic. Null for a tier it does not name.
+     */
+    fun petTierFor(tier: String): Int? = when (tier.trim().uppercase()) {
+        "COMMON" -> 0
+        "UNCOMMON" -> 1
+        "RARE" -> 2
+        "EPIC" -> 3
+        "LEGENDARY" -> 4
+        "MYTHIC" -> 5
+        else -> null
+    }
+
     /** A shard name folded to the one form all four spellings agree on. */
     fun shardKey(value: String): String = value.trim().lowercase()
         .removePrefix("attribute_shard_")

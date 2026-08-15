@@ -33,17 +33,24 @@ class NeuConstantsRealTest {
     }
 
     @Test
-    fun `every Heart of the Mountain perk describes itself`() = checkTree("hotmlayout", "hotm", expected = 46)
+    fun `every Heart of the Mountain perk describes itself`() = checkTree("hotmlayout", "hotm", atLeast = 40)
 
     @Test
-    fun `every Heart of the Forest perk describes itself`() = checkTree("hotflayout", "hotf", expected = 29)
+    fun `every Heart of the Forest perk describes itself`() = checkTree("hotflayout", "hotf", atLeast = 25)
 
-    private fun checkTree(file: String, root: String, expected: Int) {
+    /**
+     * [atLeast] is a floor, not a count, and deliberately.
+     *
+     * Hypixel revamps these trees — the Heart of the Forest gained a tier — and pinning the exact number
+     * would turn every upstream update into a failing build for a change that is entirely expected. What
+     * is worth catching is the opposite: a parse that silently returned two perks out of forty.
+     */
+    private fun checkTree(file: String, root: String, atLeast: Int) {
         val body = constant(file)
         assumeTrue(body != null, "set SIDEQUEST_NEU_CONSTANTS to run this")
 
         val layout = requireNotNull(NeuConstants.parseTreeLayout(body!!, root)) { "$file did not parse" }
-        assertEquals(expected, layout.perks.size, "the tree gained or lost perks")
+        assertTrue(layout.perks.size >= atLeast, "only ${layout.perks.size} perks parsed from $file")
 
         val silent = mutableListOf<String>()
         for (perk in layout.perks.values) {
@@ -75,9 +82,15 @@ class NeuConstantsRealTest {
         "potm" to 1.0,
     )
 
-    /** The grid the game draws, measured rather than assumed. The two trees are not the same shape. */
+    /**
+     * The grid is measured from the tree, and the two trees are not the same shape.
+     *
+     * The exact numbers are not asserted — a tier added upstream changes them and should — but the forest
+     * being *shorter* than the mountain is the property the drawing code depends on, and the one that was
+     * wrong when the mountain's height was hard-coded for both.
+     */
     @Test
-    fun `the two trees have the shapes the game draws`() {
+    fun `each tree reports its own shape`() {
         val mountain = constant("hotmlayout")
         val forest = constant("hotflayout")
         assumeTrue(mountain != null && forest != null, "set SIDEQUEST_NEU_CONSTANTS to run this")
@@ -85,8 +98,11 @@ class NeuConstantsRealTest {
         val hotm = requireNotNull(NeuConstants.parseTreeLayout(mountain!!, "hotm"))
         val hotf = requireNotNull(NeuConstants.parseTreeLayout(forest!!, "hotf"))
 
-        assertEquals(7 to 10, hotm.columns to hotm.rows)
-        assertEquals(7 to 7, hotf.columns to hotf.rows)
+        assertEquals(7, hotm.columns, "both trees are seven wide in the game's menu")
+        assertEquals(7, hotf.columns)
+        assertTrue(hotm.rows in 8..16, "implausible mountain height: ${hotm.rows}")
+        assertTrue(hotf.rows in 5..16, "implausible forest height: ${hotf.rows}")
+        assertTrue(hotf.rows < hotm.rows, "the forest is the shorter tree: ${hotf.rows} against ${hotm.rows}")
     }
 
     /**

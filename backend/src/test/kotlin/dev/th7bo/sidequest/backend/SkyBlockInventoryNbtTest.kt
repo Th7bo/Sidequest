@@ -36,4 +36,48 @@ class SkyBlockInventoryNbtTest {
         assertEquals("ASPECT_OF_THE_END", item.internalName)
         assertEquals("§5Aspect of the End", item.displayName)
     }
+
+    /**
+     * Every pet stack calls itself `PET`.
+     *
+     * Its identity is in `ExtraAttributes.petInfo`, which is a *string* of JSON rather than a compound —
+     * confirmed against SkyCrypt, which parses the same field the same way. Reading the plain id gave a
+     * name the item database has never heard of, so a pet in an inventory drew the missing-item barrier
+     * while the same pet on the Pets tab drew correctly.
+     */
+    @Test
+    fun `a pet stack is identified by what is inside it`() {
+        val info = """{"type":"GOLDEN_DRAGON","active":true,"exp":2.1E8,"tier":"MYTHIC","candyUsed":0}"""
+
+        assertEquals("GOLDEN_DRAGON;5", SkyBlockInventoryNbt.petIdentity(mapOf("id" to "PET", "petInfo" to info)))
+    }
+
+    /** A skinned pet does not look like the pet, so the skin wins — under the prefix the database uses. */
+    @Test
+    fun `a pet skin outranks the animal`() {
+        val info = """{"type":"WOLF","tier":"LEGENDARY","skin":"WOLF_DOGE"}"""
+
+        assertEquals("PET_SKIN_WOLF_DOGE", SkyBlockInventoryNbt.petIdentity(mapOf("petInfo" to info)))
+    }
+
+    /**
+     * A null skin is not a skin.
+     *
+     * Hypixel writes `"skin":null` rather than omitting the field, and a reader that searched for the next
+     * quotation mark after the colon would run on into the following field and call the pet `PET_SKIN_EPIC`.
+     */
+    @Test
+    fun `a null skin falls through to the animal`() {
+        val info = """{"type":"TIGER","skin":null,"tier":"EPIC","exp":1.0}"""
+
+        assertEquals("TIGER;3", SkyBlockInventoryNbt.petIdentity(mapOf("petInfo" to info)))
+    }
+
+    /** Anything that is not a pet is left exactly as it was. */
+    @Test
+    fun `an ordinary item is not mistaken for a pet`() {
+        assertEquals(null, SkyBlockInventoryNbt.petIdentity(mapOf("id" to "HYPERION")))
+        assertEquals(null, SkyBlockInventoryNbt.petIdentity(null))
+        assertEquals(null, SkyBlockInventoryNbt.petIdentity(mapOf("petInfo" to """{"tier":"EPIC"}""")))
+    }
 }
