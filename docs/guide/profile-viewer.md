@@ -26,16 +26,48 @@ it starts, and nobody should pay that to use the waypoints. Install it from
 The first open on a fresh install shows a progress panel — downloading, extracting, installing, starting.
 That is Chromium arriving, and it happens once.
 
+## The window
+
+The page sits in a frame the mod draws, rather than filling the screen: a bar across the top with the title,
+the attribution, a search box for an IGN and the window controls, and the page inset below it. The expand
+button drops the frame for a full-bleed view; clicking the dimmed surround closes.
+
+Typing a name into the box and pressing enter loads that player without reopening the screen. It accepts
+only the characters a Minecraft name can contain, and the name is still validated on submit — the box is a
+second door into the same house, and a name typed there never passed through the command.
+
+The chrome lives in `ui-components` as `ProfileWindowChrome`, deliberately apart from the screen. The screen
+is the only thing that can hold a browser and a browser is the one thing a test cannot have, so everything
+*except* the page renders to a PNG without a game:
+
+```
+SIDEQUEST_PROFILE_PREVIEW=/tmp/window.png \
+  ./gradlew :ui-components:test --tests '*ProfileWindowPreview*' --rerun-tasks
+```
+
+That is not decoration. The first render of the expand button came out as a *circle* — `radii.small` is five
+units, which on an eight-unit box is most of the way round — and it read as a radio button. A corner radius
+that is a fixed fraction of its shape has to be written as a literal, and it took a picture to notice.
+
+`ProfileWindowLayoutTest` covers what a picture does not: that the content clears the frame's rounded
+corners, that the search box gives way on a narrow window instead of swallowing the title, and that nothing
+overlaps at any width.
+
 ## Keys
 
-The page fills the window, so everything is a key rather than a toolbar:
+Everything is a key rather than a toolbar, apart from the three controls in the bar:
 
 | Key | |
 |---|---|
-| `Esc` | Close |
-| `O` | Open this page in your real browser |
+| `Esc` | Close, or leave the search box |
+| `Ctrl` `L` | Jump to the search box |
+| `Ctrl` `O` | Open this page in your real browser |
 | `F5` | Reload |
-| `Backspace` | Back |
+| `Alt` `←` | Back |
+
+**The shortcuts take a modifier on purpose.** An earlier version claimed bare `O`, `F5` and `Backspace`,
+which is fine right up until somebody types into SkyCrypt's own search box and the letter `o` opens their
+desktop browser. Anything that could be a character has to reach the page.
 
 `Esc` is handled before the page sees it, deliberately — a web page must not be able to swallow the only key
 that gets you out of it.
