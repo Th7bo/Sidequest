@@ -113,13 +113,17 @@ internal class HypixelProfileService(
         response.requireSuccess()
         val root = parseObject(response.body)
         val uuid = root.string("id") ?: throw ProfileLookupFailure.Upstream("Minecraft returned no UUID")
-        val skin = upstream.optionalGet("$SESSION_API/session/minecraft/profile/$uuid?unsigned=false", emptyMap())
+        val textureProperty = upstream.optionalGet("$SESSION_API/session/minecraft/profile/$uuid?unsigned=false", emptyMap())
             ?.let { body -> runCatching { parseObject(body) }.getOrNull() }
             ?.array("properties")
             ?.mapNotNull { it as? JsonObject }
             ?.firstOrNull { it.string("name") == "textures" }
-            ?.string("value")
-        val identity = PlayerIdentity(uuid = uuid, username = root.string("name") ?: username, skinTexture = skin)
+        val identity = PlayerIdentity(
+            uuid = uuid,
+            username = root.string("name") ?: username,
+            skinTexture = textureProperty?.string("value"),
+            skinSignature = textureProperty?.string("signature"),
+        )
         identities[key] = Cached(identity, now() + IDENTITY_TTL_MILLIS)
         return identity
     }
@@ -179,7 +183,12 @@ private suspend fun ProfileUpstream.optionalGet(url: String, headers: Map<String
     }
 }
 
-internal data class PlayerIdentity(val uuid: String, val username: String, val skinTexture: String? = null)
+internal data class PlayerIdentity(
+    val uuid: String,
+    val username: String,
+    val skinTexture: String? = null,
+    val skinSignature: String? = null,
+)
 internal data class SkillDefinition(val name: String, val maxLevel: Int, val thresholds: List<Double>)
 internal data class UpstreamResponse(val status: Int, val body: String, val headers: Map<String, String>)
 
@@ -414,6 +423,7 @@ internal object HypixelProfileParser {
             username = identity.username,
             uuid = uuid,
             skinTexture = identity.skinTexture,
+            skinSignature = identity.skinSignature,
             profileId = profile.string("profile_id").orEmpty(),
             profileName = profile.string("cute_name") ?: "Unknown",
             gameMode = profile.string("game_mode"),

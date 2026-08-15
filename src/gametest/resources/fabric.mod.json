@@ -11,6 +11,10 @@
         "adapter": "kotlin"
       },
       {
+        "value": "dev.th7bo.sidequest.gametest.ProfileScreenRenderTest",
+        "adapter": "kotlin"
+      },
+      {
         "value": "dev.th7bo.sidequest.gametest.HudRenderTest",
         "adapter": "kotlin"
       },

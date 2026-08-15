@@ -1,6 +1,7 @@
 package dev.th7bo.sidequest.ui.minecraft.screen
 
 import dev.th7bo.sidequest.platform.core.profile.SkyCryptUrls
+import dev.th7bo.sidequest.platform.item.SkyBlockItem
 import dev.th7bo.sidequest.protocol.ApiErrorCode
 import dev.th7bo.sidequest.protocol.ApiResult
 import dev.th7bo.sidequest.protocol.ProfileCollection
@@ -29,6 +30,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import net.minecraft.client.gui.GuiGraphicsExtractor
@@ -42,6 +45,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
@@ -52,6 +56,7 @@ public class ProfileScreen(
     private val theme: Theme,
     private val parent: Screen?,
     private val fetch: suspend (String, String?) -> ApiResult<SkyBlockProfile>,
+    private val resolveItem: suspend (String) -> SkyBlockItem? = { null },
     private val quickSwitch: () -> List<String> = { emptyList() },
     private val remember: (String) -> Unit = {},
 ) : Screen(Component.literal("$username's SkyBlock profile")) {
@@ -63,18 +68,18 @@ public class ProfileScreen(
     }
 
     private enum class Tab(val label: String, val item: String) {
-        OVERVIEW("Overview", "minecraft:player_head"),
-        SKILLS("Skills", "minecraft:diamond_sword"),
-        COMBAT("Combat", "minecraft:wither_skeleton_skull"),
-        INVENTORY("Inventory", "minecraft:chest"),
+        OVERVIEW("Overview", "minecraft:compass"),
+        SKILLS("Skills", "minecraft:enchanted_book"),
+        COMBAT("Combat", "minecraft:zombie_head"),
+        INVENTORY("Inventory", "minecraft:ender_chest"),
         COLLECTIONS("Collections", "minecraft:item_frame"),
         PETS("Pets", "minecraft:bone"),
         MINING("Mining", "minecraft:diamond_pickaxe"),
-        FARMING("Farming", "minecraft:wheat"),
+        FARMING("Farming", "minecraft:golden_hoe"),
         FISHING("Fishing", "minecraft:fishing_rod"),
-        FORAGING("Foraging", "minecraft:oak_log"),
+        FORAGING("Foraging", "minecraft:oak_sapling"),
         RIFT("Rift", "minecraft:ender_eye"),
-        MORE("More", "minecraft:nether_star"),
+        MORE("More", "minecraft:recovery_compass"),
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -95,6 +100,8 @@ public class ProfileScreen(
     private var layout = ProfileWindowLayout.of(Rect(0f, 0f, 1f, 1f), false)
     private var tabHitboxes: List<Pair<Tab, Rect>> = emptyList()
     private var profileHitboxes: List<Pair<String, Rect>> = emptyList()
+    private val itemIcons = ConcurrentHashMap<String, ItemRef>()
+    private val requestedItemIcons = ConcurrentHashMap.newKeySet<String>()
 
     override fun init() {
         if (measurer == null) measurer = MinecraftTextMeasurer(minecraft.font)
@@ -122,7 +129,10 @@ public class ProfileScreen(
                 if (username != name || requestedProfile != profile) return@schedule
                 lookupJob = null
                 state = when (result) {
-                    is ApiResult.Success -> ViewState.Ready(result.value)
+                    is ApiResult.Success -> {
+                        preloadVisuals(result.value, selectedTab)
+                        ViewState.Ready(result.value)
+                    }
                     is ApiResult.Failure -> ViewState.Failed(friendlyError(result.error.code))
                 }
             }
@@ -151,12 +161,10 @@ public class ProfileScreen(
         try {
             ProfileWindowChrome.paintFrame(renderer, theme, layout)
             ProfileWindowChrome.paintPagePlaceholder(renderer, theme, layout)
-            renderer.pushClip(layout.content)
-            try {
-                paintContent(renderer)
-            } finally {
-                renderer.popClip()
-            }
+            // Submit the chrome before clipped page content. On 26.2 the GUI extractor retains the most
+            // recent scissor for render states queued after disableScissor(), which used to make the title,
+            // search field and window controls disappear even though our logical clip stack was balanced.
+            // The content begins below the bar and is clipped there, so this order cannot cover the chrome.
             ProfileWindowChrome.paintBar(
                 renderer,
                 theme,
@@ -169,6 +177,12 @@ public class ProfileScreen(
                     credit = "official Hypixel API",
                 ),
             )
+            renderer.pushClip(layout.content)
+            try {
+                paintContent(renderer)
+            } finally {
+                renderer.popClip()
+            }
         } finally {
             renderer.endFrame()
         }
@@ -196,13 +210,21 @@ public class ProfileScreen(
     private fun paintReady(renderer: MinecraftUiRenderer, profile: SkyBlockProfile) {
         val outer = layout.content
         val inset = if (outer.width < 420f) 7f else 11f
-        val width = outer.width - inset * 2f
-        var y = outer.y + inset
+        val available = Rect(outer.x + inset, outer.y + inset, outer.width - inset * 2f, outer.height - inset * 2f)
+        val navigationWidth = when {
+            available.width >= 680f && available.height >= 310f -> 142f
+            available.height < 310f -> 82f
+            else -> 45f
+        }
+        val navigation = Rect(available.x, available.y, navigationWidth, available.height)
+        paintNavigation(renderer, navigation, profile)
 
-        y = paintHero(renderer, profile, Rect(outer.x + inset, y, width, HERO_HEIGHT)) + GAP
-        y = paintTabs(renderer, Rect(outer.x + inset, y, width, TAB_HEIGHT)) + GAP
+        val mainX = navigation.right + GAP
+        val mainWidth = available.right - mainX
+        val hero = Rect(mainX, available.y, mainWidth, HERO_HEIGHT)
+        paintHero(renderer, profile, hero)
 
-        val viewport = Rect(outer.x + inset, y, width, outer.bottom - y - inset)
+        val viewport = Rect(mainX, hero.bottom + GAP, mainWidth, available.bottom - hero.bottom - GAP)
         scrollViewportHeight = viewport.height
         renderer.pushClip(viewport)
         try {
@@ -230,14 +252,17 @@ public class ProfileScreen(
 
     private fun paintHero(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, bounds: Rect): Float {
         surface(renderer, bounds, strong = true)
-        val avatar = Rect(bounds.x + 11f, bounds.y + 8f, 32f, 32f)
+        val avatar = Rect(bounds.x + 10f, bounds.y + 7f, 38f, 38f)
         renderer.roundedRect(avatar, theme.tokens.radii.medium, theme.tokens.colors.windowBackground)
-        renderer.item(ItemRef("minecraft:player_head", skin = profile.skinTexture), avatar.inset(4f))
+        renderer.item(
+            ItemRef("minecraft:player_head", skin = profile.skinTexture, skinSignature = profile.skinSignature),
+            avatar.inset(3f),
+        )
 
         val textX = avatar.right + 10f
-        text(renderer, profile.username, textX, bounds.y + 8f, TextRole.TITLE, theme.tokens.colors.accent)
+        text(renderer, profile.username, textX, bounds.y + 9f, TextRole.TITLE, theme.tokens.colors.accent)
         val mode = profile.gameMode?.humanName()?.let { " · $it" }.orEmpty()
-        text(renderer, "${profile.profileName}$mode${if (profile.selected) " · selected" else ""}", textX, bounds.y + 24f, TextRole.SECONDARY)
+        text(renderer, "${profile.profileName}$mode${if (profile.selected) " · active" else ""}", textX, bounds.y + 27f, TextRole.SECONDARY)
 
         val level = profile.skyBlockLevel?.let { "SkyBlock ${formatLevel(it)}" } ?: "SkyBlock level hidden"
         rightText(renderer, level, bounds.right - 11f, bounds.y + 8f, TextRole.LABEL, theme.tokens.colors.accent)
@@ -251,22 +276,45 @@ public class ProfileScreen(
         return bounds.bottom
     }
 
-    private fun paintTabs(renderer: MinecraftUiRenderer, bounds: Rect): Float {
+    private fun paintNavigation(renderer: MinecraftUiRenderer, bounds: Rect, profile: SkyBlockProfile) {
         surface(renderer, bounds)
-        val width = bounds.width / Tab.entries.size
-        val showLabels = width >= 58f
+        val columns = if (bounds.height < 310f) 2 else 1
+        val showLabels = bounds.width >= 100f && columns == 1
+        if (showLabels) {
+            text(renderer, "PROFILE", bounds.x + 11f, bounds.y + 9f, TextRole.CAPTION, theme.tokens.colors.accent)
+        }
+        val top = bounds.y + if (showLabels) 26f else 6f
+        val rows = ceil(Tab.entries.size / columns.toFloat()).toInt()
+        val height = ((bounds.bottom - top - 6f) / rows).coerceAtMost(31f)
+        val cellWidth = (bounds.width - 10f) / columns
         tabHitboxes = Tab.entries.mapIndexed { index, tab ->
-            val tabBounds = Rect(bounds.x + index * width, bounds.y, width, bounds.height)
+            val row = index / columns
+            val column = index % columns
+            val tabBounds = Rect(bounds.x + 5f + column * cellWidth, top + row * height, cellWidth, height - 2f)
             if (tab == selectedTab) {
-                renderer.roundedRect(tabBounds.inset(3f), theme.tokens.radii.medium, theme.tokens.colors.hoverBackground)
-                renderer.fillRect(Rect(tabBounds.x + 6f, tabBounds.bottom - 2f, tabBounds.width - 12f, 2f), theme.tokens.colors.accent)
+                renderer.roundedRect(tabBounds, theme.tokens.radii.medium, theme.tokens.colors.hoverBackground)
+                renderer.fillRect(Rect(tabBounds.x, tabBounds.y + 5f, 2f, tabBounds.height - 10f), theme.tokens.colors.accent)
             }
-            val icon = Rect(tabBounds.x + if (showLabels) 7f else (tabBounds.width - 15f) / 2f, tabBounds.y + 5f, 15f, 15f)
-            renderer.item(ItemRef(tab.item), icon)
-            if (showLabels) text(renderer, tab.label, icon.right + 4f, tabBounds.y + 8f, TextRole.CAPTION, maxWidth = tabBounds.right - icon.right - 7f)
+            val icon = Rect(tabBounds.x + if (showLabels) 8f else (tabBounds.width - 17f) / 2f, tabBounds.y + (tabBounds.height - 17f) / 2f, 17f, 17f)
+            val item = if (tab == Tab.OVERVIEW && profile.skinTexture != null) {
+                ItemRef("minecraft:player_head", skin = profile.skinTexture, skinSignature = profile.skinSignature)
+            } else {
+                ItemRef(tab.item)
+            }
+            renderer.item(item, icon)
+            if (showLabels) {
+                text(
+                    renderer,
+                    tab.label,
+                    icon.right + 7f,
+                    tabBounds.y + (tabBounds.height - 8f) / 2f,
+                    if (tab == selectedTab) TextRole.LABEL else TextRole.CAPTION,
+                    if (tab == selectedTab) theme.tokens.colors.accent else theme.textColor(TextRole.CAPTION),
+                    maxWidth = tabBounds.right - icon.right - 12f,
+                )
+            }
             tab to tabBounds
         }
-        return bounds.bottom
     }
 
     private fun paintOverview(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, x: Float, top: Float, width: Float): Float {
@@ -295,7 +343,10 @@ public class ProfileScreen(
                 val column = index % columns
                 val box = Rect(x + column * (chipWidth + chipGap), y + row * (chipHeight + chipGap), chipWidth, chipHeight)
                 surface(renderer, box, strong = choice.name.equals(profile.profileName, true))
-                renderer.item(ItemRef(if (choice.selected) "minecraft:nether_star" else "minecraft:paper"), Rect(box.x + 5f, box.y + 5f, 15f, 15f))
+                renderer.item(
+                    ItemRef(if (choice.selected) "minecraft:lime_dye" else "minecraft:name_tag"),
+                    Rect(box.x + 5f, box.y + 5f, 15f, 15f),
+                )
                 text(renderer, choice.name, box.x + 24f, box.y + 8f, TextRole.LABEL, maxWidth = box.width - 29f)
                 choice.name to box
             }
@@ -350,7 +401,8 @@ public class ProfileScreen(
             val column = index % columns
             val box = Rect(x + column * (cardWidth + gap), y + row * (72f + gap), cardWidth, 72f)
             surface(renderer, box)
-            renderer.item(ItemRef(slayerItem(slayer.id)), Rect(box.x + 9f, box.y + 11f, 34f, 34f))
+            val slayerIcon = slayerVisualKey(slayer.id)?.let(itemIcons::get) ?: ItemRef(slayerItem(slayer.id))
+            renderer.item(slayerIcon, Rect(box.x + 9f, box.y + 11f, 34f, 34f))
             text(renderer, slayer.name, box.x + 51f, box.y + 10f, TextRole.TITLE, maxWidth = box.width - 60f)
             slayer.level?.let { text(renderer, "Level $it", box.x + 51f, box.y + 27f, TextRole.LABEL, theme.tokens.colors.accent) }
             text(renderer, "${formatNumber(slayer.experience)} XP", box.x + 9f, box.bottom - 17f, TextRole.CAPTION)
@@ -408,7 +460,7 @@ public class ProfileScreen(
     }
 
     private fun paintCollections(renderer: MinecraftUiRenderer, values: List<ProfileCollection>, x: Float, top: Float, width: Float): Float {
-        var y = sectionTitle(renderer, "Collections", "minecraft:chest", x, top, width)
+        var y = sectionTitle(renderer, "Collections", "minecraft:item_frame", x, top, width)
         if (values.isEmpty()) return emptyState(renderer, "Collection API disabled", x, y, width)
         val columns = columns(width, 145f, 5)
         val gap = 6f
@@ -436,15 +488,18 @@ public class ProfileScreen(
             val column = index % columns
             val box = Rect(x + column * (cardWidth + gap), y + row * 70f, cardWidth, 63f)
             surface(renderer, box, strong = pet.active)
-            renderer.item(ItemRef(petItem(pet.type)), Rect(box.x + 7f, box.y + 9f, 28f, 28f))
-            text(renderer, pet.name, box.x + 42f, box.y + 7f, TextRole.LABEL, rarityColor(pet.rarity), maxWidth = box.width - 49f)
-            text(renderer, pet.rarity.humanName() + if (pet.active) " · active" else "", box.x + 42f, box.y + 21f, TextRole.CAPTION)
-            text(renderer, "${formatNumber(pet.experience)} XP", box.x + 42f, box.y + 34f, TextRole.CAPTION)
+            val petIcon = itemIcons[petVisualKey(pet)]
+            val textX = if (petIcon != null) box.x + 42f else box.x + 13f
+            petIcon?.let { renderer.item(it, Rect(box.x + 7f, box.y + 9f, 28f, 28f)) }
+            renderer.fillRect(Rect(box.x, box.y + 7f, 2f, box.height - 14f), rarityColor(pet.rarity).withAlpha(.8f))
+            text(renderer, pet.name, textX, box.y + 7f, TextRole.LABEL, rarityColor(pet.rarity), maxWidth = box.right - textX - 7f)
+            text(renderer, pet.rarity.humanName() + if (pet.active) " · active" else "", textX, box.y + 21f, TextRole.CAPTION)
+            text(renderer, "${formatNumber(pet.experience)} XP", textX, box.y + 34f, TextRole.CAPTION)
             val detail = buildList {
                 pet.heldItem?.let { add(it.removePrefix("PET_ITEM_").humanName()) }
                 if (pet.candyUsed > 0) add("${pet.candyUsed} candy")
             }.joinToString(" · ")
-            if (detail.isNotEmpty()) text(renderer, detail, box.x + 42f, box.y + 47f, TextRole.CAPTION, maxWidth = box.width - 49f)
+            if (detail.isNotEmpty()) text(renderer, detail, textX, box.y + 47f, TextRole.CAPTION, maxWidth = box.right - textX - 7f)
         }
         return y + ceil(pets.size / columns.toFloat()).toInt() * 70f
     }
@@ -528,14 +583,14 @@ public class ProfileScreen(
         for ((index, metric) in metrics.withIndex()) {
             val row = index / columns
             val column = index % columns
-            val box = Rect(x + column * (cardWidth + gap), top + row * 39f, cardWidth, 33f)
+            val box = Rect(x + column * (cardWidth + gap), top + row * 43f, cardWidth, 37f)
             surface(renderer, box)
-            renderer.item(ItemRef(metricItem(metric.id)), Rect(box.x + 6f, box.y + 7f, 19f, 19f))
-            text(renderer, metric.name, box.x + 30f, box.y + 5f, TextRole.CAPTION, maxWidth = box.width - 36f)
             val value = metric.text ?: metric.value?.let(::formatNumber) ?: "—"
-            text(renderer, value, box.x + 30f, box.y + 18f, TextRole.LABEL, theme.tokens.colors.accent, maxWidth = box.width - 36f)
+            renderer.fillRect(Rect(box.x, box.y + 8f, 2f, box.height - 16f), metricAccent(metric.id))
+            text(renderer, value, box.x + 10f, box.y + 6f, TextRole.TITLE, metricAccent(metric.id), maxWidth = box.width - 18f)
+            text(renderer, metric.name, box.x + 10f, box.y + 23f, TextRole.CAPTION, maxWidth = box.width - 18f)
         }
-        return top + ceil(metrics.size / columns.toFloat()).toInt() * 39f
+        return top + ceil(metrics.size / columns.toFloat()).toInt() * 43f
     }
 
     private fun sectionTitle(renderer: MinecraftUiRenderer, title: String, icon: String, x: Float, top: Float, width: Float): Float {
@@ -626,6 +681,7 @@ public class ProfileScreen(
                 selectedTab = tabHitboxes.first { (_, bounds) -> bounds.contains(point) }.first
                 scrollOffset = 0f
                 profileHitboxes = emptyList()
+                (state as? ViewState.Ready)?.profile?.let { preloadVisuals(it, selectedTab) }
             }
             profileHitboxes.any { (_, bounds) -> bounds.contains(point) } -> {
                 val profile = profileHitboxes.first { (_, bounds) -> bounds.contains(point) }.first
@@ -677,6 +733,76 @@ public class ProfileScreen(
         selectedTab = tabs[(selectedTab.ordinal + direction + tabs.size) % tabs.size]
         scrollOffset = 0f
         profileHitboxes = emptyList()
+        (state as? ViewState.Ready)?.profile?.let { preloadVisuals(it, selectedTab) }
+    }
+
+    /** Real-client screenshot harness hook; normal UI navigation still goes through input above. */
+    public fun selectTabForTest(label: String) {
+        selectedTab = Tab.entries.first { it.label.equals(label, ignoreCase = true) }
+        scrollOffset = 0f
+        profileHitboxes = emptyList()
+        (state as? ViewState.Ready)?.profile?.let { preloadVisuals(it, selectedTab) }
+    }
+
+    public val loadedVisualCountForTest: Int get() = itemIcons.size
+
+    private fun preloadVisuals(profile: SkyBlockProfile, tab: Tab) {
+        val keys = when (tab) {
+            Tab.COMBAT -> profile.slayers.mapNotNull { slayerVisualKey(it.id) }
+            Tab.PETS -> profile.pets.map(::petVisualKey)
+            else -> emptyList()
+        }.distinct().filter(requestedItemIcons::add)
+        if (keys.isEmpty()) return
+
+        scope.launch {
+            for (chunk in keys.chunked(8)) {
+                chunk.map { key ->
+                    async {
+                        resolveItem(key)?.let { item ->
+                            itemIcons[key] = ItemRef(
+                                item.minecraftId,
+                                skin = item.skullTexture,
+                                model = item.modelId,
+                                fallbackId = visualFallback(key),
+                            )
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+    }
+
+    private fun petVisualKey(pet: ProfilePet): String = pet.skin?.takeIf { it.isNotBlank() }
+        ?: "${pet.type};${petTier(pet.rarity)}"
+
+    private fun petTier(rarity: String): Int = when (rarity.uppercase()) {
+        "COMMON" -> 0
+        "UNCOMMON" -> 1
+        "RARE" -> 2
+        "EPIC" -> 3
+        "LEGENDARY" -> 4
+        else -> 5
+    }
+
+    private fun slayerVisualKey(id: String): String? = when (id.lowercase()) {
+        "zombie" -> "REVENANT_FLESH"
+        "spider" -> "TARANTULA_WEB"
+        "wolf" -> "WOLF_TOOTH"
+        "enderman" -> "NULL_SPHERE"
+        "blaze" -> "DERELICT_ASHE"
+        "vampire" -> "COVEN_SEAL"
+        else -> null
+    }
+
+    /** NEU models that degrade to paper or another legacy carrier get a recognizable vanilla equivalent. */
+    private fun visualFallback(internalName: String): String? = when (internalName) {
+        "REVENANT_FLESH" -> "minecraft:rotten_flesh"
+        "TARANTULA_WEB" -> "minecraft:cobweb"
+        "WOLF_TOOTH" -> "minecraft:bone"
+        "NULL_SPHERE" -> "minecraft:ender_pearl"
+        "DERELICT_ASHE" -> "minecraft:blaze_powder"
+        "COVEN_SEAL" -> "minecraft:fermented_spider_eye"
+        else -> null
     }
 
     private fun submitSearch() {
@@ -769,6 +895,18 @@ public class ProfileScreen(
         else -> theme.textColor(TextRole.LABEL)
     }
 
+    private fun metricAccent(id: String): Color {
+        val key = id.lowercase()
+        return when {
+            "coin" in key || "bank" in key || "purse" in key || "gold" in key -> Color.parse("#F6C453")
+            "kill" in key || "death" in key || "boss" in key || "combat" in key -> Color.parse("#FF6B6B")
+            "garden" in key || "crop" in key || "visitor" in key || "farming" in key -> Color.parse("#78D381")
+            "mining" in key || "powder" in key || "gem" in key || "crystal" in key -> Color.parse("#68C7E8")
+            "rift" in key || "essence" in key || "magic" in key || "power" in key -> Color.parse("#B58CFF")
+            else -> theme.tokens.colors.accent
+        }
+    }
+
     private fun skillItem(id: String): String = when (id.uppercase()) {
         "FARMING" -> "minecraft:golden_hoe"
         "MINING" -> "minecraft:diamond_pickaxe"
@@ -792,17 +930,17 @@ public class ProfileScreen(
         "enderman" -> "minecraft:ender_pearl"
         "blaze" -> "minecraft:blaze_powder"
         "vampire" -> "minecraft:fermented_spider_eye"
-        else -> "minecraft:iron_sword"
+        else -> "minecraft:target"
     }
 
     private fun dungeonItem(id: String): String = when (id.lowercase()) {
         "catacombs" -> "minecraft:wither_skeleton_skull"
         "healer" -> "minecraft:golden_apple"
         "mage" -> "minecraft:blaze_rod"
-        "berserk" -> "minecraft:iron_sword"
+        "berserk" -> "minecraft:diamond_sword"
         "archer" -> "minecraft:bow"
         "tank" -> "minecraft:iron_chestplate"
-        else -> "minecraft:nether_star"
+        else -> "minecraft:experience_bottle"
     }
 
     private fun sectionItem(section: ProfileSection): String = when (section.id) {
@@ -814,7 +952,8 @@ public class ProfileScreen(
         "forge" -> "minecraft:blast_furnace"
         "garden_player_data", "jacobs_contest" -> "minecraft:wheat"
         "glacite_player_data" -> "minecraft:packed_ice"
-        "inventory", "shared_inventory" -> "minecraft:chest"
+        "inventory" -> "minecraft:ender_chest"
+        "shared_inventory" -> "minecraft:shulker_box"
         "item_data", "loadout" -> "minecraft:barrel"
         "leveling" -> "minecraft:experience_bottle"
         "nether_island_player_data" -> "minecraft:netherrack"
@@ -823,10 +962,10 @@ public class ProfileScreen(
         "sacks" -> "minecraft:bundle"
         "safari" -> "minecraft:compass"
         "shards" -> "minecraft:amethyst_shard"
-        "skill_tree" -> "minecraft:nether_star"
+        "skill_tree" -> "minecraft:beacon"
         "temples" -> "minecraft:chiseled_stone_bricks"
         "trophy_fish" -> "minecraft:golden_boots"
-        else -> "minecraft:paper"
+        else -> DISTINCT_SECTION_ITEMS[kotlin.math.abs(section.id.hashCode()) % DISTINCT_SECTION_ITEMS.size]
     }
 
     private fun collectionItem(id: String): String {
@@ -852,55 +991,53 @@ public class ProfileScreen(
             "BLAZE" in key -> "minecraft:blaze_rod"
             "BONE" in key -> "minecraft:bone"
             "STRING" in key -> "minecraft:string"
+            "ROTTEN" in key -> "minecraft:rotten_flesh"
+            "SPIDER" in key -> "minecraft:spider_eye"
+            "MAGMA" in key -> "minecraft:magma_cream"
+            "SLIME" in key -> "minecraft:slime_ball"
+            "GHAST" in key -> "minecraft:ghast_tear"
+            "FEATHER" in key -> "minecraft:feather"
+            "LEATHER" in key -> "minecraft:leather"
+            "PORK" in key -> "minecraft:porkchop"
+            "CHICKEN" in key -> "minecraft:chicken"
+            "MUTTON" in key -> "minecraft:mutton"
+            "RABBIT" in key -> "minecraft:rabbit"
+            "CACTUS" in key -> "minecraft:cactus"
+            "NETHER_STALK" in key -> "minecraft:nether_wart"
+            "INK" in key -> "minecraft:ink_sac"
+            "PRISMARINE" in key -> "minecraft:prismarine_shard"
+            "CLAY" in key -> "minecraft:clay_ball"
+            "SAND" in key -> "minecraft:sand"
+            "GRAVEL" in key -> "minecraft:gravel"
+            "OBSIDIAN" in key -> "minecraft:obsidian"
+            "ICE" in key -> "minecraft:ice"
             "LOG" in key || "WOOD" in key -> "minecraft:oak_log"
             "FISH" in key || "SALMON" in key -> "minecraft:cod"
-            else -> "minecraft:chest"
-        }
-    }
-
-    private fun petItem(type: String): String = when (type.uppercase()) {
-        "ENDER_DRAGON" -> "minecraft:dragon_head"
-        "PHOENIX" -> "minecraft:blaze_powder"
-        "SHEEP" -> "minecraft:white_wool"
-        "RABBIT" -> "minecraft:rabbit_foot"
-        "WOLF" -> "minecraft:bone"
-        "OCELOT" -> "minecraft:cod"
-        "ELEPHANT" -> "minecraft:leather"
-        "MONKEY" -> "minecraft:jungle_sapling"
-        "ROCK" -> "minecraft:stone"
-        "DOLPHIN" -> "minecraft:prismarine_shard"
-        "SQUID" -> "minecraft:ink_sac"
-        "TIGER" -> "minecraft:orange_dye"
-        "LION" -> "minecraft:golden_apple"
-        else -> "minecraft:player_head"
-    }
-
-    private fun metricItem(id: String): String {
-        val key = id.lowercase()
-        return when {
-            "purse" in key || "bank" in key || "coin" in key -> "minecraft:gold_ingot"
-            "essence" in key -> "minecraft:nether_star"
-            "powder" in key -> "minecraft:gunpowder"
-            "token" in key -> "minecraft:sunflower"
-            "fairy" in key -> "minecraft:pink_dye"
-            "kill" in key -> "minecraft:iron_sword"
-            "death" in key -> "minecraft:skeleton_skull"
-            "museum" in key || "item" in key -> "minecraft:painting"
-            "visitor" in key -> "minecraft:emerald"
-            "crop" in key || "garden" in key -> "minecraft:wheat"
-            "plot" in key -> "minecraft:grass_block"
-            "power" in key -> "minecraft:beacon"
-            "level" in key || "experience" in key -> "minecraft:experience_bottle"
-            else -> "minecraft:paper"
+            else -> DISTINCT_COLLECTION_ITEMS[kotlin.math.abs(key.hashCode()) % DISTINCT_COLLECTION_ITEMS.size]
         }
     }
 
     private companion object {
         const val NANOS_PER_SECOND = 1_000_000_000.0
         const val HERO_HEIGHT = 48f
-        const val TAB_HEIGHT = 25f
         const val SKILL_CARD_HEIGHT = 43f
         const val GAP = 7f
+        val DISTINCT_SECTION_ITEMS = listOf(
+            "minecraft:amethyst_shard",
+            "minecraft:echo_shard",
+            "minecraft:prismarine_crystals",
+            "minecraft:blaze_powder",
+            "minecraft:clock",
+            "minecraft:compass",
+        )
+        val DISTINCT_COLLECTION_ITEMS = listOf(
+            "minecraft:grass_block",
+            "minecraft:stone",
+            "minecraft:oak_sapling",
+            "minecraft:flint",
+            "minecraft:honeycomb",
+            "minecraft:sea_pickle",
+        )
         val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault())
     }
 }

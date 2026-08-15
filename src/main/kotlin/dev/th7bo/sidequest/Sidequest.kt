@@ -653,6 +653,7 @@ object Sidequest : ClientModInitializer {
                         platform.backend?.fetchSkyBlockProfile(name, selected)
                             ?: ApiResult.failure(ApiErrorCode.UNAVAILABLE, "The backend is not connected.")
                     },
+                    resolveItem = { internalName -> platform.items.byInternalName(internalName) },
                     quickSwitch = { if (::profiles.isInitialized) profiles.quickSwitch() else emptyList() },
                     remember = { name -> if (::profiles.isInitialized) profiles.remember(name) },
                 ),

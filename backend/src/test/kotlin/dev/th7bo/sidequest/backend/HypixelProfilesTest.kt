@@ -107,7 +107,7 @@ class HypixelProfilesTest {
                 "lookup/name" in url -> UpstreamResponse(200, """{"id":"$UUID","name":"Alice"}""", emptyMap())
                 "session/minecraft/profile" in url -> UpstreamResponse(
                     200,
-                    """{"properties":[{"name":"textures","value":"signed-skin"}]}""",
+                    """{"properties":[{"name":"textures","value":"signed-skin","signature":"skin-signature"}]}""",
                     emptyMap(),
                 )
                 "resources/skyblock/skills" in url -> UpstreamResponse(200, SKILLS, emptyMap())
@@ -143,6 +143,7 @@ class HypixelProfilesTest {
         assertEquals(1234.0, profile.garden.first { it.id == "garden_experience" }.value)
         assertEquals(9999.0, profile.museum.first { it.id == "value" }.value)
         assertEquals("signed-skin", profile.skinTexture)
+        assertEquals("skin-signature", profile.skinSignature)
     }
 
     private companion object {

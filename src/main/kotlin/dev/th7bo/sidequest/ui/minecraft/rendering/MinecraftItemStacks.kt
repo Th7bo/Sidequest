@@ -7,6 +7,7 @@ import com.mojang.authlib.properties.PropertyMap
 import dev.th7bo.sidequest.ui.rendering.ItemRef
 import net.minecraft.core.component.DataComponents
 import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.core.registries.Registries
 import net.minecraft.resources.Identifier
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.component.ResolvableProfile
@@ -35,16 +36,37 @@ public object MinecraftItemStacks {
      * this one may not have. A missing icon is the honest outcome — the caller draws nothing rather than a
      * chequerboard or a stand-in that nobody could tell was wrong.
      */
-    public fun stackFor(item: ItemRef): ItemStack? =
-        cache.getOrPut(item) { build(item) ?: ItemStack.EMPTY }.takeUnless { it.isEmpty }
+    public fun stackFor(item: ItemRef): ItemStack? {
+        cache[item]?.let { return it }
+        // During the earliest client-gametest frames the item registry exists before its data components
+        // are bound. Constructing a stack then throws "Components not bound yet". That state is temporary,
+        // so it must neither crash the screen nor poison the cache with an empty stack: a later frame retries.
+        val built = runCatching { build(item) }.getOrNull() ?: return null
+        if (built.isEmpty) return null
+        cache[item] = built
+        return built
+    }
 
     private fun build(item: ItemRef): ItemStack? {
-        val id = runCatching { Identifier.parse(item.id) }.getOrNull() ?: return null
+        val model = modelFor(item.model)
+        val renderId = if (item.model != null && model == null) item.fallbackId ?: item.id else item.id
+        val id = runCatching { Identifier.parse(renderId) }.getOrNull() ?: return null
         val registered = BuiltInRegistries.ITEM.getOptional(id).orElse(null) ?: return null
 
-        val stack = ItemStack(registered)
-        item.skin?.let { stack.set(DataComponents.PROFILE, profileFor(it)) }
-        modelFor(item.model)?.let { stack.set(DataComponents.ITEM_MODEL, it) }
+        // In 26.2 item components live on the synchronized, level-scoped registry holders. The built-in
+        // holder still identifies the item, but deliberately has no component map bound to it; constructing
+        // a stack from it therefore throws "Components not bound yet" for the entire session. Prefer the
+        // runtime holder whenever a world exists. The fallback keeps item rendering available on older
+        // supported clients and on screens that can legitimately appear before a world is joined.
+        val runtimeHolder = net.minecraft.client.Minecraft.getInstance().level
+            ?.registryAccess()
+            ?.lookup(Registries.ITEM)
+            ?.orElse(null)
+            ?.get(id)
+            ?.orElse(null)
+        val stack = runtimeHolder?.let(::ItemStack) ?: ItemStack(registered)
+        item.skin?.let { stack.set(DataComponents.PROFILE, profileFor(it, item.skinSignature)) }
+        model?.let { stack.set(DataComponents.ITEM_MODEL, it) }
         return stack
     }
 
@@ -81,8 +103,9 @@ public object MinecraftItemStacks {
      * time. A fresh UUID per stack would defeat the game's own skin cache and re-fetch the same image for
      * every item that shares a texture.
      */
-    private fun profileFor(skin: String): ResolvableProfile {
-        val properties = PropertyMap(ImmutableMultimap.of(TEXTURES, Property(TEXTURES, skin)))
+    private fun profileFor(skin: String, signature: String?): ResolvableProfile {
+        val property = signature?.let { Property(TEXTURES, skin, it) } ?: Property(TEXTURES, skin)
+        val properties = PropertyMap(ImmutableMultimap.of(TEXTURES, property))
         val profile = GameProfile(UUID.nameUUIDFromBytes(skin.toByteArray()), SKIN_HOLDER, properties)
         return ResolvableProfile.createResolved(profile)
     }

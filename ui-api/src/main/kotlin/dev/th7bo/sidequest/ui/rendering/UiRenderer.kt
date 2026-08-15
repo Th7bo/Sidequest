@@ -314,6 +314,10 @@ public data class ItemRef(
      * that its own id does not name, and the framework has no way to know that and no business deciding.
      */
     public val model: String? = null,
+    /** Mojang's signature for [skin], when the session server supplied one. */
+    public val skinSignature: String? = null,
+    /** A meaningful vanilla item to use when [model] is not installed in the active resource packs. */
+    public val fallbackId: String? = null,
 )
 
 /** A host texture reference. Opaque to the framework. */

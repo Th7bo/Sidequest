@@ -11,6 +11,8 @@ public data class SkyBlockProfile(
     public val profileName: String,
     /** Mojang's signed `textures` property, used by Minecraft to render the player's real head. */
     public val skinTexture: String? = null,
+    /** Signature paired with [skinTexture], retained so secure-profile clients accept the texture. */
+    public val skinSignature: String? = null,
     public val gameMode: String? = null,
     public val selected: Boolean = false,
     public val lastSaveMillis: Long? = null,
