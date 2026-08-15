@@ -39,7 +39,7 @@ class ProfileWindowPreview {
         renderer.clear(Color.parse("#3B4A5A"))
         renderer.fillRect(Rect(0f, 0f, width, height), DarkTheme.tokens.colors.scrim)
 
-        val layout = ProfileWindowLayout.of(Rect(0f, 0f, width, height), isMaximised = false)
+        val layout = ProfileWindowLayout.of(Rect(0f, 0f, width, height), isMaximised = false, hasQuickSwitch = true)
 
         ProfileWindowChrome.paintFrame(renderer, DarkTheme, layout)
         // Standing in for the page, in something obviously not a real screenshot.

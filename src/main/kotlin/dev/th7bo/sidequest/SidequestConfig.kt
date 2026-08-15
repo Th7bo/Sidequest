@@ -681,6 +681,55 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     visibleWhen = profilesOn
                 }
+                slider(
+                    id = id("profiles.render_scale"),
+                    title = "Render quality",
+                    description = "How many pixels the page is drawn with. Lower is softer and much " +
+                        "cheaper to scroll; 100% is pixel-for-pixel with your monitor.",
+                    value = bind(
+                        get = { SidequestSettings.Profiles.renderScalePercent },
+                        set = { SidequestSettings.Profiles.renderScalePercent = it },
+                        debugName = "profiles.render_scale",
+                    ),
+                    range = 25..100,
+                    format = { "$it%" },
+                    validator = Validators.intRange(25..100),
+                ) {
+                    visibleWhen = profilesOn
+                    keywords("performance", "fps", "sharpness", "scroll")
+                }
+                toggle(
+                    id = id("profiles.warm_on_join"),
+                    title = "Start the browser in advance",
+                    description = "Downloads and starts Chromium after you join, so the first lookup is " +
+                        "instant. The first run fetches a few hundred megabytes.",
+                    value = bind(
+                        get = { SidequestSettings.Profiles.warmOnJoin },
+                        set = { SidequestSettings.Profiles.warmOnJoin = it },
+                        debugName = "profiles.warm_on_join",
+                    ),
+                ) {
+                    visibleWhen = profilesOn
+                }
+                list(
+                    id = id("profiles.recent"),
+                    title = "Recently viewed",
+                    description = "The players the window's arrows step through, newest first. " +
+                        "Your friends follow them.",
+                    value = bind(
+                        get = { SidequestSettings.Profiles.recentPlayers },
+                        set = { SidequestSettings.Profiles.recentPlayers = it },
+                        debugName = "profiles.recent",
+                    ),
+                    elementSerializer = SettingSerializers.string,
+                    itemLabel = { it },
+                    // No add button: this fills itself from lookups, and a name typed here would be one
+                    // nobody had asked to see.
+                    createItem = null,
+                    isReorderable = false,
+                ) {
+                    visibleWhen = profilesOn
+                }
             }
 
             section(

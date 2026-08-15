@@ -103,6 +103,40 @@ class ProfileWindowLayoutTest {
         assertTrue(narrow.search.x > narrow.bar.x, "search reached the left edge of the bar")
     }
 
+    /**
+     * The arrows collapse to nothing rather than disappearing from the layout.
+     *
+     * Zero-width, not absent, so the rest of the bar does not jump sideways the moment somebody looks up
+     * their second player. It also means a hit test has to check the width — a zero-width rectangle still
+     * contains points on its own edge, so `contains` alone would make an invisible arrow clickable.
+     */
+    @Test
+    fun `the quick-switch arrows take no room when there is nowhere to go`() {
+        val without = ProfileWindowLayout.of(wide, isMaximised = false, hasQuickSwitch = false)
+        assertEquals(0f, without.previous.width)
+        assertEquals(0f, without.next.width)
+
+        val with = ProfileWindowLayout.of(wide, isMaximised = false, hasQuickSwitch = true)
+        assertTrue(with.previous.width > 0f)
+        assertTrue(with.next.width > 0f)
+
+        // The search box does not move either way. It is anchored to the buttons on its right, and the
+        // arrows grow leftwards into the space the title was using.
+        assertEquals(without.search.x, with.search.x)
+    }
+
+    @Test
+    fun `the arrows sit left of the search box without overlapping it`() {
+        for (width in listOf(320f, 480f, 800f, 1920f)) {
+            val layout = ProfileWindowLayout.of(Rect(0f, 0f, width, 450f), isMaximised = false, hasQuickSwitch = true)
+
+            assertTrue(layout.next.right <= layout.search.x, "next overlaps the search box at $width")
+            assertTrue(layout.previous.right <= layout.next.x, "previous overlaps next at $width")
+            assertTrue(layout.previous.y >= layout.bar.y, "arrows escape the bar top at $width")
+            assertTrue(layout.previous.bottom <= layout.bar.bottom, "arrows escape the bar bottom at $width")
+        }
+    }
+
     /** A window smaller than its own chrome must not produce negative sizes. */
     @Test
     fun `a tiny viewport does not produce negative rectangles`() {

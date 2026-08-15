@@ -55,6 +55,10 @@ class ProfileBrowserScreen(
     private val profile: String?,
     private val theme: Theme,
     private val parent: Screen?,
+    /** Recent lookups then friends, for the arrows. Empty means no arrows are drawn. */
+    private val quickSwitch: () -> List<String> = { emptyList() },
+    /** Files a name under "looked at recently". The search box is a lookup the command never sees. */
+    private val remember: (String) -> Unit = {},
 ) : Screen(Component.literal("$username on SkyCrypt")) {
 
     private var browser: MCEFBrowser? = null
@@ -85,7 +89,11 @@ class ProfileBrowserScreen(
 
     override fun init() {
         if (measurer == null) measurer = MinecraftTextMeasurer(minecraft!!.font)
-        layout = ProfileWindowLayout.of(Rect(0f, 0f, width.toFloat(), height.toFloat()), isMaximised)
+        layout = ProfileWindowLayout.of(
+            Rect(0f, 0f, width.toFloat(), height.toFloat()),
+            isMaximised,
+            hasQuickSwitch = quickSwitch().size > 1,
+        )
 
         val existing = browser
         if (existing == null) {
@@ -102,12 +110,39 @@ class ProfileBrowserScreen(
     /** Hit-testing in the coordinates the screen hands out. `Rect.contains` wants a point; this is the pair. */
     private fun Rect.holds(x: Float, y: Float): Boolean = contains(Vec2(x, y))
 
-    /** The content area in framebuffer pixels, which is what the browser is actually made at. */
+    /** The size the browser is actually made at. */
     private fun contentPixelWidth(): Int =
-        (layout.content.width * pixelsPerGuiUnitX()).toInt().coerceAtLeast(1)
+        (layout.content.width * browserPixelsPerGuiUnitX()).toInt().coerceAtLeast(1)
 
     private fun contentPixelHeight(): Int =
-        (layout.content.height * pixelsPerGuiUnitY()).toInt().coerceAtLeast(1)
+        (layout.content.height * browserPixelsPerGuiUnitY()).toInt().coerceAtLeast(1)
+
+    /**
+     * How much smaller than the screen the browser is drawn.
+     *
+     * **The lever for scroll cost.** Chromium repaints the whole viewport while a page scrolls and hands the
+     * result over as a buffer to upload, so the bill is per pixel per frame: a full-resolution 1920×1080
+     * browser is about eight megabytes a frame, and at sixty frames a second that is half a gigabyte a
+     * second across the bus. Rendering at four fifths costs a third fewer pixels, and the blit samples it
+     * back up with a linear filter rather than a blocky one.
+     *
+     * Below 100 the page is softer. That is the trade, and it is a preference rather than a default anybody
+     * should be stuck with.
+     */
+    private fun renderScale(): Double =
+        SidequestSettings.Profiles.renderScalePercent.coerceIn(MIN_RENDER_PERCENT, MAX_RENDER_PERCENT) /
+            PERCENT_FULL
+
+    /**
+     * GUI units to *browser* pixels — the screen's scale and the render scale together.
+     *
+     * One function behind both the browser's size and its input, deliberately. These were two expressions of
+     * the same ratio for about a minute, which is exactly long enough to make the render scale shrink the
+     * texture without moving the cursor and put every click in the wrong place.
+     */
+    private fun browserPixelsPerGuiUnitX(): Double = pixelsPerGuiUnitX() * renderScale()
+
+    private fun browserPixelsPerGuiUnitY(): Double = pixelsPerGuiUnitY() * renderScale()
 
     /**
      * How far a GUI coordinate is from a browser one.
@@ -135,8 +170,8 @@ class ProfileBrowserScreen(
      * the second puts it at a fraction of the distance across the page it was aimed at.
      */
     private fun inBrowserSpace(x: Double, y: Double): Pair<Int, Int> = Pair(
-        ((x - layout.content.x) * pixelsPerGuiUnitX()).toInt(),
-        ((y - layout.content.y) * pixelsPerGuiUnitY()).toInt(),
+        ((x - layout.content.x) * browserPixelsPerGuiUnitX()).toInt(),
+        ((y - layout.content.y) * browserPixelsPerGuiUnitY()).toInt(),
     )
 
     /** The same click, moved. [MouseButtonEvent] is a record, so this rebuilds one rather than mutating it. */
@@ -384,6 +419,10 @@ class ProfileBrowserScreen(
             layout.close.holds(x, y) -> onClose()
             layout.expand.holds(x, y) -> toggleMaximised()
             layout.search.holds(x, y) -> focusSearch()
+            // Guarded on width: the arrows are laid out as zero-width rectangles when there is nobody to
+            // switch to, and a zero-width rectangle still contains points on its own edge.
+            layout.previous.width > 0f && layout.previous.holds(x, y) -> step(-1)
+            layout.next.width > 0f && layout.next.holds(x, y) -> step(1)
             layout.content.holds(x, y) -> {
                 if (isSearchFocused) blurSearch()
                 browser?.onMouseClicked(inBrowserSpace(event), doubled)
@@ -442,20 +481,52 @@ class ProfileBrowserScreen(
      */
     private fun submitSearch() {
         val typed = searchText.trim()
-        val url = SkyCryptUrls.statsUrl(typed) ?: run {
+        if (SkyCryptUrls.statsUrl(typed) == null) {
             // Refused rather than loaded. The box keeps what was typed so it can be corrected.
             show("\"$typed\" is not a Minecraft username")
             return
         }
-        username = typed
-        home = url
         blurSearch()
+        load(typed)
+    }
+
+    /**
+     * Steps through the quick-switch list.
+     *
+     * Wraps, and starts from wherever the current name sits in the list — which is usually the front, since
+     * looking somebody up files them at the top of the recents.
+     */
+    private fun step(direction: Int) {
+        val names = quickSwitch()
+        if (names.size < 2) return
+        val current = names.indexOfFirst { it.equals(username, ignoreCase = true) }
+        val index = if (current < 0) 0 else (current + direction + names.size) % names.size
+        load(names[index])
+    }
+
+    /** Points the browser at somebody, and files them under recent. */
+    private fun load(name: String) {
+        val url = SkyCryptUrls.statsUrl(name) ?: return
+        username = name
+        searchText = name
+        home = url
+        remember(name)
+        // Relaid out because the arrows appear the moment there is a second name to step to.
+        layout = ProfileWindowLayout.of(
+            Rect(0f, 0f, width.toFloat(), height.toFloat()),
+            isMaximised,
+            hasQuickSwitch = quickSwitch().size > 1,
+        )
         runCatching { browser?.cefBrowser?.loadURL(url) }
     }
 
     private fun toggleMaximised() {
         isMaximised = !isMaximised
-        layout = ProfileWindowLayout.of(Rect(0f, 0f, width.toFloat(), height.toFloat()), isMaximised)
+        layout = ProfileWindowLayout.of(
+            Rect(0f, 0f, width.toFloat(), height.toFloat()),
+            isMaximised,
+            hasQuickSwitch = quickSwitch().size > 1,
+        )
         browser?.resize(contentPixelWidth(), contentPixelHeight())
     }
 
@@ -491,5 +562,9 @@ class ProfileBrowserScreen(
 
         /** Below this the conversion goes to negative infinity, and a zero would black the page out. */
         const val MIN_ZOOM_PERCENT = 25.0
+
+        /** Never render at less than a quarter, however the setting is edited on disk. */
+        const val MIN_RENDER_PERCENT = 25
+        const val MAX_RENDER_PERCENT = 100
     }
 }

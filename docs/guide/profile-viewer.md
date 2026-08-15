@@ -36,6 +36,19 @@ Typing a name into the box and pressing enter loads that player without reopenin
 only the characters a Minecraft name can contain, and the name is still validated on submit — the box is a
 second door into the same house, and a name typed there never passed through the command.
 
+### Quick switch
+
+The `‹ ›` arrows step through **recent lookups first, then your friends**, wrapping at the ends. One list
+rather than two: a "recents" control and a "friends" control side by side would be two places to press for
+the same thing, and the person you looked at a minute ago and the person on your friend list are both just
+"somebody I want to see again". The same list is what `/sqprofile <tab>` completes from.
+
+Recents are capped at eight, deduplicated case-insensitively — Minecraft names compare that way, and the
+same person typed two ways is not two people. They live in the settings file and can be pruned there.
+
+The arrows collapse to **zero width** rather than disappearing when there is nowhere to go, so the rest of
+the bar does not jump sideways the first time you look up a second player.
+
 The chrome lives in `ui-components` as `ProfileWindowChrome`, deliberately apart from the screen. The screen
 is the only thing that can hold a browser and a browser is the one thing a test cannot have, so everything
 *except* the page renders to a PNG without a game:
@@ -89,7 +102,34 @@ Two consequences worth knowing:
   window reports rather than from `guiScale`, because the integer scale does not divide the window exactly
   and the rounding drifts by a pixel or two — enough to see over a 1920-pixel span.
 - **It costs more to draw.** At scale 3 the browser paints nine times the pixels it used to. Chromium only
-  repaints what changes, so an idle page is cheap and scrolling is not.
+  repaints what changes, so an idle page is cheap and scrolling is not — see **Render quality** below.
+
+### Render quality
+
+Two different settings, easily confused:
+
+| | |
+|---|---|
+| **Page zoom** | How big things *look*. Chromium's own zoom. |
+| **Render quality** | How many pixels are *painted* to show them, then scaled back up to fill the window. |
+
+Render quality is the lever for scroll cost. Chromium repaints the whole viewport while a page scrolls and
+hands over a buffer to upload, so the bill is per pixel per frame: a full-resolution 1920×1080 browser is
+about eight megabytes a frame, which at sixty frames a second is half a gigabyte a second across the bus.
+
+It defaults to **80%** — a third fewer pixels — because full resolution was reported as heavy to scroll. The
+page is slightly softer; the blit samples it back up with a linear filter rather than a blocky one. Set it
+to 100% if you would rather have it exact.
+
+One implementation note worth keeping: the render scale feeds the browser's **size and its input through the
+same function**. They were briefly two expressions of the same ratio, which is exactly long enough to shrink
+the texture without moving the cursor and put every click in the wrong place.
+
+### Starting Chromium in advance
+
+Off by default. On, Chromium starts coming up when you join a world, so the first lookup is instant instead
+of a progress bar. It stays opt-in because the first start fetches a few hundred megabytes, and doing that
+unasked because somebody installed a mod for the waypoints is not a decision to make for them.
 
 **Page zoom** is a separate setting, defaulting to 100% — what a real browser shows, because the page is now
 rendered at the monitor's own resolution. Turn it up on a 4K display or a television. It maps onto

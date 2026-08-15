@@ -406,7 +406,24 @@ object Sidequest : ClientModInitializer {
      */
     /** Wires the platform's first-join hook to the configured server. Called once from the initializer. */
     fun installBackendHook() {
-        platform.onFirstJoin = { applyBackendConfig() }
+        platform.onFirstJoin = {
+            applyBackendConfig()
+            warmBrowserIfWanted()
+        }
+    }
+
+    /**
+     * Starts Chromium coming up in the background, if asked to.
+     *
+     * **Opt-in, and it has to be.** The first start downloads a couple of hundred megabytes; doing that
+     * unasked because somebody installed a mod for the waypoints is not a decision to make for them. With
+     * it on, the first lookup is instant instead of a progress bar.
+     */
+    private fun warmBrowserIfWanted() {
+        if (!SidequestSettings.Profiles.isEnabled) return
+        if (!SidequestSettings.Profiles.warmOnJoin) return
+        if (!SidequestSettings.Profiles.preferInGame) return
+        EmbeddedBrowsers.beginStartup()
     }
 
     fun applyBackendConfig() {
@@ -599,6 +616,9 @@ object Sidequest : ClientModInitializer {
             localName = { platform.client.localPlayerName },
             open = ::openProfile,
         )
+        // The recent list is written from the window as well as from the command, and neither goes through
+        // the settings screen — so the save has to be asked for explicitly. See `saveConfiguration`.
+        profiles.saveSettings = ::saveConfiguration
 
         val refusals = platform.start(
             sessionDiagnostics,
@@ -670,6 +690,8 @@ object Sidequest : ClientModInitializer {
                     // Back to whatever was open, which for the player menu is the menu itself.
                     parent = null,
                     openOutside = { openInSystemBrowser(url) },
+                    quickSwitch = { if (::profiles.isInitialized) profiles.quickSwitch() else emptyList() },
+                    remember = { name -> if (::profiles.isInitialized) profiles.remember(name) else Unit },
                 ),
             )
         }

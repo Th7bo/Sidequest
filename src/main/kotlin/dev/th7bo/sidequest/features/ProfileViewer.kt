@@ -47,16 +47,13 @@ class ProfileViewer(
             name = "sqprofile",
             description = "Opens a player's SkyBlock stats",
             usage = "[player] [profile]",
-            // Friends first, because they are who somebody looks up. The directory knows everybody the
-            // client has seen, which on a busy hub is several hundred names and useless as a completion.
+            // The same list the window's arrows walk: recent lookups, then friends. The directory knows
+            // everybody the client has seen, which on a busy hub is several hundred names and useless as a
+            // completion.
             completions = { arguments ->
                 if (arguments.size <= 1) {
                     val typed = arguments.firstOrNull().orEmpty().lowercase()
-                    context.players.all()
-                        .filter { it.isCustomFriend }
-                        .map { it.username }
-                        .filter { it.lowercase().startsWith(typed) }
-                        .sorted()
+                    quickSwitch().filter { it.lowercase().startsWith(typed) }
                 } else {
                     emptyList()
                 }
@@ -96,6 +93,58 @@ class ProfileViewer(
      * not a Minecraft username, and rather than let that surface as a blank page, it is reported here in the
      * terms the player can act on.
      */
+    /**
+     * Who the quick-switch offers, newest lookup first, then friends.
+     *
+     * One list rather than two. A "recents" control and a "friends" control side by side would be two
+     * places to press for the same thing, and the person you looked at a minute ago and the person on your
+     * friend list are both just "somebody I want to see again".
+     *
+     * Deduplicated case-insensitively, because Minecraft names are compared that way and the same person
+     * typed two ways is not two people.
+     */
+    fun quickSwitch(): List<String> {
+        val seen = HashSet<String>()
+        return buildList {
+            for (name in SidequestSettings.Profiles.recentPlayers) {
+                if (seen.add(name.lowercase())) add(name)
+            }
+            for (friend in context.players.all().filter { it.isCustomFriend }.map { it.username }.sorted()) {
+                if (seen.add(friend.lowercase())) add(friend)
+            }
+        }
+    }
+
+    /**
+     * Files somebody under "looked at recently".
+     *
+     * Called by the screen as well as by the command, because the search box inside the window is a way of
+     * looking somebody up that never passes through here otherwise.
+     */
+    fun remember(name: String) {
+        if (!SkyCryptUrls.isValidUsername(name)) return
+        val kept = buildList {
+            add(name)
+            for (existing in SidequestSettings.Profiles.recentPlayers) {
+                if (!existing.equals(name, ignoreCase = true)) add(existing)
+            }
+        }.take(SidequestSettings.Profiles.MAX_RECENT)
+
+        if (kept != SidequestSettings.Profiles.recentPlayers) {
+            SidequestSettings.Profiles.recentPlayers = kept
+            saveSettings()
+        }
+    }
+
+    /**
+     * Writes the settings after a change made from outside the settings screen.
+     *
+     * Supplied rather than reached for: this module's features do not import the mod object, and a recent
+     * list that only reached disk when somebody happened to open the configuration would lose itself on
+     * every restart.
+     */
+    var saveSettings: () -> Unit = {}
+
     fun show(name: String, profile: String? = null) {
         if (!SidequestSettings.Profiles.isEnabled) {
             say("The profile viewer is off. Turn it on under Network · Profile viewer.")
@@ -109,6 +158,7 @@ class ProfileViewer(
             say("\"$profile\" is not a profile name.")
             return
         }
+        remember(name)
         open(name, profile)
     }
 

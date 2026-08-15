@@ -32,6 +32,9 @@ class ProfileLoadingScreen(
     private val parent: Screen?,
     /** Opens the page outside the game. Supplied rather than reached for, so the fallback stays one place. */
     private val openOutside: () -> Unit,
+    /** Passed straight through to the browser screen; this one only waits. */
+    private val quickSwitch: () -> List<String> = { emptyList() },
+    private val remember: (String) -> Unit = {},
 ) : Screen(Component.literal("Opening $username")) {
 
     private var measurer: MinecraftTextMeasurer? = null
@@ -46,7 +49,9 @@ class ProfileLoadingScreen(
         // drawing half of itself and half of its successor.
         if (EmbeddedBrowsers.startup() is EmbeddedBrowsers.Startup.Ready) {
             // `setScreenAndShow` is the one spelling both 26.1.2 and 26.2 have — see `ProfileBrowserScreen`.
-            minecraft!!.setScreenAndShow(ProfileBrowserScreen(username, profile, theme, parent))
+            minecraft!!.setScreenAndShow(
+                ProfileBrowserScreen(username, profile, theme, parent, quickSwitch, remember),
+            )
         }
     }
 

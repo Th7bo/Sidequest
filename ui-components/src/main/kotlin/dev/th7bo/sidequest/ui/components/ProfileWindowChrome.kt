@@ -25,6 +25,9 @@ public data class ProfileWindowLayout(
     /** Where the page goes. */
     public val content: Rect,
     public val search: Rect,
+    /** Steps back through the quick-switch list. Zero-width when there is nobody to step to. */
+    public val previous: Rect,
+    public val next: Rect,
     public val expand: Rect,
     public val close: Rect,
     public val isMaximised: Boolean,
@@ -40,7 +43,12 @@ public data class ProfileWindowLayout(
          * `r(1 - 1/√2)` — about three tenths of it — and [CONTENT_INSET] is comfortably past that for every
          * radius the themes use.
          */
-        public fun of(viewport: Rect, isMaximised: Boolean): ProfileWindowLayout {
+        public fun of(
+            viewport: Rect,
+            isMaximised: Boolean,
+            /** Whether the quick-switch arrows have anywhere to go. They are not drawn when they do not. */
+            hasQuickSwitch: Boolean = false,
+        ): ProfileWindowLayout {
             val margin = if (isMaximised) 0f else MARGIN
             val window = Rect(
                 viewport.x + margin,
@@ -70,7 +78,24 @@ public data class ProfileWindowLayout(
                 FIELD_HEIGHT,
             )
 
-            return ProfileWindowLayout(window, bar, content, search, expand, close, isMaximised)
+            // Zero-width rather than absent when there is nobody to switch to, so the rest of the bar does
+            // not shift the moment somebody adds their first friend.
+            // Laid out leftwards from the search box: `‹ ›` sit together just before it.
+            val arrowWidth = if (hasQuickSwitch) BUTTON else 0f
+            val next = Rect(search.x - GAP - arrowWidth, buttonTop, arrowWidth, BUTTON)
+            val previous = Rect(next.x - arrowWidth, buttonTop, arrowWidth, BUTTON)
+
+            return ProfileWindowLayout(
+                window,
+                bar,
+                content,
+                search,
+                previous,
+                next,
+                expand,
+                close,
+                isMaximised,
+            )
         }
 
         /** How much screen is left around the window. */
@@ -163,9 +188,41 @@ public object ProfileWindowChrome {
             )
         }
 
+        paintArrows(renderer, theme, layout, state.pointer)
         paintSearch(renderer, theme, layout, state)
         paintExpand(renderer, theme, layout, state.pointer)
         paintClose(renderer, theme, layout, state.pointer)
+    }
+
+    /**
+     * The quick-switch arrows.
+     *
+     * Drawn as text, because `‹` and `›` are ordinary punctuation that any text face carries — unlike the
+     * window-control glyphs, which is why the expand button next to them is drawn from primitives instead.
+     */
+    private fun paintArrows(renderer: UiRenderer, theme: Theme, layout: ProfileWindowLayout, pointer: Vec2?) {
+        if (layout.previous.width <= 0f) return
+        paintGlyph(renderer, theme, layout.previous, PREVIOUS_GLYPH, pointer)
+        paintGlyph(renderer, theme, layout.next, NEXT_GLYPH, pointer)
+    }
+
+    private fun paintGlyph(
+        renderer: UiRenderer,
+        theme: Theme,
+        bounds: Rect,
+        glyph: String,
+        pointer: Vec2?,
+    ) {
+        hover(renderer, theme, bounds, pointer)
+        val layout = renderer.textMeasurer.measure(glyph, theme.textStyle(TextRole.BODY))
+        renderer.text(
+            layout,
+            Vec2(
+                bounds.x + (bounds.width - layout.size.width) / 2f,
+                centred(bounds, layout.size.height),
+            ),
+            theme.textColor(TextRole.SECONDARY),
+        )
     }
 
     private fun paintSearch(
@@ -274,6 +331,10 @@ public object ProfileWindowChrome {
 
     /** Multiplication sign rather than a letter x. */
     public const val CLOSE_GLYPH: String = "×"
+
+    /** Single angle quotes: punctuation, so any text face has them. */
+    public const val PREVIOUS_GLYPH: String = "‹"
+    public const val NEXT_GLYPH: String = "›"
 
     private const val HAIRLINE = 1f
     private const val ICON_INSET = 3f

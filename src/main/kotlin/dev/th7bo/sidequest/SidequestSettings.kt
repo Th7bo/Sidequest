@@ -299,6 +299,40 @@ public object SidequestSettings {
          * page at 100% on a 4K display is small, and somebody sitting back from a television wants more.
          */
         public var zoomPercent: Int = 100
+
+        /**
+         * How large the page is *rendered*, before being scaled back up to fill the window.
+         *
+         * Distinct from [zoomPercent], which changes how big things look. This changes how many pixels are
+         * painted to show them, and it is the lever for scroll cost: Chromium repaints the whole viewport
+         * while a page scrolls, so the bill is per pixel per frame.
+         *
+         * Defaulted below full because full resolution was reported as heavy to scroll, and four fifths is a
+         * third fewer pixels for a softness most people will not find without being told to look. Anybody
+         * who wants it exact sets a hundred.
+         */
+        public var renderScalePercent: Int = 80
+
+        /**
+         * Whether Chromium is started in the background after joining a world.
+         *
+         * Off by default, and it has to be. The first start downloads a couple of hundred megabytes, and
+         * doing that unasked because somebody installed a waypoint mod is not a decision to make for them.
+         * On, the first lookup is instant instead of a progress bar.
+         */
+        public var warmOnJoin: Boolean = false
+
+        /**
+         * Who has been looked up lately, newest first.
+         *
+         * Persisted with the settings rather than in the feature's own store because it is short, it is not
+         * sensitive, and it is genuinely a preference-shaped thing: the list somebody's quick-switch offers
+         * them. Bounded by [MAX_RECENT] wherever it is written.
+         */
+        public var recentPlayers: List<String> = emptyList()
+
+        /** How many names the quick-switch remembers. */
+        public const val MAX_RECENT: Int = 8
     }
 
     // -- cosmetics -----------------------------------------------------------
