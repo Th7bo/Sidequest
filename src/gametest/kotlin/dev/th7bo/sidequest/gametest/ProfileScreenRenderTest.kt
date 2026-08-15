@@ -6,9 +6,17 @@ import dev.th7bo.sidequest.protocol.ProfileChoice
 import dev.th7bo.sidequest.protocol.ProfileCollection
 import dev.th7bo.sidequest.protocol.ProfileBestiaryLocation
 import dev.th7bo.sidequest.protocol.ProfileBestiaryMob
+import dev.th7bo.sidequest.protocol.ProfileAttribute
+import dev.th7bo.sidequest.protocol.ProfileChocolateFactory
+import dev.th7bo.sidequest.protocol.ProfileExperiment
+import dev.th7bo.sidequest.protocol.ProfileExperimentation
 import dev.th7bo.sidequest.protocol.ProfileInventory
 import dev.th7bo.sidequest.protocol.ProfileItemSlot
 import dev.th7bo.sidequest.protocol.ProfileLoadout
+import dev.th7bo.sidequest.protocol.ProfileRabbitEmployee
+import dev.th7bo.sidequest.protocol.ProfileRift
+import dev.th7bo.sidequest.protocol.ProfileTimecharm
+import dev.th7bo.sidequest.protocol.ProfileTrophyFish
 import dev.th7bo.sidequest.protocol.ProfileMetric
 import dev.th7bo.sidequest.protocol.ProfilePet
 import dev.th7bo.sidequest.protocol.ProfileProgress
@@ -81,6 +89,9 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         onClient(context) { screen.selectTabForTest("Inventory") }
         context.waitTicks(SETTLE_TICKS * 2)
         context.takeScreenshot("profile_structured_inventory")
+        onClient(context) { screen.hoverFirstInventoryItemForTest() }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_inventory_lore")
 
         onClient(context) { screen.selectTabForTest("Collections") }
         context.waitTicks(SETTLE_TICKS)
@@ -102,6 +113,26 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         onClient(context) { screen.selectTabForTest("Foraging") }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("profile_structured_hotf")
+
+        onClient(context) { screen.scrollForTest(325f) }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_attributes")
+
+        onClient(context) { screen.selectTabForTest("Fishing") }
+        context.waitTicks(SETTLE_TICKS * 2)
+        context.takeScreenshot("profile_structured_fishing")
+
+        onClient(context) { screen.selectTabForTest("Rift") }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_rift")
+
+        onClient(context) { screen.selectTabForTest("More") }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_experimentation")
+
+        onClient(context) { screen.scrollForTest(300f) }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_easter")
 
         context.setScreen { null }
         context.waitTicks(SETTLE_TICKS)
@@ -155,6 +186,14 @@ class ProfileScreenRenderTest : FabricClientGameTest {
             ProfileCollection("DIAMOND", "Diamond", 18_500_000, "Mining"),
             ProfileCollection("ENDER_STONE", "End Stone", 9_800_000, "Mining"),
             ProfileCollection("BLAZE_ROD", "Blaze Rod", 3_200_000, "Combat"),
+            ProfileCollection("SULPHUR", "Gunpowder", 8_200_000, "Combat"),
+            ProfileCollection("LILY_PAD", "Lily Pad", 820_000, "Fishing"),
+            ProfileCollection("SPONGE", "Sponge", 620_000, "Fishing"),
+            ProfileCollection("MOONFLOWER", "Moonflower", 420_000, "Foraging"),
+            ProfileCollection("LOG", "Oak Wood", 22_000_000, "Foraging"),
+            ProfileCollection("LOG:1", "Spruce Wood", 16_000_000, "Foraging"),
+            ProfileCollection("LOG:2", "Birch Wood", 12_000_000, "Foraging"),
+            ProfileCollection("LOG:3", "Jungle Wood", 9_000_000, "Foraging"),
         ),
         pets = listOf(
             ProfilePet("GOLDEN_DRAGON", "Golden Dragon", "LEGENDARY", 210_000_000.0, true, "PET_ITEM_TIER_BOOST"),
@@ -164,7 +203,7 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         inventories = listOf(
             ProfileInventory("inv_contents", "Inventory", 9, listOf(
                 ProfileItemSlot(0, "ASPECT_OF_THE_END", "Aspect of the End"),
-                ProfileItemSlot(1, "REVENANT_FLESH", "Revenant Flesh", 64),
+                ProfileItemSlot(1, "REVENANT_FLESH", "Revenant Flesh", 64, listOf("Right-click to view recipes!", "RARE")),
                 ProfileItemSlot(2, "NULL_SPHERE", "Null Sphere", 32),
                 ProfileItemSlot(8, "WOLF_TOOTH", "Wolf Tooth", 12),
                 ProfileItemSlot(27, "DERELICT_ASHE", "Derelict Ashe", 4),
@@ -184,14 +223,51 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         ),
         skillTrees = listOf(
             ProfileSkillTree("mining", "Heart of the Mountain", 2, listOf(ProfileSkillTreeSlot(2, "Mining Speed Boost", listOf(
-                ProfileSkillTreeNode("mining_speed", "Mining Speed", 50), ProfileSkillTreeNode("mining_fortune", "Mining Fortune", 50),
-                ProfileSkillTreeNode("professional", "Professional", 140), ProfileSkillTreeNode("fortunate", "Fortunate", 20),
+                ProfileSkillTreeNode("mining_speed", "Mining Speed", 50, column = 3, row = 0, maxLevel = 50),
+                ProfileSkillTreeNode("mining_speed_boost", "Mining Speed Boost", 1, column = 1, row = 1, kind = "ABILITY"),
+                ProfileSkillTreeNode("mining_fortune", "Mining Fortune", 50, column = 3, row = 1, maxLevel = 50),
+                ProfileSkillTreeNode("professional", "Professional", 140, column = 2, row = 3, maxLevel = 140),
+                ProfileSkillTreeNode("core_of_the_mountain", "Core of the Mountain", 7, column = 3, row = 4, maxLevel = 10, kind = "CORE"),
+                ProfileSkillTreeNode("great_explorer", "Great Explorer", 20, column = 5, row = 5, maxLevel = 20),
+                ProfileSkillTreeNode("strong_arm", "Strong Arm", -1, column = 2, row = 7, maxLevel = 100),
+                ProfileSkillTreeNode("warm_heart", "Warm Heart", -1, column = 4, row = 7, maxLevel = 50),
+                ProfileSkillTreeNode("rags_to_riches", "Rags to Riches", -1, column = 3, row = 8, maxLevel = 50),
+                ProfileSkillTreeNode("mining_master", "Mining Master", -1, column = 3, row = 9, maxLevel = 10),
             )))),
             ProfileSkillTree("foraging", "Heart of the Forest", 1, listOf(ProfileSkillTreeSlot(1, "Tree Whisper", listOf(
-                ProfileSkillTreeNode("forest_fortune", "Forest Fortune", 34), ProfileSkillTreeNode("sweep", "Sweeping Axe", 20),
-                ProfileSkillTreeNode("gift_of_growth", "Gift of Growth", 12),
+                ProfileSkillTreeNode("sweep", "Sweep", 34, column = 3, row = 0, maxLevel = 50),
+                ProfileSkillTreeNode("damage_boost", "Damage Boost", 1, column = 1, row = 1, kind = "ABILITY"),
+                ProfileSkillTreeNode("foraging_fortune", "Foraging Fortune", 20, column = 3, row = 1, maxLevel = 50),
+                ProfileSkillTreeNode("efficient_forager", "Efficient Forager", 12, column = 3, row = 3, maxLevel = 100),
+                ProfileSkillTreeNode("center_of_the_forest", "Center of the Forest", 4, column = 3, row = 4, maxLevel = 5, kind = "CORE"),
+                ProfileSkillTreeNode("forest_knowledge", "Forest Knowledge", -1, column = 1, row = 7, maxLevel = 50),
+                ProfileSkillTreeNode("seasoned_forager", "Seasoned Forager", -1, column = 5, row = 7, maxLevel = 50),
+                ProfileSkillTreeNode("heartwood", "Heartwood", -1, column = 3, row = 8, maxLevel = 20),
+                ProfileSkillTreeNode("forest_master", "Forest Master", -1, column = 3, row = 9, maxLevel = 10),
             )))),
         ),
+        trophyFish = listOf(
+            ProfileTrophyFish("blobfish", "Blobfish", 320, 112, 34, 8),
+            ProfileTrophyFish("sulphur_skitter", "Sulphur Skitter", 240, 84, 18, 2),
+            ProfileTrophyFish("vanille", "Vanille", 98, 32, 8, 1),
+        ),
+        attributes = listOf(
+            ProfileAttribute("forest_fortune", "Forest Fortune", "LEGENDARY", 9, 2, "SHARD_FOREST_FORTUNE"),
+            ProfileAttribute("sweep", "Sweep", "EPIC", 7, 4, "SHARD_SWEEP"),
+            ProfileAttribute("hunter_fortune", "Hunter Fortune", "RARE", 5, 8, "SHARD_HUNTER_FORTUNE"),
+        ),
+        rift = ProfileRift(4_200_000, 184, 46, 7, 5, 4, 8_420, listOf(
+            ProfileTimecharm("wyldly_supreme", "Supreme Timecharm", 12), ProfileTimecharm("citizen", "SkyBlock Citizen Timecharm", 48),
+            ProfileTimecharm("slime", "Globulate Timecharm", 92),
+        )),
+        experimentation = ProfileExperimentation(3, 12, 1_776_000_000_000, listOf(
+            ProfileExperiment("superpairs", "Superpairs", 812, 19), ProfileExperiment("ultrasequencer", "Ultrasequencer", 640, 28),
+            ProfileExperiment("chronomatron", "Chronomatron", 728, 25),
+        )),
+        chocolateFactory = ProfileChocolateFactory(42_000_000, 8_200_000_000, 6, 68, 384, listOf(
+            ProfileRabbitEmployee("rabbit_bro", "Rabbit Bro", 218), ProfileRabbitEmployee("rabbit_cousin", "Rabbit Cousin", 184),
+            ProfileRabbitEmployee("rabbit_grandma", "Rabbit Grandma", 142),
+        )),
         loadouts = listOf(ProfileLoadout("1", "Mining", true, powerStone = "Scorching"), ProfileLoadout("2", "Dungeons")),
         currencies = listOf(
             ProfileMetric("essence_wither_current", "Wither essence", 18_420.0),
@@ -222,10 +298,28 @@ class ProfileScreenRenderTest : FabricClientGameTest {
 
     private fun visualItem(key: String, skin: String?): SkyBlockItem {
         val vanilla = when (key) {
+            "SULPHUR", "GUNPOWDER" -> "minecraft:gunpowder"
+            "MOONFLOWER" -> "minecraft:spore_blossom"
+            "WATER_LILY", "LILY_PAD" -> "minecraft:lily_pad"
+            "SEEDS" -> "minecraft:grass_block"
+            "SPONGE" -> "minecraft:sponge"
+            "LOG" -> "minecraft:oak_log"
+            "LOG:1" -> "minecraft:spruce_log"
+            "LOG:2" -> "minecraft:birch_log"
+            "LOG:3" -> "minecraft:jungle_log"
+            "LOG_2" -> "minecraft:acacia_log"
+            "LOG_2:1" -> "minecraft:dark_oak_log"
+            "BLOBFISH_BRONZE", "BLOBFISH" -> "minecraft:pufferfish"
+            "SULPHUR_SKITTER_BRONZE", "SULPHUR_SKITTER" -> "minecraft:cod"
+            "VANILLE_BRONZE", "VANILLE" -> "minecraft:salmon"
+            "SHARD_FOREST_FORTUNE", "SHARD_SWEEP", "SHARD_HUNTER_FORTUNE" -> "minecraft:amethyst_shard"
             "REVENANT_FLESH" -> "minecraft:rotten_flesh"
             "TARANTULA_WEB", "NULL_SPHERE" -> "minecraft:paper"
             "WOLF_TOOTH" -> "minecraft:bone"
             "DERELICT_ASHE" -> "minecraft:blaze_powder"
+            "GOLDEN_DRAGON;4" -> "minecraft:dragon_head"
+            "ENDER_DRAGON;5" -> "minecraft:dragon_head"
+            "TIGER;4" -> "minecraft:player_head"
             else -> "minecraft:player_head"
         }
         val model = when (key) {

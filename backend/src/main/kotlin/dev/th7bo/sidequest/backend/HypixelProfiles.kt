@@ -9,6 +9,14 @@ import dev.th7bo.sidequest.protocol.ProfileBestiaryMob
 import dev.th7bo.sidequest.protocol.ProfileInventory
 import dev.th7bo.sidequest.protocol.ProfileItemSlot
 import dev.th7bo.sidequest.protocol.ProfileLoadout
+import dev.th7bo.sidequest.protocol.ProfileAttribute
+import dev.th7bo.sidequest.protocol.ProfileChocolateFactory
+import dev.th7bo.sidequest.protocol.ProfileExperiment
+import dev.th7bo.sidequest.protocol.ProfileExperimentation
+import dev.th7bo.sidequest.protocol.ProfileRabbitEmployee
+import dev.th7bo.sidequest.protocol.ProfileRift
+import dev.th7bo.sidequest.protocol.ProfileTimecharm
+import dev.th7bo.sidequest.protocol.ProfileTrophyFish
 import dev.th7bo.sidequest.protocol.ProfileMetric
 import dev.th7bo.sidequest.protocol.ProfilePet
 import dev.th7bo.sidequest.protocol.ProfileSkill
@@ -67,6 +75,7 @@ internal class HypixelProfileService(
     private val identities = ConcurrentHashMap<String, Cached<PlayerIdentity>>()
     @Volatile private var skills: Cached<Map<String, SkillDefinition>>? = null
     @Volatile private var collections: Cached<Map<String, CollectionDefinition>>? = null
+    @Volatile private var items: Cached<Map<String, ItemDefinition>>? = null
     @Volatile private var dungeonLevels: Cached<List<Double>>? = null
     private val misses = Mutex()
 
@@ -84,6 +93,7 @@ internal class HypixelProfileService(
             )
             val definitions = skillDefinitions()
             val collectionDefinitions = collectionDefinitions()
+            val itemDefinitions = itemDefinitions()
             val basic = HypixelProfileParser.parse(
                 identity,
                 requestedProfile,
@@ -91,6 +101,7 @@ internal class HypixelProfileService(
                 definitions,
                 dungeonLevelDefinitions(),
                 collectionDefinitions,
+                itemDefinitions,
             )
             val parsed = coroutineScope {
                 val garden = async {
@@ -158,6 +169,15 @@ internal class HypixelProfileService(
         return parsed
     }
 
+    private suspend fun itemDefinitions(): Map<String, ItemDefinition> {
+        items?.takeIf { it.expiresAt > now() }?.let { return it.value }
+        val response = upstream.get("$HYPIXEL_API/v2/resources/skyblock/items")
+        response.requireSuccess()
+        val parsed = HypixelProfileParser.parseItemDefinitions(response.body)
+        items = Cached(parsed, now() + SKILL_TTL_MILLIS)
+        return parsed
+    }
+
     /** Catacombs and class levels are not part of Hypixel's skills resource; NEU maintains their live table. */
     private suspend fun dungeonLevelDefinitions(): List<Double> {
         dungeonLevels?.takeIf { it.expiresAt > now() }?.let { return it.value }
@@ -211,6 +231,7 @@ internal data class PlayerIdentity(
 )
 internal data class SkillDefinition(val name: String, val maxLevel: Int, val thresholds: List<Double>)
 internal data class CollectionDefinition(val name: String, val category: String)
+internal data class ItemDefinition(val name: String, val rarity: String)
 internal data class UpstreamResponse(val status: Int, val body: String, val headers: Map<String, String>)
 
 internal fun interface ProfileUpstream {
@@ -273,6 +294,13 @@ internal object HypixelProfileParser {
         }
     }
 
+    fun parseItemDefinitions(body: String): Map<String, ItemDefinition> = parseObject(body).array("items").orEmpty()
+        .mapNotNull { it as? JsonObject }
+        .mapNotNull { item ->
+            val id = item.string("id") ?: return@mapNotNull null
+            id to ItemDefinition(item.string("name") ?: id.humanName(), item.string("tier") ?: "COMMON")
+        }.toMap()
+
     fun parse(
         identity: PlayerIdentity,
         requestedProfile: String?,
@@ -280,6 +308,7 @@ internal object HypixelProfileParser {
         definitions: Map<String, SkillDefinition>,
         dungeonThresholds: List<Double> = emptyList(),
         collectionDefinitions: Map<String, CollectionDefinition> = emptyMap(),
+        itemDefinitions: Map<String, ItemDefinition> = emptyMap(),
     ): SkyBlockProfile {
         val root = parseObject(body)
         if (root.boolean("success") == false) throw ProfileLookupFailure.Upstream("Hypixel refused the lookup")
@@ -383,6 +412,11 @@ internal object HypixelProfileParser {
         val bestiary = parseBestiary(member.obj("bestiary"))
         val skillTrees = parseSkillTrees(member.obj("skill_tree"))
         val loadouts = parseLoadouts(member.obj("loadout"))
+        val trophyFish = parseTrophyFish(member.obj("trophy_fish"))
+        val attributes = parseAttributes(member, itemDefinitions)
+        val rift = parseRift(member)
+        val experimentation = parseExperimentation(member.obj("experimentation"))
+        val chocolateFactory = parseChocolateFactory(member.obj("events"))
         val playerStats = member.obj("player_stats")
         val kills = playerStats?.entries?.filter { it.key.startsWith("kills_") }
             ?.sumOf { (it.value as? JsonPrimitive)?.longOrNull ?: 0L }
@@ -412,8 +446,6 @@ internal object HypixelProfileParser {
             }
 
             addSection("nether_island_player_data", "Crimson Isle")
-            addSection("experimentation", "Experimentation")
-            addSection("attributes", "Attributes")
             addSection("forge", "Forge")
             member.obj("jacobs_contest")?.let(::parseFarmingSummary)?.takeIf { it.isNotEmpty() }
                 ?.let { add(ProfileSection("farming_summary", "Farming progress", it)) }
@@ -421,12 +453,9 @@ internal object HypixelProfileParser {
                 ?.let { add(ProfileSection("foraging_summary", "Foraging progress", it)) }
             addSection("glacite_player_data", "Glacite Tunnels")
             addSection("leveling", "SkyBlock leveling")
-            addSection("rift", "The Rift")
             addSection("safari", "Hunting & safari")
             addSection("shards", "Shards")
             addSection("temples", "Temples")
-            addSection("trophy_fish", "Trophy fishing")
-            addSection("events", "Events")
             addSection("item_data", "Item progression")
 
             member.obj("inventory")?.let { inventory ->
@@ -490,6 +519,11 @@ internal object HypixelProfileParser {
             bestiary = bestiary,
             skillTrees = skillTrees,
             loadouts = loadouts,
+            trophyFish = trophyFish,
+            attributes = attributes,
+            rift = rift,
+            experimentation = experimentation,
+            chocolateFactory = chocolateFactory,
             currencies = currencies,
             mining = mining,
             stats = stats,
@@ -578,12 +612,22 @@ private fun parseSkillTrees(root: JsonObject?): List<ProfileSkillTree> {
             val key = if (slot == 1) id else "${id}_$slot"
             val values = nodes.obj(key) ?: return@mapNotNull null
             val toggles = values.filterKeys { it.startsWith("toggle_") }
-            val parsedNodes = values.mapNotNull node@{ (nodeId, raw) ->
+            val parsedNodes = (treeLayout(id).keys + values.keys).distinct().mapNotNull node@{ nodeId ->
                 if (nodeId.startsWith("toggle_") || "selected" in nodeId) return@node null
-                val level = (raw as? JsonPrimitive)?.intOrNull ?: return@node null
-                ProfileSkillTreeNode(nodeId, nodeId.humanName(), level, toggles["toggle_$nodeId"]?.let { (it as? JsonPrimitive)?.content?.toBooleanStrictOrNull() })
+                val level = (values[nodeId] as? JsonPrimitive)?.intOrNull ?: -1
+                val layout = treeLayout(id)[nodeId]
+                ProfileSkillTreeNode(
+                    nodeId,
+                    nodeId.humanName(),
+                    level,
+                    toggles["toggle_$nodeId"]?.let { (it as? JsonPrimitive)?.content?.toBooleanStrictOrNull() },
+                    column = layout?.column ?: 3,
+                    row = layout?.row ?: 0,
+                    maxLevel = layout?.maxLevel ?: 1,
+                    kind = layout?.kind ?: "PERK",
+                )
             }.sortedByDescending { it.level }
-            ProfileSkillTreeSlot(slot, values.string("selected_ability")?.humanName(), parsedNodes)
+            ProfileSkillTreeSlot(slot, root.pathObject("selected_ability")?.string(key)?.humanName(), parsedNodes)
         }
         if (slots.isEmpty()) null else ProfileSkillTree(id, name, root.pathObject("selected_skill_tree_slot")?.int(id) ?: 1, slots)
     }
@@ -663,6 +707,198 @@ private fun collectionCategory(id: String): String = when {
     id.contains("FISH") || id in setOf("INK_SACK", "PRISMARINE_SHARD", "PRISMARINE_CRYSTALS", "CLAY_BALL", "SPONGE", "LILY_PAD") -> "Fishing"
     else -> "Combat"
 }
+
+private fun parseTrophyFish(root: JsonObject?): List<ProfileTrophyFish> {
+    if (root == null) return emptyList()
+    val tiers = setOf("bronze", "silver", "gold", "diamond")
+    val counts = linkedMapOf<String, MutableMap<String, Int>>()
+    for ((key, raw) in root) {
+        val tier = tiers.firstOrNull { key.endsWith("_$it") } ?: continue
+        val id = key.removeSuffix("_$tier")
+        val amount = (raw as? JsonPrimitive)?.intOrNull ?: continue
+        counts.getOrPut(id) { linkedMapOf() }[tier] = amount
+    }
+    return counts.map { (id, values) ->
+        ProfileTrophyFish(id, id.humanName(), values["bronze"] ?: 0, values["silver"] ?: 0, values["gold"] ?: 0, values["diamond"] ?: 0)
+    }.sortedByDescending { it.total }
+}
+
+private fun parseAttributes(member: JsonObject, definitions: Map<String, ItemDefinition>): List<ProfileAttribute> {
+    val stacks = member.pathObject("attributes", "stacks").orEmpty().map { (id, raw) ->
+        id.lowercase().removePrefix("shard_") to ((raw as? JsonPrimitive)?.intOrNull ?: 0)
+    }.toMap()
+    val owned = member.pathObject("shards")?.array("owned").orEmpty().mapNotNull { raw ->
+        val shard = raw as? JsonObject ?: return@mapNotNull null
+        val type = shard.string("type") ?: return@mapNotNull null
+        type.lowercase().removePrefix("shard_") to (shard.int("amount_owned") ?: 0)
+    }.toMap()
+    return (stacks.keys + owned.keys).map { id ->
+        val itemId = "SHARD_${id.uppercase().removePrefix("SHARD_")}"
+        val definition = definitions[itemId]
+        ProfileAttribute(
+            id = id,
+            name = definition?.name?.removeSuffix(" Shard") ?: id.humanName(),
+            rarity = definition?.rarity ?: "COMMON",
+            syphoned = stacks[id] ?: 0,
+            owned = owned[id] ?: 0,
+            itemId = itemId,
+        )
+    }.sortedWith(compareBy<ProfileAttribute> { rarityOrder(it.rarity) }.thenByDescending { it.syphoned }.thenBy { it.name })
+}
+
+private fun parseRift(member: JsonObject): ProfileRift? {
+    val root = member.obj("rift") ?: return null
+    val stats = member.pathObject("player_stats", "rift")
+    val trophies = root.pathObject("gallery")?.array("secured_trophies").orEmpty().mapNotNull { raw ->
+        val trophy = raw as? JsonObject ?: return@mapNotNull null
+        val id = trophy.string("type") ?: return@mapNotNull null
+        ProfileTimecharm(id, RIFT_TIMECHARMS[id] ?: id.humanName(), trophy.int("visits") ?: 0, trophy.long("timestamp"))
+    }
+    return ProfileRift(
+        lifetimeMotes = stats?.long("lifetime_motes_earned") ?: 0,
+        visits = stats?.int("visits") ?: 0,
+        enigmaSouls = root.pathObject("enigma")?.array("found_souls")?.size ?: 0,
+        foundCats = root.pathObject("dead_cats")?.array("found_cats")?.size ?: 0,
+        unlockedEyes = root.pathObject("wither_cage")?.array("killed_eyes")?.size ?: 0,
+        grubberStacks = root.pathObject("castle")?.int("grubber_stacks") ?: 0,
+        secondsSitting = root.pathObject("village_plaza", "lonely")?.long("seconds_sitting") ?: 0,
+        timecharms = trophies,
+    )
+}
+
+private fun parseExperimentation(root: JsonObject?): ProfileExperimentation? {
+    if (root == null) return null
+    val experiments = root.obj("experiments").orEmpty().mapNotNull { (id, raw) ->
+        val value = raw as? JsonObject ?: return@mapNotNull null
+        val attempts = value.int("attempts") ?: value.int("times_played") ?: 0
+        val best = value.int("best_score") ?: value.int("best_score_1") ?: value.entries
+            .filter { "best" in it.key }.maxOfOrNull { (it.value as? JsonPrimitive)?.intOrNull ?: 0 } ?: 0
+        ProfileExperiment(id, id.humanName(), attempts, best)
+    }
+    return ProfileExperimentation(
+        serumsDrank = root.int("serums_drank") ?: 0,
+        resetsUsed = root.int("claims_resets") ?: 0,
+        lastAttemptMillis = root.long("last_attempt"),
+        experiments = experiments.sortedByDescending { it.bestScore },
+    )
+}
+
+private fun parseChocolateFactory(events: JsonObject?): ProfileChocolateFactory? {
+    val root = events?.obj("easter") ?: return null
+    val employees = root.obj("employees").orEmpty().mapNotNull { (id, raw) ->
+        val level = (raw as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
+        ProfileRabbitEmployee(id, id.humanName(), level)
+    }.sortedByDescending { it.level }
+    val rabbits = root.obj("rabbits").orEmpty().values.count { it is JsonPrimitive }
+    val capacityLevel = root.int("rabbit_barn_capacity_level") ?: 0
+    return ProfileChocolateFactory(
+        chocolate = root.long("chocolate") ?: 0,
+        totalChocolate = root.long("total_chocolate") ?: 0,
+        prestige = root.int("chocolate_level") ?: 0,
+        barnCapacity = capacityLevel * 2 + 18,
+        rabbitsCollected = rabbits,
+        employees = employees,
+    )
+}
+
+private fun rarityOrder(rarity: String): Int = when (rarity.uppercase()) {
+    "DIVINE" -> 0; "MYTHIC" -> 1; "LEGENDARY" -> 2; "EPIC" -> 3; "RARE" -> 4; "UNCOMMON" -> 5; else -> 6
+}
+
+private val RIFT_TIMECHARMS = mapOf(
+    "wyldly_supreme" to "Supreme Timecharm", "chicken_n_egg" to "Chicken N Egg Timecharm",
+    "mirrored" to "Mirrorverse Timecharm", "citizen" to "SkyBlock Citizen Timecharm",
+    "lazy_living" to "Living Timecharm", "slime" to "Globulate Timecharm",
+    "vampiric" to "Vampiric Timecharm", "mountain" to "Celestial Timecharm",
+)
+
+private data class TreeLayout(val column: Int, val row: Int, val kind: String, val maxLevel: Int)
+private fun treeLayout(type: String): Map<String, TreeLayout> = if (type == "mining") HOTM_LAYOUT else HOTF_LAYOUT
+private fun parseTreeLayout(value: String): Map<String, TreeLayout> = value.lineSequence().filter(String::isNotBlank).associate { line ->
+    val parts = line.split(',')
+    parts[0] to TreeLayout(parts[1].toInt(), parts[2].toInt(), parts[3], parts[4].toInt())
+}
+
+private val HOTM_LAYOUT = parseTreeLayout("""
+titanium_insanium,4,1,PERK,50
+old_school,1,3,PERK,20
+mineshaft_mayhem,6,7,UNLEVELABLE,1
+daily_powder,5,4,UNLEVELABLE,1
+quick_forge,5,2,PERK,20
+mining_fortune,3,1,PERK,50
+crystalline,1,9,PERK,50
+sky_mall,0,3,UNLEVELABLE,1
+mining_master,3,9,PERK,10
+miners_blessing,0,7,UNLEVELABLE,1
+anomalous_desire,0,5,ABILITY,1
+strong_arm,2,7,PERK,100
+speedy_mineman,1,6,PERK,50
+steady_hand,3,7,PERK,100
+pickobulus,5,1,ABILITY,1
+subterranean_fisher,2,5,PERK,40
+mole,3,3,PERK,200
+fortunate_mineman,5,6,PERK,50
+gifts_from_the_departed,2,9,PERK,100
+mining_speed,3,0,PERK,50
+front_loaded,6,3,UNLEVELABLE,1
+warm_heart,4,7,PERK,50
+maniac_miner,6,5,ABILITY,1
+dead_mans_chest,4,9,PERK,50
+sheer_force,6,9,ABILITY,1
+luck_of_the_cave,1,2,PERK,45
+lonesome_miner,4,5,PERK,45
+seasoned_mineman,5,3,PERK,100
+powder_buff,3,6,PERK,50
+precision_mining,2,1,UNLEVELABLE,1
+professional,2,3,PERK,140
+daily_grind,1,4,UNLEVELABLE,1
+blockhead,1,5,PERK,20
+efficient_miner,3,2,PERK,100
+rags_to_riches,3,8,PERK,50
+metal_head,1,8,PERK,20
+no_stone_unturned,1,7,PERK,50
+mining_speed_boost,1,1,ABILITY,1
+core_of_the_mountain,3,4,CORE,10
+eager_adventurer,5,8,PERK,100
+surveyor,5,7,PERK,20
+keep_it_cool,3,5,PERK,50
+vanguard_seeker,5,9,PERK,50
+gem_lover,4,3,PERK,20
+gemstone_infusion,0,9,ABILITY,1
+great_explorer,5,5,PERK,20
+""".trimIndent())
+
+private val HOTF_LAYOUT = parseTreeLayout("""
+maniac_slicer,6,5,ABILITY,1
+forest_strength,1,5,PERK,50
+foraging_fortune,3,1,PERK,50
+250_gifts,5,2,PERK,40
+half_empty,1,6,PERK,25
+ricochet,3,6,PERK,10
+efficient_forager,3,3,PERK,100
+deep_waters,2,3,PERK,50
+monster_hunter,1,4,UNLEVELABLE,1
+homing_axe,0,5,UNLEVELABLE,1
+early_bird,5,3,UNLEVELABLE,1
+hunters_luck,2,5,PERK,50
+luck_of_the_forest,1,2,PERK,40
+half_full,5,6,PERK,25
+foraging_madness,1,3,UNLEVELABLE,1
+center_of_the_forest,3,4,CORE,5
+axe_toss,5,1,ABILITY,1
+collector,4,3,PERK,50
+precision_cutting,6,3,UNLEVELABLE,1
+essence_fortune,4,5,PERK,50
+damage_boost,1,1,ABILITY,1
+galateas_might,3,5,PERK,50
+sweep,3,0,PERK,50
+daily_wishes,3,2,PERK,100
+forest_speed,5,5,PERK,50
+lottery,0,3,UNLEVELABLE,1
+strength_boost,2,1,PERK,50
+tree_whisperer,5,4,UNLEVELABLE,1
+speed_boost,4,1,PERK,50
+""".trimIndent())
 
 private fun String.humanName(): String = lowercase().split('_').joinToString(" ") {
     it.replaceFirstChar(Char::uppercase)

@@ -36,6 +36,11 @@ public data class SkyBlockProfile(
     public val bestiary: List<ProfileBestiaryLocation> = emptyList(),
     public val skillTrees: List<ProfileSkillTree> = emptyList(),
     public val loadouts: List<ProfileLoadout> = emptyList(),
+    public val trophyFish: List<ProfileTrophyFish> = emptyList(),
+    public val attributes: List<ProfileAttribute> = emptyList(),
+    public val rift: ProfileRift? = null,
+    public val experimentation: ProfileExperimentation? = null,
+    public val chocolateFactory: ProfileChocolateFactory? = null,
     public val currencies: List<ProfileMetric> = emptyList(),
     public val mining: List<ProfileMetric> = emptyList(),
     public val garden: List<ProfileMetric> = emptyList(),
@@ -106,6 +111,7 @@ public data class ProfileItemSlot(
     public val internalName: String? = null,
     public val displayName: String? = null,
     public val count: Int = 1,
+    public val lore: List<String> = emptyList(),
 )
 
 @Serializable
@@ -144,6 +150,10 @@ public data class ProfileSkillTreeNode(
     public val name: String,
     public val level: Int,
     public val enabled: Boolean? = null,
+    public val column: Int = 0,
+    public val row: Int = 0,
+    public val maxLevel: Int = 1,
+    public val kind: String = "PERK",
 )
 
 @Serializable
@@ -155,6 +165,81 @@ public data class ProfileLoadout(
     public val powerStone: String? = null,
     public val armor: List<ProfileItemSlot> = emptyList(),
     public val equipment: List<ProfileItemSlot> = emptyList(),
+)
+
+@Serializable
+public data class ProfileTrophyFish(
+    public val id: String,
+    public val name: String,
+    public val bronze: Int = 0,
+    public val silver: Int = 0,
+    public val gold: Int = 0,
+    public val diamond: Int = 0,
+) {
+    public val total: Int get() = bronze + silver + gold + diamond
+}
+
+@Serializable
+public data class ProfileAttribute(
+    public val id: String,
+    public val name: String,
+    public val rarity: String,
+    public val syphoned: Int = 0,
+    public val owned: Int = 0,
+    public val itemId: String,
+)
+
+@Serializable
+public data class ProfileRift(
+    public val lifetimeMotes: Long = 0,
+    public val visits: Int = 0,
+    public val enigmaSouls: Int = 0,
+    public val foundCats: Int = 0,
+    public val unlockedEyes: Int = 0,
+    public val grubberStacks: Int = 0,
+    public val secondsSitting: Long = 0,
+    public val timecharms: List<ProfileTimecharm> = emptyList(),
+)
+
+@Serializable
+public data class ProfileTimecharm(
+    public val id: String,
+    public val name: String,
+    public val visits: Int = 0,
+    public val timestamp: Long? = null,
+)
+
+@Serializable
+public data class ProfileExperimentation(
+    public val serumsDrank: Int = 0,
+    public val resetsUsed: Int = 0,
+    public val lastAttemptMillis: Long? = null,
+    public val experiments: List<ProfileExperiment> = emptyList(),
+)
+
+@Serializable
+public data class ProfileExperiment(
+    public val id: String,
+    public val name: String,
+    public val attempts: Int = 0,
+    public val bestScore: Int = 0,
+)
+
+@Serializable
+public data class ProfileChocolateFactory(
+    public val chocolate: Long = 0,
+    public val totalChocolate: Long = 0,
+    public val prestige: Int = 0,
+    public val barnCapacity: Int = 18,
+    public val rabbitsCollected: Int = 0,
+    public val employees: List<ProfileRabbitEmployee> = emptyList(),
+)
+
+@Serializable
+public data class ProfileRabbitEmployee(
+    public val id: String,
+    public val name: String,
+    public val level: Int,
 )
 
 @Serializable

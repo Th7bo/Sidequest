@@ -69,7 +69,7 @@ class HypixelProfilesTest {
         assertTrue(profile.bestiary.isEmpty())
         assertTrue(profile.inventories.isEmpty())
         assertTrue(profile.sections.any { it.id == "sacks" })
-        assertTrue(profile.sections.any { it.id == "trophy_fish" })
+        assertEquals(3, profile.trophyFish.single { it.id == "blobfish" }.bronze)
         assertEquals(
             1.0,
             profile.sections.first { it.id == "objectives" }.metrics.first { it.id == "objectives_complete" }.value,
@@ -114,6 +114,7 @@ class HypixelProfilesTest {
                 )
                 "resources/skyblock/skills" in url -> UpstreamResponse(200, SKILLS, emptyMap())
                 "resources/skyblock/collections" in url -> UpstreamResponse(200, COLLECTIONS, emptyMap())
+                "resources/skyblock/items" in url -> UpstreamResponse(200, ITEMS, emptyMap())
                 "NotEnoughUpdates-REPO" in url -> UpstreamResponse(
                     200,
                     """{"catacombs":[50,75,1000]}""",
@@ -141,7 +142,7 @@ class HypixelProfilesTest {
         val profile = service.lookup("Alice", null)
         service.lookup("alice", null)
 
-        assertEquals(8, calls.values.sum())
+        assertEquals(9, calls.values.sum())
         assertEquals(1, calls.entries.single { "skyblock/profiles" in it.key }.value)
         assertEquals(1234.0, profile.garden.first { it.id == "garden_experience" }.value)
         assertEquals(9999.0, profile.museum.first { it.id == "value" }.value)
@@ -173,6 +174,7 @@ class HypixelProfilesTest {
               "MINING":{"name":"Mining","items":{"DIAMOND":{"name":"Diamond"}}}
             }}
         """.trimIndent()
+        val ITEMS = """{"success":true,"items":[{"id":"SHARD_TEST","name":"Test Shard","tier":"RARE"}]}"""
         val PROFILES = """
             {
               "success": true,
