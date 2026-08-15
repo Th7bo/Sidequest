@@ -35,18 +35,27 @@ models, so the active resource pack styles them too.
 - **Overview** — profile identity, level, balances, fairy souls, magical power, first join, profile switcher,
   aggregate kills/deaths and currencies.
 - **Skills** — every skill Hypixel returns, its official cap, total XP and progress through the current level.
-- **Slayers** — XP, claimed level and total bosses for every exposed slayer family.
-- **Dungeons** — dungeon types, class XP and floor completion counts.
+- **Combat** — Slayer XP/levels/kills, dungeon types/classes/floor completions, Bestiary and Crimson Isle.
+- **Inventory** — availability summaries for inventory, armour, wardrobe, equipment, bags and shared
+  inventories; sack item counts; and public loadout data.
 - **Collections** — every public collection and its amount.
 - **Pets** — every public pet, rarity, XP, active state, held item/skin identifiers and candy use on the wire.
-- **Mining** — the numeric Heart of the Mountain/mining-core fields Hypixel exposes, including powders,
-  tokens, crystals and progression fields as they are added.
-- **Progress** — Garden, Museum, essence/currencies and other general public statistics.
+- **Mining** — Heart of the Mountain, powders, crystals, Glacite Tunnels, forge and skill-tree progression.
+- **Farming** — Garden, Jacob's contests, plots, visitors, crops and other public Garden progress.
+- **Fishing** — trophy fish counts and tiers.
+- **Foraging** — Foraging core, skill progression and attributes.
+- **Rift** — public Rift progression and collectible data.
+- **More** — Museum, essence/currencies, experimentation, leveling, objectives, quests, events, shards,
+  temples, safari/hunting and every other bounded displayable profile category returned by Hypixel.
 
-Inventory, armour, wardrobe, sacks and bag contents are different: Hypixel encodes those as compressed NBT
-blobs. They are deliberately not copied wholesale into the summary response. Supporting them properly means
-decoding the items, resolving SkyBlock models and fetching those payloads only when their own tab needs them;
-shipping opaque multi-megabyte blobs on every profile open would make the broad viewer slower for no benefit.
+Inventory item stacks are different: Hypixel encodes them as compressed NBT blobs. The viewer reports which
+containers are public and shows the separately exposed sack counts, but does not copy opaque NBT wholesale
+into every summary response. Detailed item rendering belongs behind an on-demand inventory fetch so opening
+the broad profile viewer stays quick.
+
+Open-ended objects are flattened defensively with per-section limits. Unknown nested objects and newly added
+API fields cannot crash the whole lookup; displayable numbers, booleans and short labels are included while
+large binary strings are ignored.
 
 ## Failure behaviour
 

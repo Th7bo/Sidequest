@@ -1,6 +1,7 @@
 package dev.th7bo.sidequest.backend
 
 import dev.th7bo.sidequest.protocol.ProfileProgress
+import dev.th7bo.sidequest.protocol.ProfileSection
 import dev.th7bo.sidequest.protocol.ProfileChoice
 import dev.th7bo.sidequest.protocol.ProfileCollection
 import dev.th7bo.sidequest.protocol.ProfileMetric
@@ -18,11 +19,11 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.net.URI
 import java.net.URLEncoder
@@ -139,7 +140,7 @@ internal class HypixelProfileService(
         val body = upstream.optionalGet(NEU_LEVELING, emptyMap())
         val costs = body?.let { runCatching { parseObject(it) }.getOrNull() }
             ?.array("catacombs").orEmpty().mapNotNull {
-            it.jsonPrimitive.doubleOrNull
+            (it as? JsonPrimitive)?.doubleOrNull
         }
         var total = 0.0
         val cumulative = costs.map { cost -> total += cost; total }
@@ -269,10 +270,10 @@ internal object HypixelProfileParser {
             val value = raw as? JsonObject ?: return@mapNotNull null
             val xp = value.number("xp") ?: return@mapNotNull null
             val claimed = value.obj("claimed_levels")?.values?.count { level ->
-                level.jsonPrimitive.content.toBooleanStrictOrNull() == true
+                (level as? JsonPrimitive)?.content?.toBooleanStrictOrNull() == true
             }
             val kills = value.entries.filter { it.key.startsWith("boss_kills_tier_") }
-                .sumOf { it.value.jsonPrimitive.intOrNull ?: 0 }
+                .sumOf { (it.value as? JsonPrimitive)?.intOrNull ?: 0 }
             ProfileSlayer(id, id.humanName(), xp, claimed, kills)
         }.sortedBy { it.name }
 
@@ -301,7 +302,7 @@ internal object HypixelProfileParser {
         }.sortedBy { it.name }
 
         val collections = member.obj("collection").orEmpty().mapNotNull { (id, raw) ->
-            raw.jsonPrimitive.longOrNull?.let { ProfileCollection(id, id.humanName(), it) }
+            (raw as? JsonPrimitive)?.longOrNull?.let { ProfileCollection(id, id.humanName(), it) }
         }.sortedByDescending { it.amount }
 
         val pets = (member.pathObject("pets_data")?.array("pets") ?: member.array("pets")).orEmpty()
@@ -321,27 +322,20 @@ internal object HypixelProfileParser {
             }.sortedWith(compareByDescending<ProfilePet> { it.active }.thenByDescending { it.experience })
 
         val currencyRoot = member.obj("currencies")
-        val currencies = buildList {
-            currencyRoot?.forEach { (id, raw) ->
-                when (raw) {
-                    is JsonObject -> raw.forEach { (child, amount) ->
-                        amount.jsonPrimitive.doubleOrNull?.let {
-                            add(ProfileMetric("${id}_$child", child.humanName(), value = it))
-                        }
-                    }
-                    else -> raw.jsonPrimitive.doubleOrNull?.let {
-                        if (id != "coin_purse") add(ProfileMetric(id, id.humanName(), value = it))
-                    }
-                }
+        val currencies = currencyRoot
+            ?.let { JsonObject(it.filterKeys { id -> id != "coin_purse" }) }
+            .toMetrics(limit = 64)
+            .map { metric ->
+                metric.copy(name = metric.id.removePrefix("essence_").humanName())
             }
-        }.sortedBy { it.name }
+            .sortedBy { it.name }
 
         val mining = member.obj("mining_core").toMetrics(limit = 48)
         val playerStats = member.obj("player_stats")
         val kills = playerStats?.entries?.filter { it.key.startsWith("kills_") }
-            ?.sumOf { it.value.jsonPrimitive.longOrNull ?: 0L }
+            ?.sumOf { (it.value as? JsonPrimitive)?.longOrNull ?: 0L }
         val deaths = playerStats?.entries?.filter { it.key.startsWith("deaths_") }
-            ?.sumOf { it.value.jsonPrimitive.longOrNull ?: 0L }
+            ?.sumOf { (it.value as? JsonPrimitive)?.longOrNull ?: 0L }
         val stats = buildList {
             kills?.let { add(ProfileMetric("kills", "Kills", value = it.toDouble())) }
             deaths?.let { add(ProfileMetric("deaths", "Deaths", value = it.toDouble())) }
@@ -359,6 +353,62 @@ internal object HypixelProfileParser {
         val accessory = member.obj("accessory_bag_storage")
         val profileData = member.obj("profile")
         val fairy = member.obj("fairy_soul")
+        val sections = buildList {
+            fun addSection(id: String, name: String, limit: Int = 48) {
+                val metrics = member.obj(id).toMetrics(limit = limit)
+                if (metrics.isNotEmpty()) add(ProfileSection(id, name, metrics))
+            }
+
+            addSection("bestiary", "Bestiary")
+            addSection("nether_island_player_data", "Crimson Isle")
+            addSection("experimentation", "Experimentation")
+            addSection("foraging", "Foraging")
+            addSection("foraging_core", "Foraging core")
+            addSection("attributes", "Attributes")
+            addSection("forge", "Forge")
+            addSection("garden_player_data", "Garden progress")
+            addSection("jacobs_contest", "Jacob's contests")
+            addSection("glacite_player_data", "Glacite Tunnels")
+            addSection("leveling", "SkyBlock leveling")
+            addSection("loadout", "Loadout")
+            addSection("rift", "The Rift")
+            addSection("safari", "Hunting & safari")
+            addSection("shards", "Shards")
+            addSection("skill_tree", "Skill trees")
+            addSection("temples", "Temples")
+            addSection("trophy_fish", "Trophy fishing")
+            addSection("events", "Events")
+            addSection("item_data", "Item progression")
+
+            member.obj("inventory")?.let { inventory ->
+                inventorySummary(inventory).takeIf { it.isNotEmpty() }
+                    ?.let { add(ProfileSection("inventory", "Inventories", it)) }
+                inventory.obj("sacks_counts").toMetrics(limit = 96).takeIf { it.isNotEmpty() }
+                    ?.let { add(ProfileSection("sacks", "Sacks", it.sortedByDescending { metric -> metric.value })) }
+            }
+            member.obj("shared_inventory")?.let { inventory ->
+                inventorySummary(inventory).takeIf { it.isNotEmpty() }
+                    ?.let { add(ProfileSection("shared_inventory", "Shared inventories", it)) }
+            }
+            member.obj("objectives")?.let { objectives ->
+                val completed = objectives.values.count {
+                    (it as? JsonObject)?.string("status")?.equals("COMPLETE", ignoreCase = true) == true
+                }
+                add(
+                    ProfileSection(
+                        "objectives",
+                        "Objectives",
+                        listOf(
+                            ProfileMetric("objectives_total", "Recorded", value = objectives.size.toDouble()),
+                            ProfileMetric("objectives_complete", "Completed", value = completed.toDouble()),
+                        ),
+                    ),
+                )
+            }
+            member.obj("quests")?.size?.takeIf { it > 0 }?.let {
+                add(ProfileSection("quests", "Quests", listOf(ProfileMetric("quests", "Quest lines", value = it.toDouble()))))
+            }
+        }
 
         return SkyBlockProfile(
             username = identity.username,
@@ -395,6 +445,7 @@ internal object HypixelProfileParser {
             currencies = currencies,
             mining = mining,
             stats = stats,
+            sections = sections,
         )
     }
 
@@ -417,6 +468,22 @@ private fun String.humanName(): String = lowercase().split('_').joinToString(" "
     it.replaceFirstChar(Char::uppercase)
 }
 
+private fun inventorySummary(inventory: JsonObject): List<ProfileMetric> = inventory.mapNotNull { (id, raw) ->
+    if (id == "sacks_counts") return@mapNotNull null
+    val value = when (raw) {
+        is JsonObject -> when {
+            raw.string("data")?.isNotBlank() == true -> "Available"
+            else -> "${raw.size} sections"
+        }
+        is JsonArray -> "${raw.size} entries"
+        is JsonPrimitive -> raw.doubleOrNull?.let { formatMetricNumber(it) } ?: raw.content.take(64)
+    }
+    ProfileMetric(id, id.humanName(), text = value)
+}
+
+private fun formatMetricNumber(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+
 private fun JsonObject?.toMetrics(prefix: String = "", limit: Int): List<ProfileMetric> {
     if (this == null) return emptyList()
     val result = ArrayList<ProfileMetric>()
@@ -425,13 +492,17 @@ private fun JsonObject?.toMetrics(prefix: String = "", limit: Int): List<Profile
             if (result.size >= limit) return
             val full = if (path.isEmpty()) id else "${path}_$id"
             when {
-                raw is JsonObject && depth < 2 -> visit(raw, full, depth + 1)
+                raw is JsonObject && depth < 4 -> visit(raw, full, depth + 1)
+                raw is JsonObject -> Unit
                 raw is JsonArray -> result.add(ProfileMetric(full, full.humanName(), value = raw.size.toDouble()))
                 else -> {
-                    val primitive = raw.jsonPrimitive
+                    val primitive = raw as? JsonPrimitive ?: continue
                     primitive.doubleOrNull?.let { result.add(ProfileMetric(full, full.humanName(), value = it)) }
                         ?: primitive.content.toBooleanStrictOrNull()?.let {
                             result.add(ProfileMetric(full, full.humanName(), text = if (it) "Yes" else "No"))
+                        }
+                        ?: primitive.content.takeIf { it.isNotBlank() && it.length <= 64 }?.let {
+                            result.add(ProfileMetric(full, full.humanName(), text = it.humanName()))
                         }
                 }
             }
@@ -449,11 +520,12 @@ private fun parseObject(body: String): JsonObject = try {
 
 private fun JsonObject.obj(name: String): JsonObject? = get(name) as? JsonObject
 private fun JsonObject.array(name: String): JsonArray? = get(name) as? JsonArray
-private fun JsonObject.string(name: String): String? = get(name)?.jsonPrimitive?.content
-private fun JsonObject.number(name: String): Double? = get(name)?.jsonPrimitive?.doubleOrNull
-private fun JsonObject.int(name: String): Int? = get(name)?.jsonPrimitive?.intOrNull
-private fun JsonObject.long(name: String): Long? = get(name)?.jsonPrimitive?.longOrNull
-private fun JsonObject.boolean(name: String): Boolean? = get(name)?.jsonPrimitive?.content?.toBooleanStrictOrNull()
+private fun JsonObject.string(name: String): String? = (get(name) as? JsonPrimitive)?.content
+private fun JsonObject.number(name: String): Double? = (get(name) as? JsonPrimitive)?.doubleOrNull
+private fun JsonObject.int(name: String): Int? = (get(name) as? JsonPrimitive)?.intOrNull
+private fun JsonObject.long(name: String): Long? = (get(name) as? JsonPrimitive)?.longOrNull
+private fun JsonObject.boolean(name: String): Boolean? =
+    (get(name) as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
 private fun JsonObject.pathObject(vararg names: String): JsonObject? {
     var current: JsonObject = this
     for (name in names) current = current.obj(name) ?: return null

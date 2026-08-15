@@ -35,6 +35,8 @@ public data class SkyBlockProfile(
     public val garden: List<ProfileMetric> = emptyList(),
     public val museum: List<ProfileMetric> = emptyList(),
     public val stats: List<ProfileMetric> = emptyList(),
+    /** Additional public profile categories, kept grouped so new API areas do not require a protocol redesign. */
+    public val sections: List<ProfileSection> = emptyList(),
 )
 
 @Serializable
@@ -102,4 +104,12 @@ public data class ProfileMetric(
     public val name: String,
     public val value: Double? = null,
     public val text: String? = null,
+)
+
+/** A bounded, display-ready summary of one open-ended Hypixel profile object. */
+@Serializable
+public data class ProfileSection(
+    public val id: String,
+    public val name: String,
+    public val metrics: List<ProfileMetric> = emptyList(),
 )

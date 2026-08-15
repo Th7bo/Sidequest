@@ -7,6 +7,7 @@ import dev.th7bo.sidequest.protocol.ProfileCollection
 import dev.th7bo.sidequest.protocol.ProfileMetric
 import dev.th7bo.sidequest.protocol.ProfilePet
 import dev.th7bo.sidequest.protocol.ProfileProgress
+import dev.th7bo.sidequest.protocol.ProfileSection
 import dev.th7bo.sidequest.protocol.ProfileSkill
 import dev.th7bo.sidequest.protocol.ProfileSlayer
 import dev.th7bo.sidequest.protocol.SkyBlockProfile
@@ -64,12 +65,16 @@ public class ProfileScreen(
     private enum class Tab(val label: String, val item: String) {
         OVERVIEW("Overview", "minecraft:player_head"),
         SKILLS("Skills", "minecraft:diamond_sword"),
-        SLAYERS("Slayers", "minecraft:rotten_flesh"),
-        DUNGEONS("Dungeons", "minecraft:wither_skeleton_skull"),
-        COLLECTIONS("Collections", "minecraft:chest"),
+        COMBAT("Combat", "minecraft:wither_skeleton_skull"),
+        INVENTORY("Inventory", "minecraft:chest"),
+        COLLECTIONS("Collections", "minecraft:item_frame"),
         PETS("Pets", "minecraft:bone"),
         MINING("Mining", "minecraft:diamond_pickaxe"),
-        PROGRESS("Progress", "minecraft:nether_star"),
+        FARMING("Farming", "minecraft:wheat"),
+        FISHING("Fishing", "minecraft:fishing_rod"),
+        FORAGING("Foraging", "minecraft:oak_log"),
+        RIFT("Rift", "minecraft:ender_eye"),
+        MORE("More", "minecraft:nether_star"),
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -205,12 +210,16 @@ public class ProfileScreen(
             val end = when (selectedTab) {
                 Tab.OVERVIEW -> paintOverview(renderer, profile, viewport.x, start, viewport.width)
                 Tab.SKILLS -> paintSkills(renderer, profile.skills, viewport.x, start, viewport.width)
-                Tab.SLAYERS -> paintSlayers(renderer, profile.slayers, viewport.x, start, viewport.width)
-                Tab.DUNGEONS -> paintDungeons(renderer, profile, viewport.x, start, viewport.width)
+                Tab.COMBAT -> paintCombat(renderer, profile, viewport.x, start, viewport.width)
+                Tab.INVENTORY -> paintProfileSections(renderer, profile, setOf("inventory", "shared_inventory", "sacks", "loadout"), viewport.x, start, viewport.width)
                 Tab.COLLECTIONS -> paintCollections(renderer, profile.collections, viewport.x, start, viewport.width)
                 Tab.PETS -> paintPets(renderer, profile.pets, viewport.x, start, viewport.width)
-                Tab.MINING -> paintMetrics(renderer, "Mining & Heart of the Mountain", profile.mining, viewport.x, start, viewport.width)
-                Tab.PROGRESS -> paintProgress(renderer, profile, viewport.x, start, viewport.width)
+                Tab.MINING -> paintMining(renderer, profile, viewport.x, start, viewport.width)
+                Tab.FARMING -> paintFarming(renderer, profile, viewport.x, start, viewport.width)
+                Tab.FISHING -> paintProfileSections(renderer, profile, setOf("trophy_fish"), viewport.x, start, viewport.width)
+                Tab.FORAGING -> paintProfileSections(renderer, profile, setOf("foraging", "foraging_core", "attributes"), viewport.x, start, viewport.width)
+                Tab.RIFT -> paintProfileSections(renderer, profile, setOf("rift"), viewport.x, start, viewport.width)
+                Tab.MORE -> paintMore(renderer, profile, viewport.x, start, viewport.width)
             }
             lastContentHeight = (end - start).coerceAtLeast(0f)
         } finally {
@@ -370,6 +379,18 @@ public class ProfileScreen(
         return y
     }
 
+    private fun paintCombat(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, x: Float, top: Float, width: Float): Float {
+        var y = top
+        if (profile.slayers.isNotEmpty()) {
+            y = paintSlayers(renderer, profile.slayers, x, y, width) + GAP
+        }
+        if (profile.dungeons.isNotEmpty() || profile.dungeonClasses.isNotEmpty()) {
+            y = paintDungeons(renderer, profile, x, y, width) + GAP
+        }
+        y = paintProfileSections(renderer, profile, setOf("bestiary", "nether_island_player_data"), x, y, width, emptyWhenMissing = false)
+        return if (y == top) emptyState(renderer, "Combat API disabled", x, y, width) else y
+    }
+
     private fun progressCards(renderer: MinecraftUiRenderer, values: List<ProfileProgress>, x: Float, top: Float, width: Float): Float {
         val columns = columns(width, 155f, 4)
         val gap = 7f
@@ -434,21 +455,63 @@ public class ProfileScreen(
         return metricGrid(renderer, metrics, x, y, width, preferredColumns = 4)
     }
 
-    private fun paintProgress(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, x: Float, top: Float, width: Float): Float {
+    private fun paintMining(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, x: Float, top: Float, width: Float): Float {
         var y = top
-        val sections = listOf(
-            Triple("Garden", "minecraft:wheat", profile.garden),
-            Triple("Museum", "minecraft:painting", profile.museum),
+        if (profile.mining.isNotEmpty()) {
+            y = paintMetrics(renderer, "Mining & Heart of the Mountain", profile.mining, x, y, width) + GAP
+        }
+        y = paintProfileSections(renderer, profile, setOf("glacite_player_data", "skill_tree", "forge"), x, y, width, emptyWhenMissing = false)
+        return if (y == top) emptyState(renderer, "Mining API disabled", x, y, width) else y
+    }
+
+    private fun paintFarming(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, x: Float, top: Float, width: Float): Float {
+        var y = top
+        if (profile.garden.isNotEmpty()) {
+            y = sectionTitle(renderer, "Garden", "minecraft:wheat", x, y, width)
+            y = metricGrid(renderer, profile.garden, x, y, width, preferredColumns = 4) + GAP
+        }
+        y = paintProfileSections(renderer, profile, setOf("garden_player_data", "jacobs_contest"), x, y, width, emptyWhenMissing = false)
+        return if (y == top) emptyState(renderer, "Farming API disabled", x, y, width) else y
+    }
+
+    private fun paintMore(renderer: MinecraftUiRenderer, profile: SkyBlockProfile, x: Float, top: Float, width: Float): Float {
+        var y = top
+        val fixed = listOf(
+            Triple("Museum", "minecraft:gold_block", profile.museum),
             Triple("Currencies & essence", "minecraft:emerald", profile.currencies),
             Triple("General statistics", "minecraft:book", profile.stats),
         )
-        for ((title, icon, metrics) in sections) {
+        for ((title, icon, metrics) in fixed) {
             if (metrics.isEmpty()) continue
             y = sectionTitle(renderer, title, icon, x, y, width)
             y = metricGrid(renderer, metrics, x, y, width, preferredColumns = 4)
             y += GAP
         }
+        val dedicated = setOf(
+            "inventory", "shared_inventory", "sacks", "loadout",
+            "bestiary", "nether_island_player_data", "glacite_player_data", "skill_tree", "forge",
+            "garden_player_data", "jacobs_contest", "trophy_fish", "foraging", "foraging_core", "attributes", "rift",
+        )
+        y = paintProfileSections(renderer, profile, profile.sections.map { it.id }.toSet() - dedicated, x, y, width, emptyWhenMissing = false)
         return if (y == top) emptyState(renderer, "No additional public progression data", x, y, width) else y
+    }
+
+    private fun paintProfileSections(
+        renderer: MinecraftUiRenderer,
+        profile: SkyBlockProfile,
+        ids: Set<String>,
+        x: Float,
+        top: Float,
+        width: Float,
+        emptyWhenMissing: Boolean = true,
+    ): Float {
+        var y = top
+        for (section in profile.sections.filter { it.id in ids }) {
+            if (section.metrics.isEmpty()) continue
+            y = sectionTitle(renderer, section.name, sectionItem(section), x, y, width)
+            y = metricGrid(renderer, section.metrics, x, y, width, preferredColumns = 4) + GAP
+        }
+        return if (y == top && emptyWhenMissing) emptyState(renderer, "No public data in this section", x, y, width) else y
     }
 
     private fun metricGrid(
@@ -740,6 +803,30 @@ public class ProfileScreen(
         "archer" -> "minecraft:bow"
         "tank" -> "minecraft:iron_chestplate"
         else -> "minecraft:nether_star"
+    }
+
+    private fun sectionItem(section: ProfileSection): String = when (section.id) {
+        "attributes" -> "minecraft:enchanted_book"
+        "bestiary" -> "minecraft:zombie_head"
+        "events" -> "minecraft:clock"
+        "experimentation" -> "minecraft:enchanting_table"
+        "foraging", "foraging_core" -> "minecraft:oak_log"
+        "forge" -> "minecraft:blast_furnace"
+        "garden_player_data", "jacobs_contest" -> "minecraft:wheat"
+        "glacite_player_data" -> "minecraft:packed_ice"
+        "inventory", "shared_inventory" -> "minecraft:chest"
+        "item_data", "loadout" -> "minecraft:barrel"
+        "leveling" -> "minecraft:experience_bottle"
+        "nether_island_player_data" -> "minecraft:netherrack"
+        "objectives", "quests" -> "minecraft:writable_book"
+        "rift" -> "minecraft:ender_eye"
+        "sacks" -> "minecraft:bundle"
+        "safari" -> "minecraft:compass"
+        "shards" -> "minecraft:amethyst_shard"
+        "skill_tree" -> "minecraft:nether_star"
+        "temples" -> "minecraft:chiseled_stone_bricks"
+        "trophy_fish" -> "minecraft:golden_boots"
+        else -> "minecraft:paper"
     }
 
     private fun collectionItem(id: String): String {

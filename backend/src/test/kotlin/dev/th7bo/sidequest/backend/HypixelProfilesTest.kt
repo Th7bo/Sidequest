@@ -4,9 +4,29 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
+import java.nio.file.Files
+import java.nio.file.Path
 
 class HypixelProfilesTest {
+
+    @Test
+    fun `saved live response remains parseable`() {
+        val fixture = System.getenv("SIDEQUEST_LIVE_PROFILE_FIXTURE")
+        val uuid = System.getenv("SIDEQUEST_LIVE_PROFILE_UUID")
+        assumeTrue(!fixture.isNullOrBlank() && !uuid.isNullOrBlank(), "live fixture not supplied")
+
+        val profile = HypixelProfileParser.parse(
+            PlayerIdentity(uuid.orEmpty(), "LiveFixture"),
+            null,
+            Files.readString(Path.of(fixture.orEmpty())),
+            emptyMap(),
+        )
+
+        assertTrue(profile.currencies.isNotEmpty())
+        assertTrue(profile.sections.isNotEmpty())
+    }
 
     @Test
     fun `official cumulative thresholds produce level and progress`() {
@@ -40,6 +60,18 @@ class HypixelProfilesTest {
         assertEquals(2, profile.profiles.size)
         assertTrue(profile.mining.isNotEmpty())
         assertTrue(profile.currencies.any { it.name == "Mithril" })
+        assertEquals(
+            84.0,
+            profile.currencies.first { it.name == "Wither Current" }.value,
+        )
+        assertTrue(profile.sections.any { it.id == "bestiary" })
+        assertTrue(profile.sections.any { it.id == "inventory" })
+        assertTrue(profile.sections.any { it.id == "sacks" })
+        assertTrue(profile.sections.any { it.id == "trophy_fish" })
+        assertEquals(
+            1.0,
+            profile.sections.first { it.id == "objectives" }.metrics.first { it.id == "objectives_complete" }.value,
+        )
     }
 
     @Test
@@ -147,12 +179,29 @@ class HypixelProfilesTest {
                       "profile": {"first_join": 1700000000000, "cookie_buff_active": true},
                       "fairy_soul": {"total_collected": 120, "fairy_exchanges": 15},
                       "accessory_bag_storage": {"highest_magical_power": 734, "selected_power": "SILKY"},
-                      "currencies": {"coin_purse": 1234.0, "essence": {"mithril": 42}},
+                      "currencies": {
+                        "coin_purse": 1234.0,
+                        "essence": {
+                          "mithril": 42,
+                          "wither": {"current": 84, "lifetime": 126}
+                        }
+                      },
                       "player_data": {"experience": {"SKILL_FARMING": 275.0}},
                       "collection": {"WHEAT": 10000, "DIAMOND": 5000},
                       "pets_data": {"pets": [{"type":"TIGER","tier":"LEGENDARY","exp":12345,"active":true}]},
                       "mining_core": {"experience": 4567, "powder_mithril": 890},
                       "player_stats": {"kills_zombie": 10, "kills_spider": 5, "deaths_void": 2},
+                      "bestiary": {"milestone": {"last_claimed_milestone": 7}},
+                      "trophy_fish": {"total_caught": 12, "blobfish_bronze": 3},
+                      "inventory": {
+                        "inv_contents": {"type": 0, "data": "opaque-nbt"},
+                        "wardrobe_equipped_slot": 2,
+                        "sacks_counts": {"WHEAT": 1000, "DIAMOND": 50}
+                      },
+                      "objectives": {
+                        "talk_to_guide": {"status": "COMPLETE", "completed_at": 123},
+                        "reach_hub": {"status": "ACTIVE", "progress": 0.5}
+                      },
                       "slayer": {"slayer_bosses": {"zombie": {
                         "xp": 300,
                         "claimed_levels": {"level_1": true, "level_2": true},
