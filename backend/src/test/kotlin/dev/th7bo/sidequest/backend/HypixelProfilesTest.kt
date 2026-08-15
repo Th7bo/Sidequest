@@ -68,7 +68,10 @@ class HypixelProfilesTest {
         )
         assertTrue(profile.bestiary.isEmpty())
         assertTrue(profile.inventories.isEmpty())
-        assertTrue(profile.sections.any { it.id == "sacks" })
+        // Sacks are their own structure now, not one of the generic open-ended sections. With no table to
+        // group by they all land in "Other", which is the point: a missing table hides nothing.
+        assertTrue(profile.sections.none { it.id == "sacks" })
+        assertEquals(1753L, profile.sacks.single { it.id == "other" }.total)
         assertEquals(3, profile.trophyFish.single { it.id == "blobfish" }.bronze)
         assertEquals("Mage", profile.crimsonIsle?.selectedFaction)
         assertEquals(12, profile.crimsonIsle?.kuudra?.first { it.id == "hot" }?.completions)
@@ -77,6 +80,105 @@ class HypixelProfilesTest {
             1.0,
             profile.sections.first { it.id == "objectives" }.metrics.first { it.id == "objectives_complete" }.value,
         )
+    }
+
+    // -- the NotEnoughUpdates tables, applied to a profile ---------------------
+
+    private fun parseWithTables(): dev.th7bo.sidequest.protocol.SkyBlockProfile = HypixelProfileParser.parse(
+        PlayerIdentity(UUID, "Alice"),
+        null,
+        PROFILES,
+        HypixelProfileParser.parseSkillDefinitions(SKILLS),
+        neu = NeuTables(
+            sacks = NeuConstants.parseSacks(NeuFixtures.SACKS),
+            shards = NeuConstants.parseShards(NeuFixtures.SHARDS),
+            mining = NeuConstants.parseTreeLayout(NeuFixtures.HOTM, "hotm"),
+        ),
+    )
+
+    /**
+     * Sacks arrive as one flat map and leave grouped by the sack they belong to.
+     *
+     * The Fishing entry is the one that matters: Hypixel spells a variant item `INK_SACK:3` and the table
+     * spells the same thing `INK_SACK-3`, so a comparison that does not fold the two drops it into "Other"
+     * and the grouping quietly stops being a grouping.
+     */
+    @Test
+    fun `sack counts are grouped by the sack they came from`() {
+        val profile = parseWithTables()
+
+        val farming = profile.sacks.single { it.name == "Agronomy" }
+        assertEquals("LARGE_AGRONOMY_SACK", farming.itemId)
+        assertEquals(listOf("WHEAT", "INK_SACK:3"), farming.items.map { it.id })
+        assertEquals(1000L, farming.items.first().amount)
+
+        assertEquals(listOf("DIAMOND"), profile.sacks.single { it.name == "Mining" }.items.map { it.id })
+    }
+
+    /** An item the table does not place still appears, rather than vanishing from the player's own profile. */
+    @Test
+    fun `an unplaced item lands in Other rather than disappearing`() {
+        val other = parseWithTables().sacks.single { it.id == "other" }
+
+        assertEquals(listOf("SOMETHING_NEW"), other.items.map { it.id })
+    }
+
+    /**
+     * Hypixel's node ids are not NotEnoughUpdates' perk keys, for eleven of the forty-six.
+     *
+     * Quick Forge arrives as `forge_time`. Reading it under its layout key finds nothing and reports a
+     * maxed perk as untaken, which looks like the player never bought it.
+     */
+    @Test
+    fun `Heart of the Mountain levels are read under Hypixel's own node ids`() {
+        val tree = parseWithTables().skillTrees.single { it.id == "mining" }
+        val nodes = tree.slots.first { it.slot == 1 }.nodes.associateBy { it.id }
+
+        assertEquals(20, nodes.getValue("quick_forge").level, "read from forge_time")
+        assertEquals(7, nodes.getValue("core_of_the_mountain").level, "read from special_0")
+        assertEquals(30, nodes.getValue("mining_fortune").level, "an id that does not differ still works")
+        assertEquals(7, tree.columns)
+        assertEquals(10, tree.rows)
+    }
+
+    /** The tooltip is the layout's own formula at the level the player has, not a stored string. */
+    @Test
+    fun `a perk carries its description at the level the player has it`() {
+        val nodes = parseWithTables().skillTrees.single { it.id == "mining" }
+            .slots.first { it.slot == 1 }.nodes.associateBy { it.id }
+
+        val fortune = nodes.getValue("mining_fortune")
+        assertEquals(listOf("§7Grants §a+§a60 §6☘ Mining Fortune§7."), fortune.lore)
+        assertEquals("MITHRIL", fortune.powder)
+        assertEquals("minecraft:emerald", fortune.itemId)
+        assertEquals(50, fortune.maxLevel)
+    }
+
+    /** Peak of the Mountain is `special_0`, and the pickaxe abilities scale against it. */
+    @Test
+    fun `Peak of the Mountain changes what an ability reports`() {
+        val infusion = parseWithTables().skillTrees.single { it.id == "mining" }
+            .slots.first { it.slot == 1 }.nodes.single { it.id == "gemstone_infusion" }
+
+        assertEquals(listOf("§6Pickaxe Ability: Gemstone Infusion", "§8Duration: §a25s"), infusion.lore)
+    }
+
+    /**
+     * A shard resolves to the item it is actually filed under, not to `SHARD_<name>`.
+     *
+     * That derived id does not exist in the item database for any shard in the game, which is why the whole
+     * tab was drawing the same fallback amethyst.
+     */
+    @Test
+    fun `an attribute shard names a real item`() {
+        val attributes = parseWithTables().attributes
+
+        val grove = attributes.single { it.name == "Grove" }
+        assertEquals("ATTRIBUTE_SHARD_NATURE_ELEMENTAL;1", grove.itemId)
+        assertEquals("COMMON", grove.rarity)
+        assertEquals(4, grove.syphoned)
+        assertEquals(12, grove.owned)
+        assertTrue(attributes.none { it.itemId.startsWith("SHARD_") }, "nothing fell back: $attributes")
     }
 
     @Test
@@ -118,11 +220,11 @@ class HypixelProfilesTest {
                 "resources/skyblock/skills" in url -> UpstreamResponse(200, SKILLS, emptyMap())
                 "resources/skyblock/collections" in url -> UpstreamResponse(200, COLLECTIONS, emptyMap())
                 "resources/skyblock/items" in url -> UpstreamResponse(200, ITEMS, emptyMap())
-                "NotEnoughUpdates-REPO" in url -> UpstreamResponse(
-                    200,
-                    """{"catacombs":[50,75,1000]}""",
-                    emptyMap(),
-                )
+                "constants/leveling.json" in url -> UpstreamResponse(200, """{"catacombs":[50,75,1000]}""", emptyMap())
+                "constants/sacks.json" in url -> UpstreamResponse(200, NeuFixtures.SACKS, emptyMap())
+                "constants/attribute_shards.json" in url -> UpstreamResponse(200, NeuFixtures.SHARDS, emptyMap())
+                "constants/hotmlayout.json" in url -> UpstreamResponse(200, NeuFixtures.HOTM, emptyMap())
+                "constants/hotflayout.json" in url -> UpstreamResponse(200, NeuFixtures.HOTF, emptyMap())
                 "skyblock/garden" in url -> UpstreamResponse(
                     200,
                     """{"success":true,"garden":{"garden_experience":1234,"unlocked_plots_ids":[1,2]}}""",
@@ -145,12 +247,23 @@ class HypixelProfilesTest {
         val profile = service.lookup("Alice", null)
         service.lookup("alice", null)
 
-        assertEquals(9, calls.values.sum())
+        assertEquals(13, calls.values.sum())
         assertEquals(1, calls.entries.single { "skyblock/profiles" in it.key }.value)
+        // The description tables are the same for everybody and for every profile, so a second lookup — and
+        // by extension a fifth friend opening the same screen — must not fetch a single one of them again.
+        val constants = calls.entries.filter { "constants/" in it.key }
+        assertEquals(5, constants.size, "one request per table: $constants")
+        assertTrue(constants.all { it.value == 1 }, "a table was fetched twice: $constants")
         assertEquals(1234.0, profile.garden.first { it.id == "garden_experience" }.value)
         assertEquals(9999.0, profile.museum.first { it.id == "value" }.value)
         assertEquals("signed-skin", profile.skinTexture)
         assertEquals("skin-signature", profile.skinSignature)
+        // The tables actually reached the parse, rather than being fetched and dropped.
+        assertEquals("LARGE_AGRONOMY_SACK", profile.sacks.single { it.name == "Agronomy" }.itemId)
+        assertEquals(
+            "ATTRIBUTE_SHARD_NATURE_ELEMENTAL;1",
+            profile.attributes.single { it.name == "Grove" }.itemId,
+        )
     }
 
     private companion object {
@@ -204,14 +317,32 @@ class HypixelProfilesTest {
                       "player_data": {"experience": {"SKILL_FARMING": 275.0}},
                       "collection": {"WHEAT": 10000, "DIAMOND": 5000},
                       "pets_data": {"pets": [{"type":"TIGER","tier":"LEGENDARY","exp":12345,"active":true}]},
-                      "mining_core": {"experience": 4567, "powder_mithril": 890},
+                      "mining_core": {
+                        "experience": 4567,
+                        "powder_mithril": 890,
+                        "nodes": {
+                          "mining_fortune": 30,
+                          "forge_time": 20,
+                          "special_0": 7,
+                          "gemstone_infusion": 1,
+                          "toggle_gemstone_infusion": true
+                        }
+                      },
+                      "attributes": {"stacks": {"shard_grove": 4}},
+                      "shards": {"owned": [{"type": "SHARD_GROVE", "amount_owned": 12}]},
                       "player_stats": {"kills_zombie": 10, "kills_spider": 5, "deaths_void": 2},
                       "bestiary": {"milestone": {"last_claimed_milestone": 7}},
                       "trophy_fish": {"total_caught": 12, "blobfish_bronze": 3},
                       "inventory": {
                         "inv_contents": {"type": 0, "data": "opaque-nbt"},
                         "wardrobe_equipped_slot": 2,
-                        "sacks_counts": {"WHEAT": 1000, "DIAMOND": 50}
+                        "sacks_counts": {
+                          "WHEAT": 1000,
+                          "DIAMOND": 50,
+                          "INK_SACK:3": 700,
+                          "SOMETHING_NEW": 3,
+                          "COAL": 0
+                        }
                       },
                       "objectives": {
                         "talk_to_guide": {"status": "COMPLETE", "completed_at": 123},

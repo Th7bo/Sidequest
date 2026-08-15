@@ -18,6 +18,8 @@ import dev.th7bo.sidequest.protocol.ProfileExperimentation
 import dev.th7bo.sidequest.protocol.ProfileRabbitEmployee
 import dev.th7bo.sidequest.protocol.ProfileKuudraTier
 import dev.th7bo.sidequest.protocol.ProfileRift
+import dev.th7bo.sidequest.protocol.ProfileSack
+import dev.th7bo.sidequest.protocol.ProfileSackItem
 import dev.th7bo.sidequest.protocol.ProfileTimecharm
 import dev.th7bo.sidequest.protocol.ProfileTrophyFish
 import dev.th7bo.sidequest.protocol.ProfileMetric
@@ -80,6 +82,7 @@ internal class HypixelProfileService(
     @Volatile private var collections: Cached<Map<String, CollectionDefinition>>? = null
     @Volatile private var items: Cached<Map<String, ItemDefinition>>? = null
     @Volatile private var dungeonLevels: Cached<List<Double>>? = null
+    @Volatile private var neu: Cached<NeuTables>? = null
     private val misses = Mutex()
 
     suspend fun lookup(username: String, requestedProfile: String?): SkyBlockProfile {
@@ -105,6 +108,7 @@ internal class HypixelProfileService(
                 dungeonLevelDefinitions(),
                 collectionDefinitions,
                 itemDefinitions,
+                neuTables(),
             )
             val parsed = coroutineScope {
                 val garden = async {
@@ -195,6 +199,34 @@ internal class HypixelProfileService(
         return cumulative
     }
 
+    /**
+     * The NotEnoughUpdates tables that describe SkyBlock rather than a player.
+     *
+     * Fetched together and cached together, because they change on the same cadence — whenever somebody
+     * updates that repository — and because a partial set is still worth having. **Every one is optional.**
+     * GitHub being unreachable must degrade the sack grouping and the perk tooltips, not fail the lookup:
+     * the profile itself came from Hypixel and is perfectly displayable without any of this.
+     */
+    private suspend fun neuTables(): NeuTables {
+        neu?.takeIf { it.expiresAt > now() }?.let { return it.value }
+        val tables = coroutineScope {
+            val sacks = async { upstream.optionalGet(neuConstant("sacks"), emptyMap()) }
+            val shards = async { upstream.optionalGet(neuConstant("attribute_shards"), emptyMap()) }
+            val hotm = async { upstream.optionalGet(neuConstant("hotmlayout"), emptyMap()) }
+            val hotf = async { upstream.optionalGet(neuConstant("hotflayout"), emptyMap()) }
+            NeuTables(
+                sacks = sacks.await()?.let { runCatching { NeuConstants.parseSacks(it) }.getOrNull() }.orEmpty(),
+                shards = shards.await()?.let { runCatching { NeuConstants.parseShards(it) }.getOrNull() }.orEmpty(),
+                mining = hotm.await()?.let { runCatching { NeuConstants.parseTreeLayout(it, "hotm") }.getOrNull() },
+                foraging = hotf.await()?.let { runCatching { NeuConstants.parseTreeLayout(it, "hotf") }.getOrNull() },
+            )
+        }
+        neu = Cached(tables, now() + SKILL_TTL_MILLIS)
+        return tables
+    }
+
+    private fun neuConstant(name: String): String = "$NEU_CONSTANTS/$name.json"
+
     private fun UpstreamResponse.requireSuccess() {
         when (status) {
             in 200..299 -> Unit
@@ -209,8 +241,9 @@ internal class HypixelProfileService(
         const val HYPIXEL_API = "https://api.hypixel.net"
         const val MINECRAFT_API = "https://api.minecraftservices.com"
         const val SESSION_API = "https://sessionserver.mojang.com"
-        const val NEU_LEVELING =
-            "https://raw.githubusercontent.com/NotEnoughUpdates/NotEnoughUpdates-REPO/master/constants/leveling.json"
+        const val NEU_CONSTANTS =
+            "https://raw.githubusercontent.com/NotEnoughUpdates/NotEnoughUpdates-REPO/master/constants"
+        const val NEU_LEVELING = "$NEU_CONSTANTS/leveling.json"
         const val PROFILE_TTL_MILLIS = 60_000L
         const val IDENTITY_TTL_MILLIS = 6 * 60 * 60 * 1_000L
         const val SKILL_TTL_MILLIS = 6 * 60 * 60 * 1_000L
@@ -235,6 +268,23 @@ internal data class PlayerIdentity(
 internal data class SkillDefinition(val name: String, val maxLevel: Int, val thresholds: List<Double>)
 internal data class CollectionDefinition(val name: String, val category: String)
 internal data class ItemDefinition(val name: String, val rarity: String)
+
+/**
+ * The NotEnoughUpdates tables a parse may use, all of them optional.
+ *
+ * Absent means "describe this the plain way", never "fail": a missing sack table puts every count in one
+ * group, and a missing layout leaves a perk with its raw name and no description.
+ */
+internal data class NeuTables(
+    val sacks: List<NeuConstants.Sack> = emptyList(),
+    val shards: List<NeuConstants.Shard> = emptyList(),
+    val mining: NeuConstants.TreeLayout? = null,
+    val foraging: NeuConstants.TreeLayout? = null,
+) {
+    val shardsByName: Map<String, NeuConstants.Shard> by lazy { NeuConstants.index(shards) }
+
+    fun layout(tree: String): NeuConstants.TreeLayout? = if (tree == "mining") mining else foraging
+}
 internal data class UpstreamResponse(val status: Int, val body: String, val headers: Map<String, String>)
 
 internal fun interface ProfileUpstream {
@@ -312,6 +362,7 @@ internal object HypixelProfileParser {
         dungeonThresholds: List<Double> = emptyList(),
         collectionDefinitions: Map<String, CollectionDefinition> = emptyMap(),
         itemDefinitions: Map<String, ItemDefinition> = emptyMap(),
+        neu: NeuTables = NeuTables(),
     ): SkyBlockProfile {
         val root = parseObject(body)
         if (root.boolean("success") == false) throw ProfileLookupFailure.Upstream("Hypixel refused the lookup")
@@ -413,10 +464,11 @@ internal object HypixelProfileParser {
         val mining = parseMiningSummary(member)
         val inventories = parseInventories(member)
         val bestiary = parseBestiary(member.obj("bestiary"))
-        val skillTrees = parseSkillTrees(member.obj("skill_tree"))
+        val skillTrees = parseSkillTrees(member, neu)
         val loadouts = parseLoadouts(member.obj("loadout"))
         val trophyFish = parseTrophyFish(member.obj("trophy_fish"))
-        val attributes = parseAttributes(member, itemDefinitions)
+        val attributes = parseAttributes(member, itemDefinitions, neu)
+        val sacks = parseSacks(member.pathObject("inventory", "sacks_counts"), neu)
         val rift = parseRift(member)
         val experimentation = parseExperimentation(member.obj("experimentation"))
         val chocolateFactory = parseChocolateFactory(member.obj("events"))
@@ -461,10 +513,6 @@ internal object HypixelProfileParser {
             addSection("temples", "Temples")
             addSection("item_data", "Item progression")
 
-            member.obj("inventory")?.let { inventory ->
-                inventory.obj("sacks_counts").toMetrics(limit = 96).takeIf { it.isNotEmpty() }
-                    ?.let { add(ProfileSection("sacks", "Sacks", it.sortedByDescending { metric -> metric.value })) }
-            }
             member.obj("objectives")?.let { objectives ->
                 val completed = objectives.values.count {
                     (it as? JsonObject)?.string("status")?.equals("COMPLETE", ignoreCase = true) == true
@@ -522,6 +570,7 @@ internal object HypixelProfileParser {
             bestiary = bestiary,
             skillTrees = skillTrees,
             loadouts = loadouts,
+            sacks = sacks,
             trophyFish = trophyFish,
             attributes = attributes,
             rift = rift,
@@ -608,32 +657,176 @@ private fun bestiaryLocation(id: String): String {
     }
 }
 
-private fun parseSkillTrees(root: JsonObject?): List<ProfileSkillTree> {
-    if (root == null) return emptyList()
-    val nodes = root.obj("nodes") ?: return emptyList()
-    return listOf("mining" to "Heart of the Mountain", "foraging" to "Heart of the Forest").mapNotNull { (id, name) ->
+/**
+ * Heart of the Mountain and Heart of the Forest.
+ *
+ * **Where the levels live is not one place.** Hypixel keeps the mining tree under `mining_core.nodes` —
+ * verified against SkyCrypt, which reads `mining_core.nodes.special_0` for Peak of the Mountain — while a
+ * `skill_tree` object holds the saved presets. Both are read and merged, newest-looking first, so a profile
+ * that only populates one of them still produces a tree.
+ *
+ * **The ids do not match the layout's keys either.** NotEnoughUpdates names a perk after what the menu calls
+ * it and Hypixel does not: Quick Forge arrives as `forge_time`, Core of the Mountain as `special_0`, Gem
+ * Lover as `fortunate`. Eleven of the forty-six differ. [HOTM_NODE_IDS] is the bridge, and it was derived by
+ * matching NotEnoughUpdates' names against SkyCrypt's published Hypixel-id table rather than written from
+ * memory — the two agreed on all forty-six, with nothing left over on either side.
+ *
+ * The Heart of the Forest has no such published table. Its keys are assumed to match the layout's, and any
+ * node Hypixel sends that no layout entry claims is still shown, with its id humanised, rather than dropped:
+ * a rename upstream then looks like an oddly-named perk instead of a silently missing one.
+ */
+private fun parseSkillTrees(member: JsonObject, neu: NeuTables): List<ProfileSkillTree> {
+    val presets = member.obj("skill_tree")
+    val peak = member.pathObject("mining_core", "nodes")?.int("special_0") ?: 0
+
+    return listOf(
+        Triple("mining", "Heart of the Mountain", member.pathObject("mining_core", "nodes")),
+        Triple("foraging", "Heart of the Forest", member.pathObject("foraging_core", "nodes")),
+    ).mapNotNull { (id, name, core) ->
+        val layout = neu.layout(id)
         val slots = (1..5).mapNotNull { slot ->
             val key = if (slot == 1) id else "${id}_$slot"
-            val values = nodes.obj(key) ?: return@mapNotNull null
-            val toggles = values.filterKeys { it.startsWith("toggle_") }
-            val parsedNodes = (treeLayout(id).keys + values.keys).distinct().mapNotNull node@{ nodeId ->
-                if (nodeId.startsWith("toggle_") || "selected" in nodeId) return@node null
-                val level = (values[nodeId] as? JsonPrimitive)?.intOrNull ?: -1
-                val layout = treeLayout(id)[nodeId]
-                ProfileSkillTreeNode(
-                    nodeId,
-                    nodeId.humanName(),
-                    level,
-                    toggles["toggle_$nodeId"]?.let { (it as? JsonPrimitive)?.content?.toBooleanStrictOrNull() },
-                    column = layout?.column ?: 3,
-                    row = layout?.row ?: 0,
-                    maxLevel = layout?.maxLevel ?: 1,
-                    kind = layout?.kind ?: "PERK",
-                )
-            }.sortedByDescending { it.level }
-            ProfileSkillTreeSlot(slot, root.pathObject("selected_ability")?.string(key)?.humanName(), parsedNodes)
+            val saved = presets?.obj("nodes")?.obj(key)
+            val values = when {
+                slot == 1 && core != null -> JsonObject(core + saved.orEmpty())
+                else -> saved ?: return@mapNotNull null
+            }
+            ProfileSkillTreeSlot(
+                slot,
+                presets?.pathObject("selected_ability")?.string(key)?.humanName(),
+                treeNodes(id, layout, values, peak),
+            )
         }
-        if (slots.isEmpty()) null else ProfileSkillTree(id, name, root.pathObject("selected_skill_tree_slot")?.int(id) ?: 1, slots)
+        if (slots.isEmpty()) {
+            null
+        } else {
+            ProfileSkillTree(
+                id = id,
+                name = name,
+                selectedSlot = presets?.pathObject("selected_skill_tree_slot")?.int(id) ?: 1,
+                slots = slots,
+                columns = layout?.columns ?: 7,
+                rows = layout?.rows ?: if (id == "mining") 10 else 7,
+            )
+        }
+    }
+}
+
+private fun treeNodes(
+    tree: String,
+    layout: NeuConstants.TreeLayout?,
+    values: JsonObject,
+    peak: Int,
+): List<ProfileSkillTreeNode> {
+    fun level(vararg keys: String): Int? = keys.firstNotNullOfOrNull { (values[it] as? JsonPrimitive)?.intOrNull }
+    fun toggle(vararg keys: String): Boolean? = keys.firstNotNullOfOrNull {
+        (values["toggle_$it"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
+    }
+
+    val claimed = HashSet<String>()
+    val fromLayout = layout?.perks?.values.orEmpty().map { perk ->
+        val hypixelId = HOTM_NODE_IDS[perk.id]?.takeIf { tree == "mining" } ?: perk.id
+        claimed += setOf(perk.id, hypixelId, "toggle_$hypixelId", "toggle_${perk.id}")
+        val level = level(hypixelId, perk.id) ?: 0
+        ProfileSkillTreeNode(
+            id = perk.id,
+            name = perk.name,
+            level = level,
+            enabled = toggle(hypixelId, perk.id),
+            column = perk.column,
+            row = perk.row,
+            maxLevel = perk.maxLevel,
+            kind = perkKind(perk),
+            itemId = layout?.itemFor(perk, level),
+            powder = layout?.powderFor(perk, level)?.takeIf { it.isNotEmpty() },
+            lore = layout?.describe(perk, level, peak).orEmpty(),
+        )
+    }
+
+    // Whatever Hypixel sent that no perk claimed. Shown rather than dropped, so a rename upstream is visible.
+    val leftovers = values.keys
+        .filter { it !in claimed && !it.startsWith("toggle_") && "selected" !in it }
+        .mapNotNull { id ->
+            val level = (values[id] as? JsonPrimitive)?.intOrNull ?: return@mapNotNull null
+            ProfileSkillTreeNode(id, id.humanName(), level, column = 3, row = 0, maxLevel = level.coerceAtLeast(1))
+        }
+
+    return (fromLayout + leftovers).sortedWith(compareBy({ it.row }, { it.column }))
+}
+
+/** The layout separates abilities and the tree's core from ordinary perks only by their shape. */
+private fun perkKind(perk: NeuConstants.Perk): String = when {
+    perk.id == "core_of_the_mountain" || perk.id == "center_of_the_forest" -> "CORE"
+    perk.lore.any { it.text.contains("Pickaxe Ability") || it.text.contains("Axe Ability") } -> "ABILITY"
+    perk.maxLevel <= 1 -> "UNLEVELABLE"
+    else -> "PERK"
+}
+
+/**
+ * NotEnoughUpdates' perk key against the id Hypixel puts in a profile, for the eleven that differ.
+ *
+ * Derived, not remembered: NotEnoughUpdates' `hotmlayout.json` names were matched against the
+ * `hypixel id -> friendly name` table SkyCrypt publishes in `src/constants/hotm.js`. Forty-six on each side,
+ * every one matched, none left over — which is what makes this a translation rather than a guess.
+ */
+private val HOTM_NODE_IDS = mapOf(
+    "pickobulus" to "pickaxe_toss",
+    "luck_of_the_cave" to "random_event",
+    "quick_forge" to "forge_time",
+    "sky_mall" to "daily_effect",
+    "gem_lover" to "fortunate",
+    "seasoned_mineman" to "mining_experience",
+    "core_of_the_mountain" to "special_0",
+    "speedy_mineman" to "mining_speed_2",
+    "fortunate_mineman" to "mining_fortune_2",
+    "warm_heart" to "warm_hearted",
+    "dead_mans_chest" to "hungry_for_more",
+)
+
+/** For the test that checks the aliases still name perks the layout has. */
+internal fun hotmNodeIdsForTest(): Map<String, String> = HOTM_NODE_IDS
+
+/**
+ * Sack contents, grouped by sack.
+ *
+ * Hypixel sends one flat map — several hundred item counts with nothing saying which sack any of them came
+ * from — so the grouping comes from NotEnoughUpdates' table. Anything that table does not place still
+ * appears, under "Other": a sack added to the game before that repository catches up must not make a
+ * player's items vanish from their own profile.
+ */
+private fun parseSacks(counts: JsonObject?, neu: NeuTables): List<ProfileSack> {
+    if (counts == null) return emptyList()
+    val owned = counts.mapNotNull { (id, raw) ->
+        val amount = (raw as? JsonPrimitive)?.longOrNull ?: return@mapNotNull null
+        if (amount <= 0L) null else id to amount
+    }.toMap()
+    if (owned.isEmpty()) return emptyList()
+
+    val placed = HashSet<String>()
+    val groups = neu.sacks.mapNotNull { sack ->
+        val wanted = sack.contents.map(NeuConstants::normaliseItemId).toSet()
+        val items = owned.filterKeys { NeuConstants.normaliseItemId(it) in wanted }
+        if (items.isEmpty()) return@mapNotNull null
+        placed += items.keys
+        ProfileSack(
+            id = sack.id,
+            name = sack.name,
+            itemId = sack.itemId,
+            items = items.map { (id, amount) -> ProfileSackItem(id, id.humanName(), amount) }
+                .sortedByDescending { it.amount },
+        )
+    }
+
+    val other = owned.filterKeys { it !in placed }
+    return if (other.isEmpty()) {
+        groups
+    } else {
+        groups + ProfileSack(
+            id = "other",
+            name = "Other",
+            items = other.map { (id, amount) -> ProfileSackItem(id, id.humanName(), amount) }
+                .sortedByDescending { it.amount },
+        )
     }
 }
 
@@ -727,25 +920,43 @@ private fun parseTrophyFish(root: JsonObject?): List<ProfileTrophyFish> {
     }.sortedByDescending { it.total }
 }
 
-private fun parseAttributes(member: JsonObject, definitions: Map<String, ItemDefinition>): List<ProfileAttribute> {
+/**
+ * Attribute shards.
+ *
+ * **A shard is not in the item database under the name Hypixel reports.** The profile names one by its
+ * bazaar id, and the item that can actually be drawn is filed under the *ability* the shard grants —
+ * `SHARD_GROVE` against `ATTRIBUTE_SHARD_NATURE_ELEMENTAL;1`. Nothing derives one from the other. Deriving
+ * `SHARD_<id>` and hoping, which is what this did before, produces a 404 for every shard in the game and
+ * leaves the tab drawing the same fallback amethyst several dozen times.
+ *
+ * So the shard table is the source for the id, the display name and the rarity, and Hypixel's item
+ * definitions are only a fallback for a shard added since that table was last updated.
+ */
+private fun parseAttributes(
+    member: JsonObject,
+    definitions: Map<String, ItemDefinition>,
+    neu: NeuTables,
+): List<ProfileAttribute> {
     val stacks = member.pathObject("attributes", "stacks").orEmpty().map { (id, raw) ->
-        id.lowercase().removePrefix("shard_") to ((raw as? JsonPrimitive)?.intOrNull ?: 0)
+        NeuConstants.shardKey(id) to ((raw as? JsonPrimitive)?.intOrNull ?: 0)
     }.toMap()
     val owned = member.pathObject("shards")?.array("owned").orEmpty().mapNotNull { raw ->
         val shard = raw as? JsonObject ?: return@mapNotNull null
         val type = shard.string("type") ?: return@mapNotNull null
-        type.lowercase().removePrefix("shard_") to (shard.int("amount_owned") ?: 0)
+        NeuConstants.shardKey(type) to (shard.int("amount_owned") ?: 0)
     }.toMap()
+
     return (stacks.keys + owned.keys).map { id ->
-        val itemId = "SHARD_${id.uppercase().removePrefix("SHARD_")}"
-        val definition = definitions[itemId]
+        val shard = neu.shardsByName[id]
+        val fallbackId = "SHARD_${id.uppercase()}"
+        val definition = definitions[fallbackId]
         ProfileAttribute(
             id = id,
-            name = definition?.name?.removeSuffix(" Shard") ?: id.humanName(),
-            rarity = definition?.rarity ?: "COMMON",
+            name = shard?.name ?: definition?.name?.removeSuffix(" Shard") ?: id.humanName(),
+            rarity = shard?.rarity ?: definition?.rarity ?: "COMMON",
             syphoned = stacks[id] ?: 0,
             owned = owned[id] ?: 0,
-            itemId = itemId,
+            itemId = shard?.itemId ?: fallbackId,
         )
     }.sortedWith(compareBy<ProfileAttribute> { rarityOrder(it.rarity) }.thenByDescending { it.syphoned }.thenBy { it.name })
 }
@@ -841,94 +1052,6 @@ private val RIFT_TIMECHARMS = mapOf(
     "lazy_living" to "Living Timecharm", "slime" to "Globulate Timecharm",
     "vampiric" to "Vampiric Timecharm", "mountain" to "Celestial Timecharm",
 )
-
-private data class TreeLayout(val column: Int, val row: Int, val kind: String, val maxLevel: Int)
-private fun treeLayout(type: String): Map<String, TreeLayout> = if (type == "mining") HOTM_LAYOUT else HOTF_LAYOUT
-private fun parseTreeLayout(value: String): Map<String, TreeLayout> = value.lineSequence().filter(String::isNotBlank).associate { line ->
-    val parts = line.split(',')
-    parts[0] to TreeLayout(parts[1].toInt(), parts[2].toInt(), parts[3], parts[4].toInt())
-}
-
-private val HOTM_LAYOUT = parseTreeLayout("""
-titanium_insanium,4,1,PERK,50
-old_school,1,3,PERK,20
-mineshaft_mayhem,6,7,UNLEVELABLE,1
-daily_powder,5,4,UNLEVELABLE,1
-quick_forge,5,2,PERK,20
-mining_fortune,3,1,PERK,50
-crystalline,1,9,PERK,50
-sky_mall,0,3,UNLEVELABLE,1
-mining_master,3,9,PERK,10
-miners_blessing,0,7,UNLEVELABLE,1
-anomalous_desire,0,5,ABILITY,1
-strong_arm,2,7,PERK,100
-speedy_mineman,1,6,PERK,50
-steady_hand,3,7,PERK,100
-pickobulus,5,1,ABILITY,1
-subterranean_fisher,2,5,PERK,40
-mole,3,3,PERK,200
-fortunate_mineman,5,6,PERK,50
-gifts_from_the_departed,2,9,PERK,100
-mining_speed,3,0,PERK,50
-front_loaded,6,3,UNLEVELABLE,1
-warm_heart,4,7,PERK,50
-maniac_miner,6,5,ABILITY,1
-dead_mans_chest,4,9,PERK,50
-sheer_force,6,9,ABILITY,1
-luck_of_the_cave,1,2,PERK,45
-lonesome_miner,4,5,PERK,45
-seasoned_mineman,5,3,PERK,100
-powder_buff,3,6,PERK,50
-precision_mining,2,1,UNLEVELABLE,1
-professional,2,3,PERK,140
-daily_grind,1,4,UNLEVELABLE,1
-blockhead,1,5,PERK,20
-efficient_miner,3,2,PERK,100
-rags_to_riches,3,8,PERK,50
-metal_head,1,8,PERK,20
-no_stone_unturned,1,7,PERK,50
-mining_speed_boost,1,1,ABILITY,1
-core_of_the_mountain,3,4,CORE,10
-eager_adventurer,5,8,PERK,100
-surveyor,5,7,PERK,20
-keep_it_cool,3,5,PERK,50
-vanguard_seeker,5,9,PERK,50
-gem_lover,4,3,PERK,20
-gemstone_infusion,0,9,ABILITY,1
-great_explorer,5,5,PERK,20
-""".trimIndent())
-
-private val HOTF_LAYOUT = parseTreeLayout("""
-maniac_slicer,6,5,ABILITY,1
-forest_strength,1,5,PERK,50
-foraging_fortune,3,1,PERK,50
-250_gifts,5,2,PERK,40
-half_empty,1,6,PERK,25
-ricochet,3,6,PERK,10
-efficient_forager,3,3,PERK,100
-deep_waters,2,3,PERK,50
-monster_hunter,1,4,UNLEVELABLE,1
-homing_axe,0,5,UNLEVELABLE,1
-early_bird,5,3,UNLEVELABLE,1
-hunters_luck,2,5,PERK,50
-luck_of_the_forest,1,2,PERK,40
-half_full,5,6,PERK,25
-foraging_madness,1,3,UNLEVELABLE,1
-center_of_the_forest,3,4,CORE,5
-axe_toss,5,1,ABILITY,1
-collector,4,3,PERK,50
-precision_cutting,6,3,UNLEVELABLE,1
-essence_fortune,4,5,PERK,50
-damage_boost,1,1,ABILITY,1
-galateas_might,3,5,PERK,50
-sweep,3,0,PERK,50
-daily_wishes,3,2,PERK,100
-forest_speed,5,5,PERK,50
-lottery,0,3,UNLEVELABLE,1
-strength_boost,2,1,PERK,50
-tree_whisperer,5,4,UNLEVELABLE,1
-speed_boost,4,1,PERK,50
-""".trimIndent())
 
 private fun String.humanName(): String = lowercase().split('_').joinToString(" ") {
     it.replaceFirstChar(Char::uppercase)

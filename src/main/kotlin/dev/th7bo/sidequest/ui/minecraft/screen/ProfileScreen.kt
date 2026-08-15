@@ -1,5 +1,6 @@
 package dev.th7bo.sidequest.ui.minecraft.screen
 
+import dev.th7bo.sidequest.platform.core.item.NeuItemRepository
 import dev.th7bo.sidequest.platform.core.profile.SkyCryptUrls
 import dev.th7bo.sidequest.platform.item.SkyBlockItem
 import dev.th7bo.sidequest.protocol.ApiErrorCode
@@ -16,11 +17,13 @@ import dev.th7bo.sidequest.protocol.ProfileSection
 import dev.th7bo.sidequest.protocol.ProfileSkill
 import dev.th7bo.sidequest.protocol.ProfileSlayer
 import dev.th7bo.sidequest.protocol.ProfileSkillTree
+import dev.th7bo.sidequest.protocol.ProfileSkillTreeNode
 import dev.th7bo.sidequest.protocol.ProfileAttribute
 import dev.th7bo.sidequest.protocol.ProfileChocolateFactory
 import dev.th7bo.sidequest.protocol.ProfileCrimsonIsle
 import dev.th7bo.sidequest.protocol.ProfileExperimentation
 import dev.th7bo.sidequest.protocol.ProfileRift
+import dev.th7bo.sidequest.protocol.ProfileSack
 import dev.th7bo.sidequest.protocol.ProfileTrophyFish
 import dev.th7bo.sidequest.protocol.SkyBlockProfile
 import dev.th7bo.sidequest.ui.components.ProfileWindowChrome
@@ -113,6 +116,15 @@ public class ProfileScreen(
     private var tabHitboxes: List<Pair<Tab, Rect>> = emptyList()
     private var profileHitboxes: List<Pair<String, Rect>> = emptyList()
     private var inventoryHitboxes: List<Pair<ProfileItemSlot, Rect>> = emptyList()
+
+    /**
+     * What the pointer is over, in the order it was drawn.
+     *
+     * Collected while painting rather than looked up afterwards, because the thing under the cursor is a
+     * scrolled, clipped, tab-dependent rectangle and recomputing where everything went would be the layout
+     * pass written twice. Drawn after the frame, so it sits above the content it describes.
+     */
+    private var tooltipZones: List<Pair<Rect, () -> List<Component>>> = emptyList()
     private var pointer = Vec2.Zero
     private var forcedPointerForTest: Vec2? = null
     private val itemIcons = ConcurrentHashMap<String, ItemRef>()
@@ -202,7 +214,21 @@ public class ProfileScreen(
         } finally {
             renderer.endFrame()
         }
-        if (selectedTab == Tab.INVENTORY) paintInventoryTooltip(graphics)
+        paintTooltip(graphics)
+    }
+
+    /**
+     * Draws whatever the pointer is over.
+     *
+     * The last matching zone wins, because that is the one drawn on top — a node sitting inside its tree's
+     * panel should describe the node, not the panel. Clipped to the content area so a tooltip cannot be
+     * summoned by a zone that has scrolled out of sight.
+     */
+    private fun paintTooltip(graphics: GuiGraphicsExtractor) {
+        if (!layout.content.contains(pointer)) return
+        val lines = tooltipZones.lastOrNull { (bounds, _) -> bounds.contains(pointer) }?.second?.invoke()
+        if (lines.isNullOrEmpty()) return
+        graphics.setComponentTooltipForNextFrame(minecraft.font, lines, pointer.x.roundToInt(), pointer.y.roundToInt())
     }
 
     private fun paintContent(renderer: MinecraftUiRenderer) {
@@ -226,6 +252,7 @@ public class ProfileScreen(
 
     private fun paintReady(renderer: MinecraftUiRenderer, profile: SkyBlockProfile) {
         inventoryHitboxes = emptyList()
+        tooltipZones = emptyList()
         val outer = layout.content
         val inset = if (outer.width < 420f) 7f else 11f
         val available = Rect(outer.x + inset, outer.y + inset, outer.width - inset * 2f, outer.height - inset * 2f)
@@ -574,7 +601,46 @@ public class ProfileScreen(
             for (inventory in profile.inventories) y = paintInventory(renderer, inventory, x, y, width) + GAP
         }
         if (profile.loadouts.isNotEmpty()) y = paintLoadouts(renderer, profile.loadouts, x, y, width) + GAP
-        y = paintProfileSections(renderer, profile, setOf("sacks"), x, y, width, emptyWhenMissing = false)
+        y = paintSacks(renderer, profile.sacks, x, y, width)
+        return y
+    }
+
+    /**
+     * Sacks, one section per sack.
+     *
+     * Hypixel sends the contents as a single flat map of item to count with nothing saying which sack any
+     * of it came from, which as one alphabetical list is several hundred rows of noise. The grouping comes
+     * from the server, which reads it out of the item database's own sack table; here it only has to be
+     * drawn, with each sack wearing its own item as its heading.
+     */
+    private fun paintSacks(renderer: MinecraftUiRenderer, sacks: List<ProfileSack>, x: Float, top: Float, width: Float): Float {
+        if (sacks.isEmpty()) return top
+        var y = sectionTitle(renderer, "Sacks", "minecraft:bundle", x, top, width)
+        val gridColumns = columns(width, 150f, 5)
+        val gap = 6f
+        val cardWidth = (width - gap * (gridColumns - 1)) / gridColumns
+
+        for (sack in sacks) {
+            val header = Rect(x, y, width, 22f)
+            renderer.item(
+                ItemRef(itemIcons[sack.itemId]?.id ?: "minecraft:bundle", skin = itemIcons[sack.itemId]?.skin),
+                Rect(header.x + 2f, header.y + 2f, 15f, 15f),
+            )
+            text(renderer, sack.name, header.x + 22f, header.y + 4f, TextRole.LABEL, maxWidth = width - 110f)
+            // Pulled in off the edge: the scrollbar is drawn over the last three pixels of the viewport,
+            // and a total ending in "items" put its last letter underneath it.
+            rightText(renderer, "${formatNumber(sack.total.toDouble())} items", header.right - 6f, header.y + 5f, TextRole.CAPTION, theme.tokens.colors.accent)
+            y = header.bottom
+
+            sack.items.forEachIndexed { index, item ->
+                val box = Rect(x + (index % gridColumns) * (cardWidth + gap), y + (index / gridColumns) * 34f, cardWidth, 29f)
+                surface(renderer, box)
+                renderer.item(itemIcons[item.id] ?: ItemRef(collectionItem(item.id)), Rect(box.x + 6f, box.y + 6f, 17f, 17f))
+                text(renderer, item.name, box.x + 28f, box.y + 3f, TextRole.CAPTION, maxWidth = box.width - 34f)
+                text(renderer, formatNumber(item.amount.toDouble()), box.x + 28f, box.y + 15f, TextRole.CAPTION, theme.tokens.colors.accent)
+            }
+            y += ceil(sack.items.size / gridColumns.toFloat()).toInt() * 34f + GAP
+        }
         return y
     }
 
@@ -595,19 +661,47 @@ public class ProfileScreen(
             val box = Rect(x + (item.slot % columns) * slot + 3f, y + (item.slot / columns) * slot + 3f, slot - 6f, slot - 6f)
             renderer.item(icon, box)
             inventoryHitboxes = inventoryHitboxes + (item to box)
+            tooltipZones = tooltipZones + (box to { itemTooltip(item) })
             if (item.count > 1) rightText(renderer, item.count.toString(), box.right, box.bottom - 8f, TextRole.CAPTION, Color.White)
         }
         return y + rows * slot
     }
 
-    private fun paintInventoryTooltip(graphics: GuiGraphicsExtractor) {
-        val item = inventoryHitboxes.lastOrNull { (_, bounds) -> bounds.contains(pointer) }?.first ?: return
-        val lines = buildList<Component> {
-            add(legacyComponent(item.displayName ?: item.internalName?.humanName() ?: "Unknown item"))
-            item.lore.take(24).mapTo(this, ::legacyComponent)
-            if (item.count > 1) add(Component.literal("Count: ${item.count}").withStyle(ChatFormatting.GRAY))
+    private fun itemTooltip(item: ProfileItemSlot): List<Component> = buildList {
+        add(legacyComponent(item.displayName ?: item.internalName?.humanName() ?: "Unknown item"))
+        item.lore.take(24).mapTo(this, ::legacyComponent)
+        if (item.count > 1) add(Component.literal("Count: ${item.count}").withStyle(ChatFormatting.GRAY))
+    }
+
+    /**
+     * A Heart of the Mountain or Heart of the Forest perk, as the real menu describes it.
+     *
+     * The description is not stored anywhere — it is the perk's own formula, evaluated at this player's
+     * level on the server, colour codes and all. So an untaken perk reads as what taking it would give,
+     * and a maxed one reads as what it is giving, which is what makes the grid worth hovering over at all.
+     */
+    private fun perkTooltip(node: ProfileSkillTreeNode): List<Component> = buildList {
+        add(Component.literal(node.name).withStyle(if (node.level > 0) ChatFormatting.GREEN else ChatFormatting.GRAY))
+        if (node.maxLevel > 1) {
+            add(
+                Component.literal("Level ${node.level.coerceAtLeast(0)}")
+                    .withStyle(ChatFormatting.GRAY)
+                    .append(Component.literal("/${node.maxLevel}").withStyle(ChatFormatting.DARK_GRAY)),
+            )
+        } else if (node.level <= 0) {
+            add(Component.literal("Not unlocked").withStyle(ChatFormatting.DARK_GRAY))
         }
-        graphics.setComponentTooltipForNextFrame(minecraft.font, lines, pointer.x.roundToInt(), pointer.y.roundToInt())
+        if (node.lore.isNotEmpty()) {
+            add(Component.empty())
+            node.lore.take(16).mapTo(this, ::legacyComponent)
+        }
+        node.powder?.let {
+            add(Component.empty())
+            add(Component.literal(it.humanName()).withStyle(ChatFormatting.DARK_GRAY))
+        }
+        node.enabled?.let {
+            add(Component.literal(if (it) "Enabled" else "Disabled").withStyle(if (it) ChatFormatting.GREEN else ChatFormatting.RED))
+        }
     }
 
     private fun legacyComponent(value: String): Component {
@@ -667,22 +761,35 @@ public class ProfileScreen(
         text(renderer, selected.selectedAbility ?: "No selected ability", summary.x + 10f, summary.y + 22f, TextRole.CAPTION)
         y = summary.bottom + 6f
         val slot = 26f
-        val gridWidth = slot * 7f + 20f
-        val gridHeight = slot * 10f + 12f
+        // Measured from the tree rather than fixed: the mountain is ten rows deep and the forest seven, and
+        // drawing the forest on the mountain's grid left it floating three rows down its own panel.
+        val columns = tree.columns.coerceIn(1, 12)
+        val rows = tree.rows.coerceIn(1, 16)
+        val gridWidth = slot * columns + 20f
+        val gridHeight = slot * rows + 12f
         val gridX = x + (width - gridWidth) / 2f
         val grid = Rect(gridX, y, gridWidth, gridHeight)
         surface(renderer, grid)
-        repeat(10) { tier ->
+        repeat(rows) { tier ->
             val lineY = grid.y + 6f + tier * slot + slot / 2f
             renderer.fillRect(Rect(grid.x + 8f, lineY, grid.width - 16f, 1f), theme.tokens.colors.border.withAlpha(.22f))
         }
         selected.nodes.forEach { node ->
-            val visualRow = 9 - node.row.coerceIn(0, 9)
-            val box = Rect(grid.x + 10f + node.column.coerceIn(0, 6) * slot, grid.y + 6f + visualRow * slot, 22f, 22f)
+            val box = Rect(
+                grid.x + 10f + node.column.coerceIn(0, columns - 1) * slot,
+                grid.y + 6f + node.row.coerceIn(0, rows - 1) * slot,
+                22f,
+                22f,
+            )
             renderer.roundedRect(box, Dp(3f), theme.tokens.colors.windowBackground)
             renderer.border(box, Dp(3f), Dp(1f), treeNodeColor(node.kind, node.level, node.maxLevel, node.enabled).withAlpha(.7f))
-            renderer.item(ItemRef(treeNodeItem(tree.id, node.kind, node.level, node.maxLevel, node.enabled, selected.selectedAbility, node.name)), box.inset(3f))
+            // The layout answers what the real menu draws — coal when locked, diamond at the cap — so the
+            // guess below is only reached when the description tables could not be fetched at all.
+            val icon = node.itemId
+                ?: treeNodeItem(tree.id, node.kind, node.level, node.maxLevel, node.enabled, selected.selectedAbility, node.name)
+            renderer.item(ItemRef(icon), box.inset(3f))
             if (node.level > 1) rightText(renderer, node.level.toString(), box.right, box.bottom - 7f, TextRole.CAPTION, Color.White)
+            tooltipZones = tooltipZones + (box to { perkTooltip(node) })
         }
         return grid.bottom
     }
@@ -1070,38 +1177,89 @@ public class ProfileScreen(
             ?.let { Vec2(it.x + it.width / 2f, it.y + it.height / 2f) }
     }
 
+    /**
+     * Positions the harness over the [index]th hoverable thing that is actually on screen.
+     *
+     * Visible ones only, and that is the point: the content scrolls, so the fourth node in a tree is
+     * usually below the viewport, and pointing at it would produce a screenshot with no tooltip and no
+     * indication of why. A negative index parks the pointer back where the mouse really is.
+     */
+    public fun hoverTooltipZoneForTest(index: Int) {
+        if (index < 0) {
+            forcedPointerForTest = null
+            return
+        }
+        forcedPointerForTest = visibleTooltipZones().getOrNull(index)
+            ?.let { Vec2(it.x + it.width / 2f, it.y + it.height / 2f) }
+    }
+
+    /** How many hoverable things the current tab has on screen. Zero means the tooltips are not wired up. */
+    public val tooltipZoneCountForTest: Int get() = visibleTooltipZones().size
+
+    private fun visibleTooltipZones(): List<Rect> = tooltipZones.map { it.first }
+        .filter { layout.content.contains(Vec2(it.x + it.width / 2f, it.y + it.height / 2f)) }
+
     public val loadedVisualCountForTest: Int get() = itemIcons.size
 
+    /**
+     * Fetches the icons the visible tab is about to want.
+     *
+     * A request is a cache key and the names the database might file it under, likeliest first — not one
+     * name. That distinction is the whole of the pet fix: the database has one entry per rarity a pet is
+     * *obtained* at, so a Golden Dragon somebody upgraded to mythic through Kat has no entry at its own
+     * rarity, and asking for that one and stopping drew a blank Steve head for a large share of a real
+     * stable. Walking down is safe because a pet's skin does not change with its rarity.
+     */
     private fun preloadVisuals(profile: SkyBlockProfile, tab: Tab) {
-        val keys = when (tab) {
-            Tab.COMBAT -> profile.slayers.mapNotNull { slayerVisualKey(it.id) }
-            Tab.PETS -> profile.pets.flatMap { listOfNotNull(petVisualKey(it), it.heldItem) }
-            Tab.INVENTORY -> profile.inventories.flatMap { inventory -> inventory.slots.mapNotNull { it.internalName } } +
-                profile.loadouts.flatMap { (it.armor + it.equipment).mapNotNull(ProfileItemSlot::internalName) }
-            Tab.COLLECTIONS -> profile.collections.map { it.id }
-            Tab.FISHING -> profile.trophyFish.map(::trophyFishVisualKey)
-            Tab.FORAGING -> profile.attributes.map { it.itemId }
+        val requests: List<Pair<String, List<String>>> = when (tab) {
+            Tab.COMBAT -> profile.slayers.mapNotNull { slayerVisualKey(it.id) }.map { it to listOf(it) }
+            Tab.PETS -> profile.pets.flatMap { pet ->
+                buildList {
+                    add(petVisualKey(pet) to NeuItemRepository.petCandidatesFor(pet.type, pet.rarity, pet.skin))
+                    pet.heldItem?.let { add(it to listOf(it)) }
+                }
+            }
+            Tab.INVENTORY -> (
+                profile.inventories.flatMap { inventory -> inventory.slots.mapNotNull { it.internalName } } +
+                    profile.loadouts.flatMap { (it.armor + it.equipment).mapNotNull(ProfileItemSlot::internalName) } +
+                    profile.sacks.flatMap { sack -> sack.items.map { it.id } + sack.itemId }
+                ).map { it to itemCandidates(it) }
+            Tab.COLLECTIONS -> profile.collections.map { it.id to itemCandidates(it.id) }
+            Tab.FISHING -> profile.trophyFish.map(::trophyFishVisualKey).map { it to listOf(it) }
+            Tab.FORAGING -> profile.attributes.map { it.itemId to listOf(it.itemId) }
             else -> emptyList()
-        }.distinct().filter(requestedItemIcons::add)
-        if (keys.isEmpty()) return
+        }.filter { (key, _) -> key.isNotEmpty() && requestedItemIcons.add(key) }
+        if (requests.isEmpty()) return
 
         scope.launch {
-            for (chunk in keys.chunked(8)) {
-                chunk.map { key ->
+            for (chunk in requests.chunked(8)) {
+                chunk.map { (key, candidates) ->
                     async {
-                        resolveItem(key)?.let { item ->
+                        for (candidate in candidates) {
+                            val item = resolveItem(candidate) ?: continue
                             itemIcons[key] = ItemRef(
                                 item.minecraftId,
                                 skin = item.skullTexture,
                                 model = item.modelId,
-                                fallbackId = visualFallback(key),
+                                fallbackId = visualFallback(candidate),
                             )
+                            break
                         }
                     }
                 }.awaitAll()
             }
         }
     }
+
+    /**
+     * The spellings an ordinary item might be filed under.
+     *
+     * One character, and it decides whether every wood, dye and variant item in a profile has a picture:
+     * Hypixel reports the 1.8 damage value as `LOG:1`, and the database cannot put a colon in a filename so
+     * it stores `LOG-1`. Offering both costs a single extra request per item that misses.
+     */
+    private fun itemCandidates(id: String): List<String> =
+        listOf(id, id.replace(':', '-')).filter { it.isNotEmpty() }.distinct()
 
     private fun petVisualKey(pet: ProfilePet): String = pet.skin?.takeIf { it.isNotBlank() }
         ?: "${pet.type};${petTier(pet.rarity)}"
@@ -1472,7 +1630,7 @@ public class ProfileScreen(
     }
 
     private fun treeNodeColor(kind: String, level: Int, maxLevel: Int, enabled: Boolean?): Color = when {
-        level < 0 -> Color.parse("#555B66")
+        level <= 0 -> Color.parse("#555B66")
         enabled == false -> Color.parse("#E65B65")
         kind == "ABILITY" -> Color.parse("#F0C94D")
         kind == "CORE" -> theme.tokens.colors.accent
@@ -1489,7 +1647,7 @@ public class ProfileScreen(
         selectedAbility: String?,
         name: String,
     ): String = when {
-        level < 0 -> if (tree == "mining") "minecraft:coal" else "minecraft:pale_oak_button"
+        level <= 0 -> if (tree == "mining") "minecraft:coal" else "minecraft:pale_oak_button"
         enabled == false -> "minecraft:redstone"
         kind == "ABILITY" && selectedAbility.equals(name, true) -> if (tree == "mining") "minecraft:emerald_block" else "minecraft:oak_sapling"
         kind == "ABILITY" -> if (tree == "mining") "minecraft:redstone_block" else "minecraft:cherry_sapling"

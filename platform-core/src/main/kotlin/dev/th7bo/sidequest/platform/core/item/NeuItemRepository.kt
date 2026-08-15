@@ -486,6 +486,54 @@ public class NeuItemRepository(
          */
         private val PET_TIERS = listOf(4, 3, 2, 1, 0, 5)
 
+        /**
+         * Every key the picture of a pet might be filed under, likeliest first.
+         *
+         * **A pet is not filed at every rarity it can be held at.** The database has one entry per rarity the
+         * pet is actually *obtained* at, so a Golden Dragon exists only as `GOLDEN_DRAGON;4` and an Ender
+         * Dragon only as `;3` and `;4` — both verified against the live repository — while a pet somebody has
+         * upgraded to mythic through Kat has no `;5` entry at all. Asking for the exact rarity and stopping
+         * there is therefore a 404 for a large share of a real player's stable, and a 404 draws a blank Steve
+         * head, which reads as the pet being broken rather than as the lookup missing.
+         *
+         * Walking the ladder is safe for the same reason it is safe in [candidatesFor]: **a pet's skin does
+         * not change with its rarity.** Only the colour of its name does, and the name is drawn from the
+         * profile rather than from this entry. So the fallback draws the correct animal every time.
+         *
+         * A [skin] is tried ahead of everything, because a pet wearing one does not look like the pet.
+         * Hypixel names it without the prefix the database files it under — `WOLF_DOGE` against
+         * `PET_SKIN_WOLF_DOGE` — so both spellings are offered rather than assuming which side is which.
+         */
+        public fun petCandidatesFor(type: String, rarity: String, skin: String? = null): List<String> {
+            val cleanType = type.trim().uppercase()
+            val cleanSkin = skin?.trim()?.uppercase()?.takeUnless { it.isEmpty() }
+            val exact = petTierFor(rarity)
+
+            return buildList {
+                cleanSkin?.let {
+                    add(if (it.startsWith(PET_SKIN_PREFIX)) it else PET_SKIN_PREFIX + it)
+                    add(it)
+                }
+                if (cleanType.isNotEmpty()) {
+                    exact?.let { add("$cleanType;$it") }
+                    for (tier in PET_TIERS) add("$cleanType;$tier")
+                }
+            }.filter { it.isNotEmpty() }.distinct()
+        }
+
+        /** The database's rarity number for a pet tier, or null for a tier it does not name. */
+        public fun petTierFor(rarity: String): Int? = when (rarity.trim().uppercase()) {
+            "COMMON" -> 0
+            "UNCOMMON" -> 1
+            "RARE" -> 2
+            "EPIC" -> 3
+            "LEGENDARY" -> 4
+            "MYTHIC" -> 5
+            else -> null
+        }
+
+        private const val PET_SKIN_PREFIX = "PET_SKIN_"
+
         private val UNDERSCORE_RUN = Regex("_{2,}")
 
         /** A trailing `'s` on a word: the `Necron's` in `Necron's Handle`. */

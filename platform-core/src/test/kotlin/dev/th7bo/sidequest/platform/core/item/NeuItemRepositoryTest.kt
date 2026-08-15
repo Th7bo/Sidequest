@@ -157,6 +157,56 @@ class NeuItemRepositoryTest {
         assertEquals(candidates.size, candidates.distinct().size, "no name is asked for twice")
     }
 
+    // -- a pet somebody owns -------------------------------------------------
+
+    /**
+     * The rarity a pet is *held* at is not always a rarity it is *filed* at.
+     *
+     * Verified against the live repository: `GOLDEN_DRAGON` exists only as `;4`, so a Kat-upgraded mythic one
+     * — which Hypixel reports as `MYTHIC`, wanting `;5` — has no entry of its own. Stopping at the exact
+     * rarity would draw a blank Steve head for it, so the ladder has to be walked.
+     */
+    @Test
+    fun `a pet held at a rarity it is not filed at still resolves`() {
+        val candidates = NeuItemRepository.petCandidatesFor("GOLDEN_DRAGON", "MYTHIC")
+
+        assertEquals("GOLDEN_DRAGON;5", candidates.first(), "the rarity it is actually held at leads")
+        assertTrue("GOLDEN_DRAGON;4" in candidates, "the rarity it exists at is reachable: $candidates")
+        assertEquals(candidates.size, candidates.distinct().size, "no key is asked for twice")
+    }
+
+    /** An unknown rarity is not a reason to give up: the ladder alone still finds the animal. */
+    @Test
+    fun `an unrecognised rarity falls back to the ladder`() {
+        val candidates = NeuItemRepository.petCandidatesFor("TIGER", "UNKNOWN")
+
+        assertEquals("TIGER;4", candidates.first())
+        assertTrue(candidates.size >= 6, candidates.toString())
+    }
+
+    /**
+     * A skinned pet does not look like the pet, so its skin is asked for first.
+     *
+     * Hypixel names the skin without the prefix the database files it under — `WOLF_DOGE` against
+     * `PET_SKIN_WOLF_DOGE` — so both spellings are offered rather than one being assumed.
+     */
+    @Test
+    fun `a skin outranks the animal underneath it`() {
+        val candidates = NeuItemRepository.petCandidatesFor("WOLF", "LEGENDARY", skin = "WOLF_DOGE")
+
+        assertEquals(listOf("PET_SKIN_WOLF_DOGE", "WOLF_DOGE"), candidates.take(2))
+        assertTrue("WOLF;4" in candidates, "the bare wolf is still the fallback: $candidates")
+    }
+
+    /** A skin Hypixel already prefixed is not prefixed twice. */
+    @Test
+    fun `an already prefixed skin is left alone`() {
+        val candidates = NeuItemRepository.petCandidatesFor("WOLF", "LEGENDARY", skin = "PET_SKIN_WOLF_DOGE")
+
+        assertEquals("PET_SKIN_WOLF_DOGE", candidates.first())
+        assertTrue(candidates.none { it.startsWith("PET_SKIN_PET_SKIN_") }, candidates.toString())
+    }
+
     // -- reading an entry ----------------------------------------------------
 
     @Test

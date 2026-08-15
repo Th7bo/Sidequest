@@ -18,6 +18,8 @@ import dev.th7bo.sidequest.protocol.ProfileLoadout
 import dev.th7bo.sidequest.protocol.ProfileKuudraTier
 import dev.th7bo.sidequest.protocol.ProfileRabbitEmployee
 import dev.th7bo.sidequest.protocol.ProfileRift
+import dev.th7bo.sidequest.protocol.ProfileSack
+import dev.th7bo.sidequest.protocol.ProfileSackItem
 import dev.th7bo.sidequest.protocol.ProfileTimecharm
 import dev.th7bo.sidequest.protocol.ProfileTrophyFish
 import dev.th7bo.sidequest.protocol.ProfileMetric
@@ -98,6 +100,11 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         onClient(context) { screen.hoverFirstInventoryItemForTest() }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("profile_structured_inventory_lore")
+        onClient(context) { screen.hoverTooltipZoneForTest(-1) }
+
+        onClient(context) { screen.scrollForTest(620f) }
+        context.waitTicks(SETTLE_TICKS * 2)
+        context.takeScreenshot("profile_structured_sacks")
 
         onClient(context) { screen.selectTabForTest("Collections") }
         context.waitTicks(SETTLE_TICKS)
@@ -111,6 +118,20 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         onClient(context) { screen.selectTabForTest("Mining") }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("profile_structured_hotm")
+        // Down to the tree itself. The nodes are hoverable only where they are drawn, so a tooltip
+        // screenshot taken with the grid still below the viewport shows nothing and explains nothing.
+        onClient(context) { screen.scrollForTest(300f) }
+        context.waitTicks(SETTLE_TICKS)
+        onClient(context) {
+            check(screen.tooltipZoneCountForTest >= 4) {
+                "the Heart of the Mountain nodes are not hoverable: ${screen.tooltipZoneCountForTest} on screen"
+            }
+            // A levelled node, so the tooltip has a level line and an interpolated description to show.
+            screen.hoverTooltipZoneForTest(screen.tooltipZoneCountForTest - 1)
+        }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_hotm_perk")
+        onClient(context) { screen.hoverTooltipZoneForTest(-1) }
 
         onClient(context) { screen.selectTabForTest("Farming") }
         context.waitTicks(SETTLE_TICKS)
@@ -119,6 +140,14 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         onClient(context) { screen.selectTabForTest("Foraging") }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("profile_structured_hotf")
+        // The forest tree is three rows shorter than the mountain's; its bottom node must sit on the
+        // bottom row of its own grid rather than floating three rows above it.
+        onClient(context) { screen.scrollForTest(180f) }
+        context.waitTicks(SETTLE_TICKS)
+        onClient(context) { screen.hoverTooltipZoneForTest(screen.tooltipZoneCountForTest - 1) }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_hotf_perk")
+        onClient(context) { screen.hoverTooltipZoneForTest(-1) }
 
         onClient(context) { screen.scrollForTest(325f) }
         context.waitTicks(SETTLE_TICKS)
@@ -202,7 +231,8 @@ class ProfileScreenRenderTest : FabricClientGameTest {
             ProfileCollection("LOG:3", "Jungle Wood", 9_000_000, "Foraging"),
         ),
         pets = listOf(
-            ProfilePet("GOLDEN_DRAGON", "Golden Dragon", "LEGENDARY", 210_000_000.0, true, "PET_ITEM_TIER_BOOST"),
+            // Mythic, which the database has no entry for: it resolves only by walking down to legendary.
+            ProfilePet("GOLDEN_DRAGON", "Golden Dragon", "MYTHIC", 210_000_000.0, true, "PET_ITEM_TIER_BOOST"),
             ProfilePet("ENDER_DRAGON", "Ender Dragon", "MYTHIC", 125_000_000.0, heldItem = "PET_ITEM_LUCKY_CLOVER"),
             ProfilePet("TIGER", "Tiger", "LEGENDARY", 35_000_000.0),
         ),
@@ -227,40 +257,68 @@ class ProfileScreenRenderTest : FabricClientGameTest {
                 ProfileBestiaryMob("blaze", "Blaze", 190_000), ProfileBestiaryMob("magma_cube", "Magma Cube", 94_000),
             )),
         ),
+        // Rows run top-down, as the game's own menus do: Mining Speed is the bottom of a ten-row tree and
+        // Sweep the bottom of a seven-row one. The two trees are deliberately different heights here,
+        // because drawing the shorter on the taller's grid is the mistake this shape exists to catch.
         skillTrees = listOf(
             ProfileSkillTree("mining", "Heart of the Mountain", 2, listOf(ProfileSkillTreeSlot(2, "Mining Speed Boost", listOf(
-                ProfileSkillTreeNode("mining_speed", "Mining Speed", 50, column = 3, row = 0, maxLevel = 50),
-                ProfileSkillTreeNode("mining_speed_boost", "Mining Speed Boost", 1, column = 1, row = 1, kind = "ABILITY"),
-                ProfileSkillTreeNode("mining_fortune", "Mining Fortune", 50, column = 3, row = 1, maxLevel = 50),
-                ProfileSkillTreeNode("professional", "Professional", 140, column = 2, row = 3, maxLevel = 140),
-                ProfileSkillTreeNode("core_of_the_mountain", "Core of the Mountain", 7, column = 3, row = 4, maxLevel = 10, kind = "CORE"),
-                ProfileSkillTreeNode("great_explorer", "Great Explorer", 20, column = 5, row = 5, maxLevel = 20),
-                ProfileSkillTreeNode("strong_arm", "Strong Arm", -1, column = 2, row = 7, maxLevel = 100),
-                ProfileSkillTreeNode("warm_heart", "Warm Heart", -1, column = 4, row = 7, maxLevel = 50),
-                ProfileSkillTreeNode("rags_to_riches", "Rags to Riches", -1, column = 3, row = 8, maxLevel = 50),
-                ProfileSkillTreeNode("mining_master", "Mining Master", -1, column = 3, row = 9, maxLevel = 10),
-            )))),
+                ProfileSkillTreeNode("mining_speed", "Mining Speed", 50, column = 3, row = 9, maxLevel = 50,
+                    itemId = "minecraft:diamond", powder = "MITHRIL", lore = listOf("§7Grants §a+§a1000 §6⸕ Mining Speed§7.")),
+                ProfileSkillTreeNode("mining_speed_boost", "Mining Speed Boost", 1, column = 1, row = 8, kind = "ABILITY",
+                    itemId = "minecraft:emerald_block", powder = "MITHRIL",
+                    lore = listOf("§6Pickaxe Ability: Mining Speed Boost", "§7Grants §a+§a200% §7mining speed for §a10s§7.", "§8Cooldown: §a120s")),
+                ProfileSkillTreeNode("mining_fortune", "Mining Fortune", 50, column = 3, row = 8, maxLevel = 50,
+                    itemId = "minecraft:diamond", powder = "MITHRIL", lore = listOf("§7Grants §a+§a100 §6☘ Mining Fortune§7.")),
+                ProfileSkillTreeNode("professional", "Professional", 140, column = 2, row = 6, maxLevel = 140,
+                    itemId = "minecraft:diamond", powder = "GEMSTONE", lore = listOf("§7Gain §a+§a700 §6⸕ Mining Speed §7when mining gemstones.")),
+                ProfileSkillTreeNode("core_of_the_mountain", "Core of the Mountain", 7, column = 3, row = 5, maxLevel = 10, kind = "CORE",
+                    itemId = "minecraft:redstone_block", powder = "GEMSTONE",
+                    lore = listOf("§7§8+§c1 Pickaxe Ability Level", "§7§8+§a1 Forge Slot", "§7§8+§a1 Commission Slot")),
+                ProfileSkillTreeNode("great_explorer", "Great Explorer", 20, column = 5, row = 4, maxLevel = 20,
+                    itemId = "minecraft:diamond", powder = "GEMSTONE"),
+                ProfileSkillTreeNode("strong_arm", "Strong Arm", 0, column = 2, row = 2, maxLevel = 100,
+                    itemId = "minecraft:coal", powder = "GLACITE", lore = listOf("§7Grants §a+§a2 §6⸕ Mining Speed§7.")),
+                ProfileSkillTreeNode("warm_heart", "Warm Heart", 0, column = 4, row = 2, maxLevel = 50, itemId = "minecraft:coal"),
+                ProfileSkillTreeNode("rags_to_riches", "Rags to Riches", 0, column = 3, row = 1, maxLevel = 50, itemId = "minecraft:coal"),
+                ProfileSkillTreeNode("mining_master", "Mining Master", 0, column = 3, row = 0, maxLevel = 10, itemId = "minecraft:coal"),
+            ))), columns = 7, rows = 10),
             ProfileSkillTree("foraging", "Heart of the Forest", 1, listOf(ProfileSkillTreeSlot(1, "Tree Whisper", listOf(
-                ProfileSkillTreeNode("sweep", "Sweep", 34, column = 3, row = 0, maxLevel = 50),
-                ProfileSkillTreeNode("damage_boost", "Damage Boost", 1, column = 1, row = 1, kind = "ABILITY"),
-                ProfileSkillTreeNode("foraging_fortune", "Foraging Fortune", 20, column = 3, row = 1, maxLevel = 50),
-                ProfileSkillTreeNode("efficient_forager", "Efficient Forager", 12, column = 3, row = 3, maxLevel = 100),
-                ProfileSkillTreeNode("center_of_the_forest", "Center of the Forest", 4, column = 3, row = 4, maxLevel = 5, kind = "CORE"),
-                ProfileSkillTreeNode("forest_knowledge", "Forest Knowledge", -1, column = 1, row = 7, maxLevel = 50),
-                ProfileSkillTreeNode("seasoned_forager", "Seasoned Forager", -1, column = 5, row = 7, maxLevel = 50),
-                ProfileSkillTreeNode("heartwood", "Heartwood", -1, column = 3, row = 8, maxLevel = 20),
-                ProfileSkillTreeNode("forest_master", "Forest Master", -1, column = 3, row = 9, maxLevel = 10),
-            )))),
+                ProfileSkillTreeNode("sweep", "Sweep", 34, column = 3, row = 6, maxLevel = 50,
+                    itemId = "minecraft:stripped_oak_log", powder = "FOREST_WHISPERS", lore = listOf("§7Grants §a+34 §2∮ Sweep§7.")),
+                ProfileSkillTreeNode("damage_boost", "Damage Boost", 1, column = 1, row = 5, kind = "ABILITY",
+                    itemId = "minecraft:oak_sapling", powder = "FOREST_WHISPERS", lore = listOf("§6Axe Ability: Damage Boost")),
+                ProfileSkillTreeNode("foraging_fortune", "Foraging Fortune", 20, column = 3, row = 5, maxLevel = 50,
+                    itemId = "minecraft:stripped_oak_log", powder = "FOREST_WHISPERS", lore = listOf("§7Grants §a+40 §6☘ Foraging Fortune§7.")),
+                ProfileSkillTreeNode("efficient_forager", "Efficient Forager", 12, column = 3, row = 3, maxLevel = 100,
+                    itemId = "minecraft:stripped_oak_log", powder = "FOREST_WHISPERS"),
+                ProfileSkillTreeNode("center_of_the_forest", "Center of the Forest", 4, column = 3, row = 2, maxLevel = 5, kind = "CORE",
+                    itemId = "minecraft:oak_wood", powder = "FOREST_WHISPERS", lore = listOf("§7§8+§a1 Forest Slot")),
+                ProfileSkillTreeNode("forest_knowledge", "Forest Knowledge", 0, column = 1, row = 1, maxLevel = 50, itemId = "minecraft:pale_oak_button"),
+                ProfileSkillTreeNode("seasoned_forager", "Seasoned Forager", 0, column = 5, row = 1, maxLevel = 50, itemId = "minecraft:pale_oak_button"),
+                ProfileSkillTreeNode("heartwood", "Heartwood", 0, column = 3, row = 0, maxLevel = 20, itemId = "minecraft:pale_oak_button"),
+            ))), columns = 7, rows = 7),
+        ),
+        sacks = listOf(
+            ProfileSack("agronomy", "Agronomy", "LARGE_AGRONOMY_SACK", listOf(
+                ProfileSackItem("WHEAT", "Wheat", 640_000), ProfileSackItem("INK_SACK:3", "Cocoa Beans", 128_000),
+                ProfileSackItem("SEEDS", "Seeds", 96_000), ProfileSackItem("CACTUS", "Cactus", 18_400),
+            )),
+            ProfileSack("mining", "Mining", "LARGE_MINING_SACK", listOf(
+                ProfileSackItem("DIAMOND", "Diamond", 412_000), ProfileSackItem("COAL", "Coal", 240_000),
+                ProfileSackItem("REDSTONE", "Redstone", 88_000),
+            )),
+            ProfileSack("other", "Other", items = listOf(ProfileSackItem("SOMETHING_NEW", "Something New", 12))),
         ),
         trophyFish = listOf(
             ProfileTrophyFish("blobfish", "Blobfish", 320, 112, 34, 8),
             ProfileTrophyFish("sulphur_skitter", "Sulphur Skitter", 240, 84, 18, 2),
             ProfileTrophyFish("vanille", "Vanille", 98, 32, 8, 1),
         ),
+        // The item ids are the ones the database actually files shards under — the ability, not the shard.
         attributes = listOf(
-            ProfileAttribute("forest_fortune", "Forest Fortune", "LEGENDARY", 9, 2, "SHARD_FOREST_FORTUNE"),
-            ProfileAttribute("sweep", "Sweep", "EPIC", 7, 4, "SHARD_SWEEP"),
-            ProfileAttribute("hunter_fortune", "Hunter Fortune", "RARE", 5, 8, "SHARD_HUNTER_FORTUNE"),
+            ProfileAttribute("grove", "Grove", "COMMON", 9, 2, "ATTRIBUTE_SHARD_NATURE_ELEMENTAL;1"),
+            ProfileAttribute("mist", "Mist", "UNCOMMON", 7, 4, "ATTRIBUTE_SHARD_FOG_ELEMENTAL;1"),
+            ProfileAttribute("flash", "Flash", "LEGENDARY", 5, 8, "ATTRIBUTE_SHARD_LIGHT_ELEMENTAL;1"),
         ),
         rift = ProfileRift(4_200_000, 184, 46, 7, 5, 4, 8_420, listOf(
             ProfileTimecharm("wyldly_supreme", "Supreme Timecharm", 12), ProfileTimecharm("citizen", "SkyBlock Citizen Timecharm", 48),
@@ -318,7 +376,16 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         ),
     )
 
-    private fun visualItem(key: String, skin: String?): SkyBlockItem {
+    /**
+     * The item database, standing in.
+     *
+     * **It has to be able to miss.** The real one files a pet once per rarity it is *obtained* at, so
+     * `GOLDEN_DRAGON;5` and `ENDER_DRAGON;5` genuinely do not exist and a mythic pet only resolves because
+     * the lookup walks down to `;4`. A stub that answered every key would draw three correct pets while the
+     * game drew three Steve heads, which is the bug this fixture is here to catch.
+     */
+    private fun visualItem(key: String, skin: String?): SkyBlockItem? {
+        if (key in MISSING_FROM_DATABASE) return null
         val vanilla = when (key) {
             "SULPHUR", "GUNPOWDER" -> "minecraft:gunpowder"
             "MOONFLOWER" -> "minecraft:spore_blossom"
@@ -339,9 +406,17 @@ class ProfileScreenRenderTest : FabricClientGameTest {
             "TARANTULA_WEB", "NULL_SPHERE" -> "minecraft:paper"
             "WOLF_TOOTH" -> "minecraft:bone"
             "DERELICT_ASHE" -> "minecraft:blaze_powder"
-            "GOLDEN_DRAGON;4" -> "minecraft:dragon_head"
-            "ENDER_DRAGON;5" -> "minecraft:dragon_head"
-            "TIGER;4" -> "minecraft:player_head"
+            "GOLDEN_DRAGON;4", "ENDER_DRAGON;4" -> "minecraft:dragon_head"
+            "ATTRIBUTE_SHARD_NATURE_ELEMENTAL;1" -> "minecraft:emerald"
+            "ATTRIBUTE_SHARD_FOG_ELEMENTAL;1" -> "minecraft:prismarine_crystals"
+            "ATTRIBUTE_SHARD_LIGHT_ELEMENTAL;1" -> "minecraft:glowstone_dust"
+            "LARGE_AGRONOMY_SACK", "LARGE_MINING_SACK" -> "minecraft:bundle"
+            "WHEAT" -> "minecraft:wheat"
+            "INK_SACK-3" -> "minecraft:cocoa_beans"
+            "CACTUS" -> "minecraft:cactus"
+            "DIAMOND" -> "minecraft:diamond"
+            "COAL" -> "minecraft:coal"
+            "REDSTONE" -> "minecraft:redstone"
             else -> "minecraft:player_head"
         }
         val model = when (key) {
@@ -367,5 +442,15 @@ class ProfileScreenRenderTest : FabricClientGameTest {
 
     private companion object {
         const val SETTLE_TICKS = 10
+
+        /**
+         * Keys the real database answers 404 to, verified against it.
+         *
+         * A Golden Dragon exists only as `;4` and an Ender Dragon as `;3` and `;4`, so both of the mythic
+         * pets in the fixture must fall down the ladder to be drawn at all. `INK_SACK:3` is the other
+         * shape of the same problem: the colon Hypixel uses cannot be a filename, so the entry is stored
+         * with a dash and only the second spelling hits.
+         */
+        val MISSING_FROM_DATABASE = setOf("GOLDEN_DRAGON;5", "ENDER_DRAGON;5", "SOMETHING_NEW", "INK_SACK:3")
     }
 }

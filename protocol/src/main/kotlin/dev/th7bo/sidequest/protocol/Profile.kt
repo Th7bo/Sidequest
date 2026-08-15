@@ -36,6 +36,8 @@ public data class SkyBlockProfile(
     public val bestiary: List<ProfileBestiaryLocation> = emptyList(),
     public val skillTrees: List<ProfileSkillTree> = emptyList(),
     public val loadouts: List<ProfileLoadout> = emptyList(),
+    /** Sack contents, grouped by the sack they live in rather than as one flat pile of counts. */
+    public val sacks: List<ProfileSack> = emptyList(),
     public val trophyFish: List<ProfileTrophyFish> = emptyList(),
     public val attributes: List<ProfileAttribute> = emptyList(),
     public val rift: ProfileRift? = null,
@@ -155,12 +157,41 @@ public data class ProfileBestiaryMob(
     public val kills: Long,
 )
 
+/**
+ * One sack and what is in it.
+ *
+ * Hypixel reports sack contents as a single flat map of item to count, with nothing saying which sack any of
+ * it came from. The grouping is added here, from NotEnoughUpdates' own sack table, because five hundred
+ * counts in one alphabetical list is a dump rather than a view.
+ */
+@Serializable
+public data class ProfileSack(
+    public val id: String,
+    public val name: String,
+    /** The sack item itself, for drawing the group's icon. Empty for the catch-all group. */
+    public val itemId: String = "",
+    public val items: List<ProfileSackItem> = emptyList(),
+) {
+    public val total: Long get() = items.sumOf { it.amount }
+}
+
+@Serializable
+public data class ProfileSackItem(
+    /** The item id as Hypixel reports it, which is also what the item database is asked for. */
+    public val id: String,
+    public val name: String,
+    public val amount: Long,
+)
+
 @Serializable
 public data class ProfileSkillTree(
     public val id: String,
     public val name: String,
     public val selectedSlot: Int = 1,
     public val slots: List<ProfileSkillTreeSlot> = emptyList(),
+    /** The extent of the grid the nodes sit on. Measured from the tree, not assumed: the two differ. */
+    public val columns: Int = 7,
+    public val rows: Int = 10,
 )
 
 @Serializable
@@ -177,9 +208,16 @@ public data class ProfileSkillTreeNode(
     public val level: Int,
     public val enabled: Boolean? = null,
     public val column: Int = 0,
+    /** Counted from the top of the panel down, which is how the game's own menu is laid out. */
     public val row: Int = 0,
     public val maxLevel: Int = 1,
     public val kind: String = "PERK",
+    /** The Minecraft item the real menu draws this node with at its current level. */
+    public val itemId: String? = null,
+    /** Which powder buys the next level: `MITHRIL`, `GEMSTONE`, `GLACITE`, `FOREST_WHISPERS`. */
+    public val powder: String? = null,
+    /** The perk's description at this level, already interpolated. Hypixel colour codes intact. */
+    public val lore: List<String> = emptyList(),
 )
 
 @Serializable
