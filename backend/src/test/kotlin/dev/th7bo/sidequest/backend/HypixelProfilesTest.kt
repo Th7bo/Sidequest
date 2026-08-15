@@ -16,6 +16,7 @@ class HypixelProfilesTest {
             null,
             PROFILES,
             definitions,
+            listOf(50.0, 125.0, 1_125.0),
         )
 
         assertEquals("Apple", profile.profileName)
@@ -26,7 +27,19 @@ class HypixelProfilesTest {
         assertEquals(2, farming.level)
         assertEquals(0.5, farming.progress)
         assertEquals(300.0, profile.slayers.single().experience)
+        assertEquals(2, profile.slayers.single().level)
+        assertEquals(7, profile.slayers.single().bossKills)
         assertEquals(5000.0, profile.dungeons.single().experience)
+        assertEquals(3, profile.dungeons.single().level)
+        assertEquals("Mage", profile.dungeonClasses.single().name)
+        assertEquals(2, profile.collections.size)
+        assertEquals("Tiger", profile.pets.single().name)
+        assertEquals(120, profile.fairySouls)
+        assertEquals(734, profile.magicalPower)
+        assertEquals("SILKY", profile.selectedPower)
+        assertEquals(2, profile.profiles.size)
+        assertTrue(profile.mining.isNotEmpty())
+        assertTrue(profile.currencies.any { it.name == "Mithril" })
     }
 
     @Test
@@ -60,7 +73,27 @@ class HypixelProfilesTest {
             calls[url] = calls.getOrDefault(url, 0) + 1
             when {
                 "lookup/name" in url -> UpstreamResponse(200, """{"id":"$UUID","name":"Alice"}""", emptyMap())
+                "session/minecraft/profile" in url -> UpstreamResponse(
+                    200,
+                    """{"properties":[{"name":"textures","value":"signed-skin"}]}""",
+                    emptyMap(),
+                )
                 "resources/skyblock/skills" in url -> UpstreamResponse(200, SKILLS, emptyMap())
+                "NotEnoughUpdates-REPO" in url -> UpstreamResponse(
+                    200,
+                    """{"catacombs":[50,75,1000]}""",
+                    emptyMap(),
+                )
+                "skyblock/garden" in url -> UpstreamResponse(
+                    200,
+                    """{"success":true,"garden":{"garden_experience":1234,"unlocked_plots_ids":[1,2]}}""",
+                    emptyMap(),
+                )
+                "skyblock/museum" in url -> UpstreamResponse(
+                    200,
+                    """{"success":true,"profile":{"value":9999,"appraisal":true,"items":{"A":{}}}}""",
+                    emptyMap(),
+                )
                 "skyblock/profiles" in url -> {
                     assertEquals("secret", headers["API-Key"])
                     UpstreamResponse(200, PROFILES, emptyMap())
@@ -70,11 +103,14 @@ class HypixelProfilesTest {
         }
         val service = HypixelProfileService("secret", now = { 1_000L }, upstream = upstream)
 
-        service.lookup("Alice", null)
+        val profile = service.lookup("Alice", null)
         service.lookup("alice", null)
 
-        assertEquals(3, calls.values.sum())
+        assertEquals(7, calls.values.sum())
         assertEquals(1, calls.entries.single { "skyblock/profiles" in it.key }.value)
+        assertEquals(1234.0, profile.garden.first { it.id == "garden_experience" }.value)
+        assertEquals(9999.0, profile.museum.first { it.id == "value" }.value)
+        assertEquals("signed-skin", profile.skinTexture)
     }
 
     private companion object {
@@ -108,10 +144,25 @@ class HypixelProfilesTest {
                     "$UUID": {
                       "last_save": 123456,
                       "leveling": {"experience": 2500},
-                      "currencies": {"coin_purse": 1234.0},
+                      "profile": {"first_join": 1700000000000, "cookie_buff_active": true},
+                      "fairy_soul": {"total_collected": 120, "fairy_exchanges": 15},
+                      "accessory_bag_storage": {"highest_magical_power": 734, "selected_power": "SILKY"},
+                      "currencies": {"coin_purse": 1234.0, "essence": {"mithril": 42}},
                       "player_data": {"experience": {"SKILL_FARMING": 275.0}},
-                      "slayer": {"slayer_bosses": {"zombie": {"xp": 300}}},
-                      "dungeons": {"dungeon_types": {"catacombs": {"experience": 5000}}}
+                      "collection": {"WHEAT": 10000, "DIAMOND": 5000},
+                      "pets_data": {"pets": [{"type":"TIGER","tier":"LEGENDARY","exp":12345,"active":true}]},
+                      "mining_core": {"experience": 4567, "powder_mithril": 890},
+                      "player_stats": {"kills_zombie": 10, "kills_spider": 5, "deaths_void": 2},
+                      "slayer": {"slayer_bosses": {"zombie": {
+                        "xp": 300,
+                        "claimed_levels": {"level_1": true, "level_2": true},
+                        "boss_kills_tier_0": 5,
+                        "boss_kills_tier_1": 2
+                      }}},
+                      "dungeons": {
+                        "dungeon_types": {"catacombs": {"experience": 5000, "tier_completions": {"1": 8}}},
+                        "player_classes": {"mage": {"experience": 2500}}
+                      }
                     }
                   }
                 },

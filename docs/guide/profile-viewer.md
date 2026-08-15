@@ -27,6 +27,27 @@ Skill experience is read from the member's public profile data. Level thresholds
 `/v2/resources/skyblock/skills` resource and are cumulative; Sidequest does not ship a copied XP table.
 Fields hidden by a player's in-game API settings are shown as unavailable rather than as zero.
 
+## Tabs and data coverage
+
+The screen is split into item-backed tabs rather than one long report. The icons are real Minecraft item
+models, so the active resource pack styles them too.
+
+- **Overview** — profile identity, level, balances, fairy souls, magical power, first join, profile switcher,
+  aggregate kills/deaths and currencies.
+- **Skills** — every skill Hypixel returns, its official cap, total XP and progress through the current level.
+- **Slayers** — XP, claimed level and total bosses for every exposed slayer family.
+- **Dungeons** — dungeon types, class XP and floor completion counts.
+- **Collections** — every public collection and its amount.
+- **Pets** — every public pet, rarity, XP, active state, held item/skin identifiers and candy use on the wire.
+- **Mining** — the numeric Heart of the Mountain/mining-core fields Hypixel exposes, including powders,
+  tokens, crystals and progression fields as they are added.
+- **Progress** — Garden, Museum, essence/currencies and other general public statistics.
+
+Inventory, armour, wardrobe, sacks and bag contents are different: Hypixel encodes those as compressed NBT
+blobs. They are deliberately not copied wholesale into the summary response. Supporting them properly means
+decoding the items, resolving SkyBlock models and fetching those payloads only when their own tab needs them;
+shipping opaque multi-megabyte blobs on every profile open would make the broad viewer slower for no benefit.
+
 ## Failure behaviour
 
 The native screen opens immediately in a loading state. It gives a useful message for an unpaired backend,

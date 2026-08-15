@@ -1,9 +1,16 @@
 package dev.th7bo.sidequest.backend
 
 import dev.th7bo.sidequest.protocol.ProfileProgress
+import dev.th7bo.sidequest.protocol.ProfileChoice
+import dev.th7bo.sidequest.protocol.ProfileCollection
+import dev.th7bo.sidequest.protocol.ProfileMetric
+import dev.th7bo.sidequest.protocol.ProfilePet
 import dev.th7bo.sidequest.protocol.ProfileSkill
+import dev.th7bo.sidequest.protocol.ProfileSlayer
 import dev.th7bo.sidequest.protocol.SkyBlockProfile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -50,6 +57,7 @@ internal class HypixelProfileService(
     private val profiles = ConcurrentHashMap<String, Cached<SkyBlockProfile>>()
     private val identities = ConcurrentHashMap<String, Cached<PlayerIdentity>>()
     @Volatile private var skills: Cached<Map<String, SkillDefinition>>? = null
+    @Volatile private var dungeonLevels: Cached<List<Double>>? = null
     private val misses = Mutex()
 
     suspend fun lookup(username: String, requestedProfile: String?): SkyBlockProfile {
@@ -65,7 +73,31 @@ internal class HypixelProfileService(
                 mapOf("API-Key" to credential),
             )
             val definitions = skillDefinitions()
-            val parsed = HypixelProfileParser.parse(identity, requestedProfile, profileJson.body, definitions)
+            val basic = HypixelProfileParser.parse(
+                identity,
+                requestedProfile,
+                profileJson.body,
+                definitions,
+                dungeonLevelDefinitions(),
+            )
+            val parsed = coroutineScope {
+                val garden = async {
+                    upstream.optionalGet(
+                        "$HYPIXEL_API/v2/skyblock/garden?profile=${basic.profileId}",
+                        mapOf("API-Key" to credential),
+                    )
+                }
+                val museum = async {
+                    upstream.optionalGet(
+                        "$HYPIXEL_API/v2/skyblock/museum?profile=${basic.profileId}",
+                        mapOf("API-Key" to credential),
+                    )
+                }
+                basic.copy(
+                    garden = garden.await()?.let(HypixelProfileParser::parseGarden).orEmpty(),
+                    museum = museum.await()?.let(HypixelProfileParser::parseMuseum).orEmpty(),
+                )
+            }
             profiles[key] = Cached(parsed, now() + PROFILE_TTL_MILLIS)
             parsed
         }
@@ -79,10 +111,14 @@ internal class HypixelProfileService(
         if (response.status == 404) throw ProfileLookupFailure.NotFound("No Minecraft player named $username")
         response.requireSuccess()
         val root = parseObject(response.body)
-        val identity = PlayerIdentity(
-            uuid = root.string("id") ?: throw ProfileLookupFailure.Upstream("Minecraft returned no UUID"),
-            username = root.string("name") ?: username,
-        )
+        val uuid = root.string("id") ?: throw ProfileLookupFailure.Upstream("Minecraft returned no UUID")
+        val skin = upstream.optionalGet("$SESSION_API/session/minecraft/profile/$uuid?unsigned=false", emptyMap())
+            ?.let { body -> runCatching { parseObject(body) }.getOrNull() }
+            ?.array("properties")
+            ?.mapNotNull { it as? JsonObject }
+            ?.firstOrNull { it.string("name") == "textures" }
+            ?.string("value")
+        val identity = PlayerIdentity(uuid = uuid, username = root.string("name") ?: username, skinTexture = skin)
         identities[key] = Cached(identity, now() + IDENTITY_TTL_MILLIS)
         return identity
     }
@@ -95,6 +131,20 @@ internal class HypixelProfileService(
         if (parsed.isEmpty()) throw ProfileLookupFailure.Upstream("Hypixel returned no skill definitions")
         skills = Cached(parsed, now() + SKILL_TTL_MILLIS)
         return parsed
+    }
+
+    /** Catacombs and class levels are not part of Hypixel's skills resource; NEU maintains their live table. */
+    private suspend fun dungeonLevelDefinitions(): List<Double> {
+        dungeonLevels?.takeIf { it.expiresAt > now() }?.let { return it.value }
+        val body = upstream.optionalGet(NEU_LEVELING, emptyMap())
+        val costs = body?.let { runCatching { parseObject(it) }.getOrNull() }
+            ?.array("catacombs").orEmpty().mapNotNull {
+            it.jsonPrimitive.doubleOrNull
+        }
+        var total = 0.0
+        val cumulative = costs.map { cost -> total += cost; total }
+        dungeonLevels = Cached(cumulative, now() + SKILL_TTL_MILLIS)
+        return cumulative
     }
 
     private fun UpstreamResponse.requireSuccess() {
@@ -110,13 +160,25 @@ internal class HypixelProfileService(
     private companion object {
         const val HYPIXEL_API = "https://api.hypixel.net"
         const val MINECRAFT_API = "https://api.minecraftservices.com"
+        const val SESSION_API = "https://sessionserver.mojang.com"
+        const val NEU_LEVELING =
+            "https://raw.githubusercontent.com/NotEnoughUpdates/NotEnoughUpdates-REPO/master/constants/leveling.json"
         const val PROFILE_TTL_MILLIS = 60_000L
         const val IDENTITY_TTL_MILLIS = 6 * 60 * 60 * 1_000L
         const val SKILL_TTL_MILLIS = 6 * 60 * 60 * 1_000L
     }
 }
 
-internal data class PlayerIdentity(val uuid: String, val username: String)
+private suspend fun ProfileUpstream.optionalGet(url: String, headers: Map<String, String>): String? {
+    return try {
+        val response = get(url, headers)
+        response.body.takeIf { response.status in 200..299 }
+    } catch (_: ProfileLookupFailure) {
+        null
+    }
+}
+
+internal data class PlayerIdentity(val uuid: String, val username: String, val skinTexture: String? = null)
 internal data class SkillDefinition(val name: String, val maxLevel: Int, val thresholds: List<Double>)
 internal data class UpstreamResponse(val status: Int, val body: String, val headers: Map<String, String>)
 
@@ -171,6 +233,7 @@ internal object HypixelProfileParser {
         requestedProfile: String?,
         body: String,
         definitions: Map<String, SkillDefinition>,
+        dungeonThresholds: List<Double> = emptyList(),
     ): SkyBlockProfile {
         val root = parseObject(body)
         if (root.boolean("success") == false) throw ProfileLookupFailure.Upstream("Hypixel refused the lookup")
@@ -205,19 +268,102 @@ internal object HypixelProfileParser {
         val slayers = slayerRoot.orEmpty().mapNotNull { (id, raw) ->
             val value = raw as? JsonObject ?: return@mapNotNull null
             val xp = value.number("xp") ?: return@mapNotNull null
-            ProfileProgress(id, id.humanName(), experience = xp)
+            val claimed = value.obj("claimed_levels")?.values?.count { level ->
+                level.jsonPrimitive.content.toBooleanStrictOrNull() == true
+            }
+            val kills = value.entries.filter { it.key.startsWith("boss_kills_tier_") }
+                .sumOf { it.value.jsonPrimitive.intOrNull ?: 0 }
+            ProfileSlayer(id, id.humanName(), xp, claimed, kills)
         }.sortedBy { it.name }
 
         val dungeonTypes = member.pathObject("dungeons", "dungeon_types")
         val dungeons = dungeonTypes.orEmpty().mapNotNull { (id, raw) ->
             val value = raw as? JsonObject ?: return@mapNotNull null
             val xp = value.number("experience") ?: return@mapNotNull null
-            ProfileProgress(id, id.humanName(), experience = xp)
+            ProfileProgress(
+                id,
+                id.humanName(),
+                level = dungeonThresholds.count { xp >= it }.coerceAtMost(50),
+                experience = xp,
+                details = value.obj("tier_completions").toMetrics(limit = 16),
+            )
         }.sortedBy { it.name }
+
+        val dungeonClasses = member.pathObject("dungeons", "player_classes").orEmpty().mapNotNull { (id, raw) ->
+            val value = raw as? JsonObject ?: return@mapNotNull null
+            val xp = value.number("experience") ?: return@mapNotNull null
+            ProfileProgress(
+                id,
+                id.humanName(),
+                level = dungeonThresholds.count { xp >= it }.coerceAtMost(50),
+                experience = xp,
+            )
+        }.sortedBy { it.name }
+
+        val collections = member.obj("collection").orEmpty().mapNotNull { (id, raw) ->
+            raw.jsonPrimitive.longOrNull?.let { ProfileCollection(id, id.humanName(), it) }
+        }.sortedByDescending { it.amount }
+
+        val pets = (member.pathObject("pets_data")?.array("pets") ?: member.array("pets")).orEmpty()
+            .mapNotNull { raw ->
+                val pet = raw as? JsonObject ?: return@mapNotNull null
+                val type = pet.string("type") ?: return@mapNotNull null
+                ProfilePet(
+                    type = type,
+                    name = type.humanName(),
+                    rarity = pet.string("tier") ?: "UNKNOWN",
+                    experience = pet.number("exp") ?: 0.0,
+                    active = pet.boolean("active") == true,
+                    heldItem = pet.string("heldItem"),
+                    skin = pet.string("skin"),
+                    candyUsed = pet.int("candyUsed") ?: 0,
+                )
+            }.sortedWith(compareByDescending<ProfilePet> { it.active }.thenByDescending { it.experience })
+
+        val currencyRoot = member.obj("currencies")
+        val currencies = buildList {
+            currencyRoot?.forEach { (id, raw) ->
+                when (raw) {
+                    is JsonObject -> raw.forEach { (child, amount) ->
+                        amount.jsonPrimitive.doubleOrNull?.let {
+                            add(ProfileMetric("${id}_$child", child.humanName(), value = it))
+                        }
+                    }
+                    else -> raw.jsonPrimitive.doubleOrNull?.let {
+                        if (id != "coin_purse") add(ProfileMetric(id, id.humanName(), value = it))
+                    }
+                }
+            }
+        }.sortedBy { it.name }
+
+        val mining = member.obj("mining_core").toMetrics(limit = 48)
+        val playerStats = member.obj("player_stats")
+        val kills = playerStats?.entries?.filter { it.key.startsWith("kills_") }
+            ?.sumOf { it.value.jsonPrimitive.longOrNull ?: 0L }
+        val deaths = playerStats?.entries?.filter { it.key.startsWith("deaths_") }
+            ?.sumOf { it.value.jsonPrimitive.longOrNull ?: 0L }
+        val stats = buildList {
+            kills?.let { add(ProfileMetric("kills", "Kills", value = it.toDouble())) }
+            deaths?.let { add(ProfileMetric("deaths", "Deaths", value = it.toDouble())) }
+            member.pathObject("player_data")?.number("fishing_treasure_caught")?.let {
+                add(ProfileMetric("fishing_treasure", "Fishing treasure", value = it))
+            }
+            member.pathObject("player_data")?.number("fastest_target_practice")?.let {
+                add(ProfileMetric("target_practice", "Target practice", value = it))
+            }
+            member.pathObject("jacobs_contest", "medals_inv")?.number("bronze")?.let {
+                add(ProfileMetric("bronze_medals", "Bronze medals", value = it))
+            }
+        }
+
+        val accessory = member.obj("accessory_bag_storage")
+        val profileData = member.obj("profile")
+        val fairy = member.obj("fairy_soul")
 
         return SkyBlockProfile(
             username = identity.username,
             uuid = uuid,
+            skinTexture = identity.skinTexture,
             profileId = profile.string("profile_id").orEmpty(),
             profileName = profile.string("cute_name") ?: "Unknown",
             gameMode = profile.string("game_mode"),
@@ -226,15 +372,73 @@ internal object HypixelProfileParser {
             skyBlockLevel = member.pathObject("leveling")?.number("experience")?.div(100.0),
             purse = member.pathObject("currencies")?.number("coin_purse") ?: member.number("coin_purse"),
             bank = profile.pathObject("banking")?.number("balance"),
+            firstJoinMillis = profileData?.long("first_join") ?: member.long("first_join"),
+            fairySouls = fairy?.int("total_collected") ?: member.int("fairy_souls_collected"),
+            fairyExchanges = fairy?.int("fairy_exchanges") ?: member.int("fairy_exchanges"),
+            cookieBuffActive = profileData?.boolean("cookie_buff_active"),
+            magicalPower = accessory?.int("highest_magical_power"),
+            selectedPower = accessory?.string("selected_power"),
+            profiles = profiles.map {
+                ProfileChoice(
+                    id = it.string("profile_id").orEmpty(),
+                    name = it.string("cute_name") ?: "Unknown",
+                    gameMode = it.string("game_mode"),
+                    selected = it.boolean("selected") == true,
+                )
+            },
             skills = skillRows,
             slayers = slayers,
             dungeons = dungeons,
+            dungeonClasses = dungeonClasses,
+            collections = collections,
+            pets = pets,
+            currencies = currencies,
+            mining = mining,
+            stats = stats,
         )
     }
 
-    private fun String.humanName(): String = lowercase().split('_').joinToString(" ") {
-        it.replaceFirstChar(Char::uppercase)
+    fun parseGarden(body: String): List<ProfileMetric> =
+        parseObject(body).obj("garden").toMetrics(limit = 64)
+
+    fun parseMuseum(body: String): List<ProfileMetric> {
+        val profile = parseObject(body).obj("profile") ?: return emptyList()
+        return buildList {
+            profile.number("value")?.let { add(ProfileMetric("value", "Museum value", value = it)) }
+            profile.boolean("appraisal")?.let { add(ProfileMetric("appraisal", "Appraisal", text = if (it) "Unlocked" else "Locked")) }
+            profile.obj("items")?.size?.let { add(ProfileMetric("items", "Donated items", value = it.toDouble())) }
+            profile.array("special")?.size?.let { add(ProfileMetric("special", "Special items", value = it.toDouble())) }
+        }
     }
+
+}
+
+private fun String.humanName(): String = lowercase().split('_').joinToString(" ") {
+    it.replaceFirstChar(Char::uppercase)
+}
+
+private fun JsonObject?.toMetrics(prefix: String = "", limit: Int): List<ProfileMetric> {
+    if (this == null) return emptyList()
+    val result = ArrayList<ProfileMetric>()
+    fun visit(value: JsonObject, path: String, depth: Int) {
+        for ((id, raw) in value) {
+            if (result.size >= limit) return
+            val full = if (path.isEmpty()) id else "${path}_$id"
+            when {
+                raw is JsonObject && depth < 2 -> visit(raw, full, depth + 1)
+                raw is JsonArray -> result.add(ProfileMetric(full, full.humanName(), value = raw.size.toDouble()))
+                else -> {
+                    val primitive = raw.jsonPrimitive
+                    primitive.doubleOrNull?.let { result.add(ProfileMetric(full, full.humanName(), value = it)) }
+                        ?: primitive.content.toBooleanStrictOrNull()?.let {
+                            result.add(ProfileMetric(full, full.humanName(), text = if (it) "Yes" else "No"))
+                        }
+                }
+            }
+        }
+    }
+    visit(this, prefix, 0)
+    return result
 }
 
 private fun parseObject(body: String): JsonObject = try {
