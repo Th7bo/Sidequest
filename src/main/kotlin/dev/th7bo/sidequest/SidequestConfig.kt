@@ -36,6 +36,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     val notificationsOn = mutableStateOf(SidequestSettings.Notifications.isEnabled, "notifications.enabled")
     val cinematicsOn = mutableStateOf(SidequestSettings.Cinematics.isEnabled, "cinematics.enabled")
     val dropsOn = mutableStateOf(SidequestSettings.Drops.isEnabled, "drops.enabled")
+    val orbitAutoOn = mutableStateOf(SidequestSettings.Garden.orbitAutoStart, "garden.orbit.auto")
     val cosmeticsOn = mutableStateOf(SidequestSettings.Cosmetics.isEnabled, "cosmetics.enabled")
     val playtimeOn = mutableStateOf(SidequestSettings.Playtime.isEnabled, "playtime.enabled")
     val titleScreenOn = mutableStateOf(SidequestSettings.TitleScreen.isEnabled, "title.enabled")
@@ -413,6 +414,32 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                         debugName = "garden.orbit.invert",
                     ),
                 )
+                toggle(
+                    id = id("garden.orbit.auto"),
+                    title = "Start it once you are farming",
+                    description = "Turns itself off again when the run ends. /sqorbit during a run means not this one.",
+                    value = bind(
+                        get = { SidequestSettings.Garden.orbitAutoStart },
+                        set = { SidequestSettings.Garden.orbitAutoStart = it; orbitAutoOn.value = it },
+                        debugName = "garden.orbit.auto",
+                    ),
+                ) {
+                    keywords("orbit", "automatic", "farming", "run")
+                }
+                slider(
+                    id = id("garden.orbit.auto_blocks"),
+                    title = "Blocks that count as a run",
+                    description = "Blocks rather than seconds: clearing a path is four, a run is hundreds",
+                    value = bind(
+                        get = { SidequestSettings.Garden.orbitAutoStartBlocks },
+                        set = { SidequestSettings.Garden.orbitAutoStartBlocks = it },
+                        debugName = "garden.orbit.auto_blocks",
+                    ),
+                    range = SidequestSettings.Garden.MIN_ORBIT_BLOCKS..SidequestSettings.Garden.MAX_ORBIT_BLOCKS,
+                    step = 10,
+                ) {
+                    visibleWhen = orbitAutoOn
+                }
             }
 
             section("SkyBlock levels", description = "How the level above a player's head is coloured", icon = GlyphIconIds.levels, collapsible = true, startsCollapsed = true) {

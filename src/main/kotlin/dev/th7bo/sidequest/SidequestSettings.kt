@@ -147,6 +147,20 @@ public object SidequestSettings {
 
         public const val MIN_ORBIT_SENSITIVITY: Float = 0.1f
         public const val MAX_ORBIT_SENSITIVITY: Float = 3f
+
+        /** Whether a farming run turns the orbital camera on by itself. */
+        public var orbitAutoStart: Boolean = false
+
+        /**
+         * How many blocks in a row count as a run.
+         *
+         * Blocks rather than seconds, because that is what separates farming from everything else somebody
+         * does with a block: clearing a path is four, a run is hundreds. A gap of a few seconds ends it.
+         */
+        public var orbitAutoStartBlocks: Int = 150
+
+        public const val MIN_ORBIT_BLOCKS: Int = 10
+        public const val MAX_ORBIT_BLOCKS: Int = 1000
     }
 
     // -- SkyBlock levels -----------------------------------------------------

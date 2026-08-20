@@ -30,6 +30,19 @@ Movement keys stay relative to your body, not the camera — walking forward wit
 the side still walks the way you are facing. That is deliberate: the point is to keep farming in a straight
 line while looking somewhere else.
 
+## Starting itself
+
+Optional, and off by default. Turn it on and the camera arrives once you have broken a run's worth of blocks
+without stopping — 150 by default, adjustable.
+
+Blocks rather than seconds, because that is what separates farming from everything else somebody does with a
+block: clearing a path is four, a run is hundreds. A gap of a few seconds ends the run, and ending the run
+puts the camera away again. That second half is what makes it bearable — a camera that turned itself on and
+then stayed on would be worse than one that never did.
+
+`/sqorbit` during a run it started means *not this run*, not *never again*. It stands down until the run ends
+rather than switching back on with the next block, which is the same rule the perspective override follows.
+
 ## Scope and limits
 
 - **The Garden only.** A camera that stops the mouse turning you is a camera that gets somebody killed in a

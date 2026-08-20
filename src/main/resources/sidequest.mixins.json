@@ -10,6 +10,7 @@
     "CameraMixin",
     "EntityRendererMixin",
     "MouseHandlerMixin",
+    "MultiPlayerGameModeMixin",
     "PlayerTabOverlayMixin",
     "ScreenPanoramaMixin"
   ],

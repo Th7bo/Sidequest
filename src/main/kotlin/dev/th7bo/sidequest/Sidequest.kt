@@ -25,6 +25,7 @@ import dev.th7bo.sidequest.feature.ui.WaypointActions
 import dev.th7bo.sidequest.feature.ui.WaypointScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildWaypointScreen
 import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
+import dev.th7bo.sidequest.platform.minecraft.BlocksBroken
 import dev.th7bo.sidequest.platform.minecraft.OrbitalCameraState
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.waypoint.WaypointDelivery
@@ -549,6 +550,7 @@ object Sidequest : ClientModInitializer {
             },
             setOrbiting = OrbitalCameraState::setEnabled,
             recentre = OrbitalCameraState::recentre,
+            blocksBroken = { BlocksBroken.total },
             publishSettings = {
                 OrbitalCameraState.settings = OrbitalCameraState.Settings(
                     sensitivity = SidequestSettings.Garden.orbitSensitivity.toDouble(),

@@ -1,6 +1,7 @@
 package dev.th7bo.sidequest.features
 
 import dev.th7bo.sidequest.SidequestSettings
+import dev.th7bo.sidequest.platform.core.garden.FarmingStreak
 import dev.th7bo.sidequest.platform.core.notification.notification
 import dev.th7bo.sidequest.platform.core.settings.ContextualOverride
 import dev.th7bo.sidequest.platform.feature.Feature
@@ -12,6 +13,7 @@ import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.notification.NotificationCategory
 import dev.th7bo.sidequest.platform.skyblock.Island
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 /**
  * A camera that looks around while the player keeps facing the crops.
@@ -41,6 +43,8 @@ class OrbitalCameraFeature(
     private val recentre: () -> Unit,
     /** Hands the current settings to the camera, since a mixin may not read a config. */
     private val publishSettings: () -> Unit,
+    /** How many blocks the player has broken, ever. Differenced here into "since the last one". */
+    private val blocksBroken: () -> Long,
 ) : Feature {
 
     override val descriptor: FeatureDescriptor = FeatureDescriptor(
@@ -56,6 +60,29 @@ class OrbitalCameraFeature(
 
     /** Whether the player has asked for it. Separate from whether it is currently *allowed*. */
     private var requested: Boolean = false
+
+    private val streak = FarmingStreak()
+
+    /** A fixed point to measure from, so the streak's arithmetic is on plain durations. */
+    private val since = TimeSource.Monotonic.markNow()
+    private var seenBlocks: Long = 0
+
+    /**
+     * True once the run started the camera by itself, so stopping it knows which of the two to undo.
+     *
+     * Without the distinction, turning it off by hand during a run would look identical to turning off a
+     * run that had ended, and the next block broken would switch it straight back on.
+     */
+    private var startedByRun: Boolean = false
+
+    /**
+     * Set when the player turns it off during a run they did not start.
+     *
+     * The same shape as the perspective override standing down, and for the same reason: a mod that is
+     * overruled has to stay overruled until the condition lapses, or the player and the mod spend the rest
+     * of the run toggling it at each other.
+     */
+    private var stoodDownFor: Boolean = false
 
     override fun onEnable(context: FeatureContext) {
         this.context = context
@@ -80,6 +107,8 @@ class OrbitalCameraFeature(
 
     private fun toggle() {
         if (requested) {
+            // Turning off a run the mod started means "not this run", not "never again".
+            if (startedByRun) stoodDownFor = true
             stop()
             say("Orbital camera off")
             return
@@ -89,6 +118,8 @@ class OrbitalCameraFeature(
             return
         }
         requested = true
+        startedByRun = false
+        stoodDownFor = false
         publishSettings()
         check()
         say("Orbital camera on. /sqorbit again to stop, /sqorbitcentre to recentre.")
@@ -96,6 +127,7 @@ class OrbitalCameraFeature(
 
     private fun stop() {
         requested = false
+        startedByRun = false
         setOrbiting(false)
         perspective.release(readPerspective())?.let(writePerspective)
     }
@@ -108,6 +140,8 @@ class OrbitalCameraFeature(
      * silently stopped turning the player for no visible reason.
      */
     private fun check() {
+        followTheRun()
+
         val wanted = requested && isAllowed()
         if (requested && !wanted) {
             stop()
@@ -121,6 +155,49 @@ class OrbitalCameraFeature(
         val orbiting = wanted && perspective.isOverriding
         publishSettings()
         setOrbiting(orbiting)
+    }
+
+    /**
+     * Starts and stops the camera with the farming run, when that is switched on.
+     *
+     * The threshold is on blocks rather than time because that is what tells a run from a stray swing —
+     * clearing a path is four blocks, a run is hundreds. A run ending puts the camera away again, which is
+     * the half that makes this bearable: a camera that turned itself on and then stayed on would be worse
+     * than one that never did.
+     */
+    private fun followTheRun() {
+        if (!SidequestSettings.Garden.orbitAutoStart || !isAllowed()) {
+            if (startedByRun) {
+                stop()
+                say("Orbital camera off — the run ended.")
+            }
+            streak.reset()
+            stoodDownFor = false
+            seenBlocks = blocksBroken()
+            return
+        }
+
+        val now = since.elapsedNow()
+        val broken = blocksBroken()
+        repeat((broken - seenBlocks).coerceIn(0, MAX_CATCH_UP).toInt()) { streak.record(now) }
+        seenBlocks = broken
+
+        val farming = streak.hasReached(SidequestSettings.Garden.orbitAutoStartBlocks, now)
+        if (!farming) {
+            // The run is over, which is also what clears a stand-down: the next one starts fresh.
+            stoodDownFor = false
+            if (startedByRun) {
+                stop()
+                say("Orbital camera off — the run ended.")
+            }
+            return
+        }
+        if (requested || stoodDownFor) return
+
+        requested = true
+        startedByRun = true
+        publishSettings()
+        say("Orbital camera on — ${SidequestSettings.Garden.orbitAutoStartBlocks} blocks in. /sqorbit to stop.")
     }
 
     /**
@@ -149,5 +226,13 @@ class OrbitalCameraFeature(
         const val THIRD_PERSON = "THIRD_PERSON_BACK"
 
         val CHECK = 250.milliseconds
+
+        /**
+         * A ceiling on how many blocks one poll may account for.
+         *
+         * The counter keeps running while this is not looking — through a warp, a disconnect, a spell in a
+         * menu — and replaying all of it would make a run out of blocks broken somewhere else entirely.
+         */
+        const val MAX_CATCH_UP = 64L
     }
 }
