@@ -26,8 +26,9 @@ the two skill trees come from the meowdding repository, which had the Heart of t
 tier and seven new perks — while the other did not. Both are fetched by the backend and cached alongside
 everything else, so one download serves everybody.
 
-Perk descriptions are not copied numbers. Each perk records a *formula* — `(* level 20)` for Mining Speed —
-and the server evaluates it at the level the player actually has. A rebalance upstream therefore arrives on
+Perk descriptions are not copied numbers. Each perk records a *formula* — `level * 20` for Mining Speed,
+`floor((level + 1)^3.2)` for what Quick Forge costs next — and the server evaluates it at the level the
+player actually has. A rebalance upstream therefore arrives on
 its own, and there is no hand-copied stat table to go quietly stale.
 
 If GitHub is unreachable the profile still loads. Sacks fall into one "Other" group, perks lose their
