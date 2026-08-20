@@ -259,7 +259,35 @@ internal data class PlayerIdentity(
     val skinSignature: String? = null,
 )
 internal data class SkillDefinition(val name: String, val maxLevel: Int, val thresholds: List<Double>)
-internal data class CollectionDefinition(val name: String, val category: String)
+/**
+ * One collection, and the ladder of tiers it unlocks things at.
+ *
+ * The thresholds are Hypixel's own and come down with the same resource as the name, so keeping them costs
+ * one field rather than another request. [tiers] is ascending and cumulative — a collection is at tier N
+ * when its amount has reached the Nth threshold.
+ */
+internal data class CollectionDefinition(
+    val name: String,
+    val category: String,
+    val maxTiers: Int = 0,
+    val tiers: List<Long> = emptyList(),
+    /** What each tier unlocked, in the same order. Only the next one is ever shown. */
+    val unlocks: List<List<String>> = emptyList(),
+) {
+    /** The tier an amount has reached, how far into the next it is, and what that next one gives. */
+    fun progressAt(amount: Long): Triple<Int, Double, List<String>> {
+        if (tiers.isEmpty()) return Triple(0, 0.0, emptyList())
+        val tier = tiers.count { amount >= it }
+        val reached = tiers.getOrNull(tier - 1) ?: 0L
+        val next = tiers.getOrNull(tier)
+        val progress = when {
+            next == null -> 1.0
+            next <= reached -> 1.0
+            else -> ((amount - reached).toDouble() / (next - reached)).coerceIn(0.0, 1.0)
+        }
+        return Triple(tier, progress, unlocks.getOrNull(tier).orEmpty())
+    }
+}
 internal data class ItemDefinition(val name: String, val rarity: String)
 
 /**
@@ -340,7 +368,23 @@ internal object HypixelProfileParser {
                 val categoryName = category.string("name") ?: categoryId.humanName()
                 for ((itemId, rawItem) in category.obj("items").orEmpty()) {
                     val item = rawItem as? JsonObject ?: continue
-                    put(itemId, CollectionDefinition(item.string("name") ?: itemId.humanName(), categoryName))
+                    // Ordered by the tier number Hypixel states rather than by array position: the two agree
+                    // today, and sorting costs nothing against being subtly wrong if they ever stop.
+                    val tiers = item.array("tiers").orEmpty()
+                        .mapNotNull { it as? JsonObject }
+                        .sortedBy { it.int("tier") ?: 0 }
+                    put(
+                        itemId,
+                        CollectionDefinition(
+                            name = item.string("name") ?: itemId.humanName(),
+                            category = categoryName,
+                            maxTiers = item.int("maxTiers") ?: tiers.size,
+                            tiers = tiers.mapNotNull { it.long("amountRequired") },
+                            unlocks = tiers.map { tier ->
+                                tier.array("unlocks").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }
+                            },
+                        ),
+                    )
                 }
             }
         }
@@ -430,9 +474,19 @@ internal object HypixelProfileParser {
 
         val collections = member.obj("collection").orEmpty().mapNotNull { (id, raw) ->
             val definition = collectionDefinitions[id]
-            (raw as? JsonPrimitive)?.longOrNull?.let {
-                ProfileCollection(id, definition?.name ?: id.humanName(), it, definition?.category ?: collectionCategory(id))
-            }
+            val amount = (raw as? JsonPrimitive)?.longOrNull ?: return@mapNotNull null
+            val (tier, progress, unlocks) = definition?.progressAt(amount) ?: Triple(0, 0.0, emptyList())
+            ProfileCollection(
+                id = id,
+                name = definition?.name ?: id.humanName(),
+                amount = amount,
+                category = definition?.category ?: collectionCategory(id),
+                tier = tier,
+                maxTiers = definition?.maxTiers ?: 0,
+                progress = progress,
+                nextTierAt = definition?.tiers?.getOrNull(tier),
+                nextUnlocks = unlocks.take(6),
+            )
         }.sortedByDescending { it.amount }
 
         val pets = (member.pathObject("pets_data")?.array("pets") ?: member.array("pets")).orEmpty()

@@ -109,6 +109,11 @@ class ProfileScreenRenderTest : FabricClientGameTest {
         onClient(context) { screen.selectTabForTest("Collections") }
         context.waitTicks(SETTLE_TICKS)
         context.takeScreenshot("profile_structured_collections")
+        // A collection short of its cap, so the tooltip has a next tier and its unlocks to show.
+        onClient(context) { screen.hoverTooltipZoneForTest(1) }
+        context.waitTicks(SETTLE_TICKS)
+        context.takeScreenshot("profile_structured_collection_tier")
+        onClient(context) { screen.hoverTooltipZoneForTest(-1) }
 
         onClient(context) { screen.selectTabForTest("Pets") }
         context.waitTicks(SETTLE_TICKS * 2)
@@ -216,9 +221,14 @@ class ProfileScreenRenderTest : FabricClientGameTest {
             ProfileProgress("archer", "Archer", 41, 310_000_000.0),
         ),
         collections = listOf(
-            ProfileCollection("WHEAT", "Wheat", 42_000_000, "Farming"),
-            ProfileCollection("SEEDS", "Seeds", 26_000_000, "Farming"),
-            ProfileCollection("DIAMOND", "Diamond", 18_500_000, "Mining"),
+            // Tiers included, so the numeral, the bar and the tooltip all have something to draw.
+            ProfileCollection("WHEAT", "Wheat", 42_000_000, "Farming", tier = 11, maxTiers = 11, progress = 1.0),
+            ProfileCollection(
+                "SEEDS", "Seeds", 26_000_000, "Farming",
+                tier = 8, maxTiers = 11, progress = .42, nextTierAt = 50_000_000,
+                nextUnlocks = listOf("Enchanted Seeds Recipe", "+8 SkyBlock XP"),
+            ),
+            ProfileCollection("DIAMOND", "Diamond", 18_500_000, "Mining", tier = 9, maxTiers = 10, progress = .77, nextTierAt = 25_000_000),
             ProfileCollection("ENDER_STONE", "End Stone", 9_800_000, "Mining"),
             ProfileCollection("BLAZE_ROD", "Blaze Rod", 3_200_000, "Combat"),
             ProfileCollection("SULPHUR", "Gunpowder", 8_200_000, "Combat"),

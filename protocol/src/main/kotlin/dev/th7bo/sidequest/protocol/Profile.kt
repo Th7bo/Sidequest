@@ -98,6 +98,15 @@ public data class ProfileCollection(
     public val name: String,
     public val amount: Long,
     public val category: String = "Other",
+    /** How many tiers the amount has unlocked. Zero when Hypixel lists no tiers for this collection. */
+    public val tier: Int = 0,
+    public val maxTiers: Int = 0,
+    /** Progress from the tier reached towards the next, from zero to one. One at the last tier. */
+    public val progress: Double = 0.0,
+    /** The amount the next tier needs. Null once there are no more. */
+    public val nextTierAt: Long? = null,
+    /** What the next tier unlocks, as Hypixel words it. Trimmed: some tiers list a dozen recipes. */
+    public val nextUnlocks: List<String> = emptyList(),
 )
 
 @Serializable

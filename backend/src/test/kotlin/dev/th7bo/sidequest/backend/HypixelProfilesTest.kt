@@ -55,6 +55,7 @@ class HypixelProfilesTest {
         assertEquals("Mage", profile.dungeonClasses.single().name)
         assertEquals(2, profile.collections.size)
         assertEquals("Farming", profile.collections.first { it.id == "WHEAT" }.category)
+        assertEquals(5, profile.collections.first { it.id == "WHEAT" }.tier, "ten thousand is past every tier here")
         assertEquals("Tiger", profile.pets.first().name, "the active pet leads")
         assertEquals(120, profile.fairySouls)
         assertEquals(734, profile.magicalPower)
@@ -322,9 +323,21 @@ class HypixelProfilesTest {
               }
             }
         """.trimIndent()
+        /**
+         * The first tiers of Wheat, copied verbatim from `/v2/resources/skyblock/collections`.
+         *
+         * The thresholds and the unlock wording are Hypixel's — nothing here is rounded or paraphrased,
+         * because what is being checked is that a real ladder is read correctly.
+         */
         val COLLECTIONS = """
             {"success":true,"collections":{
-              "FARMING":{"name":"Farming","items":{"WHEAT":{"name":"Wheat"}}},
+              "FARMING":{"name":"Farming","items":{"WHEAT":{"name":"Wheat","maxTiers":11,"tiers":[
+                {"tier":1,"amountRequired":50,"unlocks":["Wheat Minion Recipes","+4 SkyBlock XP"]},
+                {"tier":2,"amountRequired":100,"unlocks":["Beginner Agronomy Sack Recipe","+4 SkyBlock XP"]},
+                {"tier":3,"amountRequired":250,"unlocks":["Harvesting Exp Discount (-25%)","+4 SkyBlock XP"]},
+                {"tier":4,"amountRequired":500,"unlocks":["Enchanted Wheat Recipe","+4 SkyBlock XP"]},
+                {"tier":5,"amountRequired":1000,"unlocks":["Small Agronomy Sack Recipe","+4 SkyBlock XP"]}
+              ]}}},
               "MINING":{"name":"Mining","items":{"DIAMOND":{"name":"Diamond"}}}
             }}
         """.trimIndent()

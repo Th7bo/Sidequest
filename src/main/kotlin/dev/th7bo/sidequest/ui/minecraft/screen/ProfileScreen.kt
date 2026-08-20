@@ -562,13 +562,36 @@ public class ProfileScreen(
             for ((index, collection) in collections.withIndex()) {
                 val row = index / gridColumns
                 val column = index % gridColumns
-                val box = Rect(x + column * (cardWidth + gap), y + row * 39f, cardWidth, 33f)
+                val box = Rect(x + column * (cardWidth + gap), y + row * 42f, cardWidth, 36f)
                 surface(renderer, box)
-                renderer.item(itemIcons[collection.id] ?: ItemRef(collectionItem(collection.id)), Rect(box.x + 6f, box.y + 7f, 19f, 19f))
-                text(renderer, collection.name, box.x + 30f, box.y + 5f, TextRole.CAPTION, maxWidth = box.width - 36f)
-                text(renderer, formatNumber(collection.amount.toDouble()), box.x + 30f, box.y + 19f, TextRole.LABEL, theme.tokens.colors.accent)
+                renderer.item(itemIcons[collection.id] ?: ItemRef(collectionItem(collection.id)), Rect(box.x + 6f, box.y + 8f, 19f, 19f))
+                text(renderer, collection.name, box.x + 30f, box.y + 4f, TextRole.CAPTION, maxWidth = box.width - 66f)
+                text(renderer, formatNumber(collection.amount.toDouble()), box.x + 30f, box.y + 17f, TextRole.LABEL, theme.tokens.colors.accent)
+                if (collection.maxTiers > 0) {
+                    val maxed = collection.tier >= collection.maxTiers
+                    // Roman, as the game writes a collection tier. The number in the corner is the whole
+                    // point of the card: an amount alone says nothing about how far off the next unlock is.
+                    rightText(
+                        renderer,
+                        roman(collection.tier),
+                        box.right - 6f,
+                        box.y + 4f,
+                        TextRole.LABEL,
+                        if (maxed) theme.tokens.colors.accent else theme.textColor(TextRole.SECONDARY),
+                    )
+                    val track = Rect(box.x + 30f, box.bottom - 8f, box.width - 36f, 2f)
+                    renderer.fillRect(track, theme.tokens.colors.border.withAlpha(.45f))
+                    val filled = if (maxed) 1.0 else collection.progress.coerceIn(0.0, 1.0)
+                    if (filled > 0.0) {
+                        renderer.fillRect(
+                            Rect(track.x, track.y, track.width * filled.toFloat(), track.height),
+                            if (maxed) theme.tokens.colors.accent else Color.parse("#62D982"),
+                        )
+                    }
+                }
+                tooltipZones = tooltipZones + (box to { collectionTooltip(collection) })
             }
-            y += ceil(collections.size / gridColumns.toFloat()).toInt() * 39f + GAP
+            y += ceil(collections.size / gridColumns.toFloat()).toInt() * 42f + GAP
         }
         return y
     }
@@ -695,6 +718,58 @@ public class ProfileScreen(
         add(legacyComponent(item.displayName ?: item.internalName?.humanName() ?: "Unknown item"))
         item.lore.take(24).mapTo(this, ::legacyComponent)
         if (item.count > 1) add(Component.literal("Count: ${item.count}").withStyle(ChatFormatting.GRAY))
+    }
+
+    /**
+     * A collection, and what the next tier of it is waiting for.
+     *
+     * The unlocks are Hypixel's own wording, which is the only reason they are worth showing: "Enchanted
+     * Wheat Recipe" is a thing a player recognises, and no rule turns a collection's name and a number
+     * into it.
+     */
+    private fun collectionTooltip(collection: ProfileCollection): List<Component> = buildList {
+        add(Component.literal(collection.name).withStyle(ChatFormatting.YELLOW))
+        add(
+            Component.literal(formatNumber(collection.amount.toDouble())).withStyle(ChatFormatting.GRAY)
+                .append(Component.literal(" collected").withStyle(ChatFormatting.DARK_GRAY)),
+        )
+        if (collection.maxTiers <= 0) return@buildList
+
+        add(Component.empty())
+        add(
+            Component.literal("Tier ${roman(collection.tier)}").withStyle(ChatFormatting.GREEN)
+                .append(Component.literal(" of ${roman(collection.maxTiers)}").withStyle(ChatFormatting.DARK_GRAY)),
+        )
+        val next = collection.nextTierAt
+        if (next == null) {
+            add(Component.literal("Maxed").withStyle(ChatFormatting.GOLD))
+            return@buildList
+        }
+        add(
+            Component.literal("${formatNumber((next - collection.amount).toDouble())} to tier ${roman(collection.tier + 1)}")
+                .withStyle(ChatFormatting.DARK_GRAY),
+        )
+        if (collection.nextUnlocks.isNotEmpty()) {
+            add(Component.empty())
+            add(Component.literal("Unlocks:").withStyle(ChatFormatting.GRAY))
+            collection.nextUnlocks.forEach {
+                add(Component.literal(" $it").withStyle(ChatFormatting.DARK_GRAY))
+            }
+        }
+    }
+
+    /**
+     * A tier as the game writes it.
+     *
+     * Collections go to eleven or so, and the numerals stop being readable long before they stop being
+     * possible — so anything past the table falls back to the digits rather than spelling out MMXLIV.
+     */
+    private fun roman(value: Int): String {
+        if (value <= 0) return "0"
+        if (value > 39) return value.toString()
+        val tens = listOf("", "X", "XX", "XXX")
+        val units = listOf("", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX")
+        return tens[value / 10] + units[value % 10]
     }
 
     /**

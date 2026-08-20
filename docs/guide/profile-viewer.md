@@ -55,7 +55,8 @@ models, so the active resource pack styles them too.
 - **Combat** — Slayer XP/levels/kills, dungeon types/classes/floor completions, Bestiary and Crimson Isle.
 - **Inventory** — availability summaries for inventory, armour, wardrobe, equipment, bags and shared
   inventories; public loadout data; and sack contents grouped by sack rather than as one flat list.
-- **Collections** — every public collection and its amount.
+- **Collections** — every public collection, its amount, and the tier that amount has reached, with a bar
+  towards the next. Hovering one says how much further that is and what it unlocks, in Hypixel's wording.
 - **Pets** — every public pet, rarity, XP, active state, held item/skin identifiers and candy use on the wire.
 - **Mining** — Heart of the Mountain, powders, crystals, Glacite Tunnels, forge and skill-tree progression.
   Hovering a perk shows its name, level, what it grants at that level, and what the next one costs.
