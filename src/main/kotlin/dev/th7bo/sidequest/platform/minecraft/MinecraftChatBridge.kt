@@ -5,6 +5,8 @@ import dev.th7bo.sidequest.platform.chat.ChatMessage
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.log.Logger
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents
+import net.fabricmc.fabric.api.event.Event
+import net.minecraft.resources.Identifier
 import net.minecraft.network.chat.Component
 
 /**
@@ -26,16 +28,31 @@ class MinecraftChatBridge(
 
     private var installed = false
 
+    /** Our own phase, ordered before everybody else's, so a cancelled message is still seen. */
+    private val OBSERVE_FIRST = Identifier.fromNamespaceAndPath("sidequest", "observe")
+
     fun install() {
         if (installed) return
         installed = true
 
-        // Two hooks because the game distinguishes them, and the distinction is worth
-        // keeping: a signed player message genuinely was typed by somebody, where a system
-        // message is Hypixel talking. Nearly everything on Hypixel arrives as the latter.
-        ClientReceiveMessageEvents.GAME.register { message, overlay ->
+        // Observed on the *allow* hook rather than the delivered one, and in a phase ahead of everyone
+        // else's.
+        //
+        // **A message another mod hides is still a message that happened.** SkyHanni replaces several of
+        // Hypixel's lines with tidier versions of its own, and does it by cancelling the original — which
+        // on Fabric means the delivered hook never fires for it at all, because the allow event stops at
+        // the first listener that says no. A pest spawning is the clearest case: the line is there, the
+        // player sees a version of it, and a mod listening after the fact sees nothing.
+        //
+        // This never blocks anything. It looks and returns true, always, so ordering ahead of other mods
+        // buys visibility and costs them nothing.
+        ClientReceiveMessageEvents.ALLOW_GAME.addPhaseOrdering(OBSERVE_FIRST, Event.DEFAULT_PHASE)
+        ClientReceiveMessageEvents.ALLOW_GAME.register(OBSERVE_FIRST) { message, overlay ->
             accept(message, if (overlay) ChatKind.OVERLAY else ChatKind.SYSTEM)
+            true
         }
+        // The signed-player hook stays as it was. Hypixel sends almost nothing this way, and a player's
+        // typed message is not something another mod hides.
         ClientReceiveMessageEvents.CHAT.register { message, _, _, _, _ ->
             accept(message, ChatKind.PLAYER)
         }
