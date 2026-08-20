@@ -155,9 +155,13 @@ public object SidequestSettings {
          * How many blocks in a row count as a run.
          *
          * Blocks rather than seconds, because that is what separates farming from everything else somebody
-         * does with a block: clearing a path is four, a run is hundreds. A gap of a few seconds ends it.
+         * does with a block: clearing a path is a handful, a run keeps going. A gap of a few seconds ends it.
+         *
+         * Twenty is deliberately low. At farming speed that is a second or two, so the camera arrives about
+         * as soon as somebody has settled into a row — which is what it is for. A threshold high enough to
+         * be sure means a camera that shows up long after it was wanted.
          */
-        public var orbitAutoStartBlocks: Int = 150
+        public var orbitAutoStartBlocks: Int = 20
 
         public const val MIN_ORBIT_BLOCKS: Int = 10
         public const val MAX_ORBIT_BLOCKS: Int = 1000

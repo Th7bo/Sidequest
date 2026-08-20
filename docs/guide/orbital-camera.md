@@ -33,11 +33,15 @@ line while looking somewhere else.
 ## Starting itself
 
 Optional, and off by default. Turn it on and the camera arrives once you have broken a run's worth of blocks
-without stopping — 150 by default, adjustable.
+without stopping — twenty by default, adjustable from ten to a thousand.
+
+Twenty is deliberately low: at farming speed that is a second or two, so the camera arrives about as soon as
+you have settled into a row, which is what it is for. A threshold high enough to be certain means a camera
+that shows up long after it was wanted.
 
 Blocks rather than seconds, because that is what separates farming from everything else somebody does with a
-block: clearing a path is four, a run is hundreds. A gap of a few seconds ends the run, and ending the run
-puts the camera away again. That second half is what makes it bearable — a camera that turned itself on and
+block: clearing a path is a handful, a run keeps going. A gap of a few seconds ends the run, and ending the
+run puts the camera away again. That second half is what makes it bearable — a camera that turned itself on and
 then stayed on would be worse than one that never did.
 
 `/sqorbit` during a run it started means *not this run*, not *never again*. It stands down until the run ends
