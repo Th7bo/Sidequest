@@ -214,8 +214,8 @@ public data class ProfileSkillTreeNode(
     public val kind: String = "PERK",
     /** The Minecraft item the real menu draws this node with at its current level. */
     public val itemId: String? = null,
-    /** Which powder buys the next level: `MITHRIL`, `GEMSTONE`, `GLACITE`, `FOREST_WHISPERS`. */
-    public val powder: String? = null,
+    /** What the next level costs, already worded: `50,000 Mithril Powder`. */
+    public val costLabel: String? = null,
     /** The perk's description at this level, already interpolated. Hypixel colour codes intact. */
     public val lore: List<String> = emptyList(),
 )

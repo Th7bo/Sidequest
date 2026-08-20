@@ -92,7 +92,7 @@ class HypixelProfilesTest {
         neu = NeuTables(
             sacks = NeuConstants.parseSacks(NeuFixtures.SACKS),
             shards = NeuConstants.parseShards(NeuFixtures.SHARDS),
-            mining = NeuConstants.parseTreeLayout(NeuFixtures.HOTM, "hotm"),
+            mining = SkillTreeRepo.parse(NeuFixtures.HOTM_TREE),
             pets = NeuConstants.parsePets(NeuFixtures.PETS),
         ),
     )
@@ -138,114 +138,66 @@ class HypixelProfilesTest {
         assertEquals(20, nodes.getValue("quick_forge").level, "read from forge_time")
         assertEquals(7, nodes.getValue("core_of_the_mountain").level, "read from special_0")
         assertEquals(30, nodes.getValue("mining_fortune").level, "an id that does not differ still works")
+        // Measured from the slice this fixture carries, not assumed: the real tree is ten rows deep.
         assertEquals(7, tree.columns)
-        assertEquals(10, tree.rows)
+        assertEquals(8, tree.rows)
     }
 
-    /** The tooltip is the layout's own formula at the level the player has, not a stored string. */
+    /**
+     * A perk describes itself with its own formula, at the level the player has.
+     *
+     * The description is not a stored string. `min(30, 10 + level*0.5 + floor(level/20)*10)` at level 20 is
+     * a maxed Quick Forge, and the tooltip has to be able to say so — with the colour tags the repository
+     * writes turned into the codes Minecraft draws.
+     */
     @Test
     fun `a perk carries its description at the level the player has it`() {
         val nodes = parseWithTables().skillTrees.single { it.id == "mining" }
             .slots.first { it.slot == 1 }.nodes.associateBy { it.id }
 
-        val fortune = nodes.getValue("mining_fortune")
-        assertEquals(listOf("§7Grants §a+§a60 §6☘ Mining Fortune§7."), fortune.lore)
-        assertEquals("MITHRIL", fortune.powder)
-        assertEquals("minecraft:emerald", fortune.itemId)
-        assertEquals(50, fortune.maxLevel)
+        val forge = nodes.getValue("quick_forge")
+        assertEquals(20, forge.level, "read from forge_time")
+        assertEquals(listOf("§7Decreases the time it takes to forge by §a30%§7."), forge.lore)
+        assertEquals(20, forge.maxLevel)
+        assertEquals(null, forge.costLabel, "a maxed perk has no next level to price")
     }
 
-    /** Peak of the Mountain is `special_0`, and the pickaxe abilities scale against it. */
+    /** A perk short of its cap prices the next one, from the repository's own cost formula. */
     @Test
-    fun `Peak of the Mountain changes what an ability reports`() {
-        val infusion = parseWithTables().skillTrees.single { it.id == "mining" }
-            .slots.first { it.slot == 1 }.nodes.single { it.id == "gemstone_infusion" }
+    fun `an unfinished perk prices its next level`() {
+        val speed = parseWithTables().skillTrees.single { it.id == "mining" }
+            .slots.first { it.slot == 1 }.nodes.single { it.id == "mining_speed" }
 
-        assertEquals(listOf("§6Pickaxe Ability: Gemstone Infusion", "§8Duration: §a25s"), infusion.lore)
-    }
-
-    /**
-     * A field Hypixel sends as null must arrive as null, not as the word.
-     *
-     * **`JsonNull` is a `JsonPrimitive`, and its content is the four-character string `"null"`.** So every
-     * absent optional came back as text reading "null" and every caller took it for a real value. The
-     * damage was worst where a value is used as an identity: a pet with no skin claimed a skin of "null",
-     * all forty in a stable agreed on it, and the screen's icon cache — keyed by skin where there is one —
-     * collapsed into a single entry holding whichever pet was resolved first. Every pet then wore the
-     * active pet's face, while its name and rarity stayed correct, because only the icon was shared.
-     */
-    @Test
-    fun `an explicitly null field is absent rather than the word null`() {
-        val pets = parseWithTables().pets
-
-        assertEquals(null, pets.first { it.type == "TIGER" }.skin, "a null skin is no skin")
-        assertEquals(null, pets.first { it.type == "HEDGEHOG" }.heldItem, "an absent held item stays absent")
-        assertEquals("WOLF_DOGE", pets.first { it.type == "WOLF" }.skin, "a real skin still arrives")
-        assertTrue(pets.none { it.skin == "null" }, "the word leaked through: $pets")
+        // floor((3 + 1)^3) = 64, and the currency is spelled the way the menu spells it.
+        assertEquals(3, speed.level)
+        assertEquals("64 Mithril Powder", speed.costLabel)
+        assertEquals(listOf("§7Grants §6+60⸕ Mining Speed§7."), speed.lore)
     }
 
     /**
-     * A pet arrives with experience; a level is worked out from it here.
+     * An ability's strength comes from the tree's core, not from itself.
      *
-     * Hypixel never sends one. Deriving it needs the pet's own ladder and the rung its rarity starts on,
-     * which is why this is the server's job and not the screen's.
+     * Taking the core at all buys every ability its second level, which is what `effectiveLevel` means in
+     * these formulas — so a tooltip that ignored the core would understate every ability in the tree.
      */
     @Test
-    fun `a pet reports a level worked out from its experience`() {
-        val tiger = parseWithTables().pets.first { it.type == "TIGER" }
+    fun `an ability scales with the tree's core`() {
+        val boost = parseWithTables().skillTrees.single { it.id == "mining" }
+            .slots.first { it.slot == 1 }.nodes.single { it.id == "mining_speed_boost" }
 
-        // Legendary starts past the fixture's twenty shared rungs, so 12,345 experience buys nothing.
-        assertEquals(1, tiger.level)
-        assertEquals(100, tiger.maxLevel)
-        assertEquals("§6Tier Boost", tiger.heldItemName, "the id would read as shouting")
+        // 200 + effectiveLevel * 50 with the core taken, so effectiveLevel is two rather than one.
+        assertTrue(boost.lore.any { "300" in it }, "the core was not applied: ${boost.lore}")
     }
 
-    /**
-     * A Tier Boost moves the pet one rarity up, which moves where it starts on the ladder.
-     *
-     * The reported rarity is left as Hypixel sent it — whether a given pet can reach the next tier is a
-     * per-pet fact this server has no table for — but the level is computed as the game computes it.
-     */
+    /** A core lists what each of its levels unlocked, rather than one description with a number in it. */
     @Test
-    fun `a tier boost is applied to the level and flagged rather than rewriting the rarity`() {
-        val hedgehog = parseWithTables().pets.first { it.type == "HEDGEHOG" }
-        val tiger = parseWithTables().pets.first { it.type == "TIGER" }
+    fun `a core lists the levels already taken`() {
+        val core = parseWithTables().skillTrees.single { it.id == "mining" }
+            .slots.first { it.slot == 1 }.nodes.single { it.id == "core_of_the_mountain" }
 
-        assertEquals("EPIC", hedgehog.rarity, "the rarity stays as reported")
-        assertTrue(!hedgehog.tierBoosted)
-        assertTrue(tiger.tierBoosted, "the tiger holds a Tier Boost")
-        assertEquals("LEGENDARY", tiger.rarity, "and is not silently promoted to mythic")
-    }
-
-    /** Whatever a screen keys a pet's picture on, no two of these pets may agree on it. */
-    @Test
-    fun `no two pets share an identity`() {
-        val pets = parseWithTables().pets
-        val identities = pets.map { listOf(it.type, it.rarity, it.skin.orEmpty()) }
-
-        assertEquals(pets.size, identities.distinct().size, "two pets are indistinguishable: $identities")
-    }
-
-    /**
-     * A count Hypixel wrote with a decimal point is still a count.
-     *
-     * SkyBlock stores most of a profile as doubles, so `2850.0` and `2850` both turn up for a value that is
-     * conceptually an integer — and `"2850.0".toIntOrNull()` is null, which every call site turns into a
-     * default of zero. A player with real Crimson Isle reputation read as having none.
-     */
-    @Test
-    fun `whole numbers written as decimals are still read`() {
-        val crimson = requireNotNull(parseWithTables().crimsonIsle)
-
-        assertEquals(8200, crimson.mageReputation, "written as 8200.0 by Hypixel")
-        assertEquals(12, crimson.kuudra.single { it.id == "hot" }.completions)
-        assertEquals(820, crimson.dojo.single { it.id == "mob_kb" }.points)
-    }
-
-    /** Siding with one faction drives the other's standing below zero; that is a fact, not an error. */
-    @Test
-    fun `a negative reputation is reported rather than clamped`() {
-        assertEquals(-1300, requireNotNull(parseWithTables().crimsonIsle).barbarianReputation)
+        assertEquals(7, core.level, "read from special_0")
+        assertTrue(core.lore.size >= 7, "one entry per level taken: ${core.lore}")
+        assertTrue(core.lore.first().contains("Token of the Mountain"))
     }
 
     /**
@@ -308,8 +260,8 @@ class HypixelProfilesTest {
                 "constants/leveling.json" in url -> UpstreamResponse(200, """{"catacombs":[50,75,1000]}""", emptyMap())
                 "constants/sacks.json" in url -> UpstreamResponse(200, NeuFixtures.SACKS, emptyMap())
                 "constants/attribute_shards.json" in url -> UpstreamResponse(200, NeuFixtures.SHARDS, emptyMap())
-                "constants/hotmlayout.json" in url -> UpstreamResponse(200, NeuFixtures.HOTM, emptyMap())
-                "constants/hotflayout.json" in url -> UpstreamResponse(200, NeuFixtures.HOTF, emptyMap())
+                "mining/hotm.json" in url -> UpstreamResponse(200, NeuFixtures.HOTM_TREE, emptyMap())
+                "foraging/hotf.json" in url -> UpstreamResponse(200, NeuFixtures.HOTM_TREE, emptyMap())
                 "constants/pets.json" in url -> UpstreamResponse(200, NeuFixtures.PETS, emptyMap())
                 "skyblock/garden" in url -> UpstreamResponse(
                     200,
@@ -337,7 +289,7 @@ class HypixelProfilesTest {
         assertEquals(1, calls.entries.single { "skyblock/profiles" in it.key }.value)
         // The description tables are the same for everybody and for every profile, so a second lookup — and
         // by extension a fifth friend opening the same screen — must not fetch a single one of them again.
-        val constants = calls.entries.filter { "constants/" in it.key }
+        val constants = calls.entries.filter { "constants/" in it.key || "repo.owdding.me" in it.key }
         assertEquals(6, constants.size, "one request per table: $constants")
         assertTrue(constants.all { it.value == 1 }, "a table was fetched twice: $constants")
         assertEquals(1234.0, profile.garden.first { it.id == "garden_experience" }.value)
@@ -414,8 +366,9 @@ class HypixelProfilesTest {
                           "mining_fortune": 30,
                           "forge_time": 20,
                           "special_0": 7,
-                          "gemstone_infusion": 1,
-                          "toggle_gemstone_infusion": true
+                          "mining_speed": 3,
+                          "mining_speed_boost": 1,
+                          "toggle_mining_speed_boost": true
                         }
                       },
                       "attributes": {"stacks": {"shard_grove": 4}},

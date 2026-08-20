@@ -764,9 +764,12 @@ public class ProfileScreen(
             add(Component.empty())
             node.lore.take(16).mapTo(this, ::legacyComponent)
         }
-        node.powder?.let {
+        node.costLabel?.let {
             add(Component.empty())
-            add(Component.literal(it.humanName()).withStyle(ChatFormatting.DARK_GRAY))
+            add(
+                Component.literal("Next level: ").withStyle(ChatFormatting.DARK_GRAY)
+                    .append(Component.literal(it).withStyle(ChatFormatting.GRAY)),
+            )
         }
         node.enabled?.let {
             add(Component.literal(if (it) "Enabled" else "Disabled").withStyle(if (it) ChatFormatting.GREEN else ChatFormatting.RED))
@@ -856,6 +859,7 @@ public class ProfileScreen(
             // guess below is only reached when the description tables could not be fetched at all.
             val icon = node.itemId
                 ?: treeNodeItem(tree.id, node.kind, node.level, node.maxLevel, node.enabled, selected.selectedAbility, node.name)
+
             renderer.item(ItemRef(icon), box.inset(3f))
             if (node.level > 1) rightText(renderer, node.level.toString(), box.right, box.bottom - 7f, TextRole.CAPTION, Color.White)
             tooltipZones = tooltipZones + (box to { perkTooltip(node) })
@@ -1723,6 +1727,13 @@ public class ProfileScreen(
         else -> Color.parse("#62D982")
     }
 
+    /**
+     * The item the real menu draws a node with.
+     *
+     * Taken from the palette a working profile viewer uses rather than guessed at: each tree has four
+     * states for an ordinary perk, three for an ability and four for its core, and the two trees share
+     * none of them. A locked mining perk is coal and a locked foraging perk is a pale oak button.
+     */
     private fun treeNodeItem(
         tree: String,
         kind: String,
@@ -1731,15 +1742,25 @@ public class ProfileScreen(
         enabled: Boolean?,
         selectedAbility: String?,
         name: String,
-    ): String = when {
-        level <= 0 -> if (tree == "mining") "minecraft:coal" else "minecraft:pale_oak_button"
-        enabled == false -> "minecraft:redstone"
-        kind == "ABILITY" && selectedAbility.equals(name, true) -> if (tree == "mining") "minecraft:emerald_block" else "minecraft:oak_sapling"
-        kind == "ABILITY" -> if (tree == "mining") "minecraft:redstone_block" else "minecraft:cherry_sapling"
-        kind == "CORE" && level >= maxLevel -> if (tree == "mining") "minecraft:diamond_block" else "minecraft:oak_wood"
-        kind == "CORE" -> if (tree == "mining") "minecraft:copper_block" else "minecraft:stripped_birch_wood"
-        level >= maxLevel -> if (tree == "mining") "minecraft:diamond" else "minecraft:oak_log"
-        else -> if (tree == "mining") "minecraft:emerald" else "minecraft:stripped_oak_log"
+    ): String {
+        val mining = tree == "mining"
+        return when {
+            kind == "CORE" -> when {
+                level >= maxLevel -> if (mining) "minecraft:diamond_block" else "minecraft:oak_wood"
+                level <= 0 -> if (mining) "minecraft:bedrock" else "minecraft:stripped_pale_oak_wood"
+                level == 1 -> if (mining) "minecraft:copper_block" else "minecraft:stripped_birch_wood"
+                else -> if (mining) "minecraft:redstone_block" else "minecraft:stripped_oak_wood"
+            }
+            kind == "ABILITY" -> when {
+                level <= 0 -> if (mining) "minecraft:coal_block" else "minecraft:pale_oak_sapling"
+                selectedAbility.equals(name, true) -> if (mining) "minecraft:emerald_block" else "minecraft:oak_sapling"
+                else -> if (mining) "minecraft:redstone_block" else "minecraft:cherry_sapling"
+            }
+            enabled == false -> if (mining) "minecraft:redstone" else "minecraft:stripped_mangrove_log"
+            level <= 0 -> if (mining) "minecraft:coal" else "minecraft:pale_oak_button"
+            level >= maxLevel -> if (mining) "minecraft:diamond" else "minecraft:oak_log"
+            else -> if (mining) "minecraft:emerald" else "minecraft:stripped_oak_log"
+        }
     }
 
     private companion object {

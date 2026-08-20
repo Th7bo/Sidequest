@@ -82,7 +82,6 @@ internal class HypixelProfileService(
     @Volatile private var skills: Cached<Map<String, SkillDefinition>>? = null
     @Volatile private var collections: Cached<Map<String, CollectionDefinition>>? = null
     @Volatile private var items: Cached<Map<String, ItemDefinition>>? = null
-    @Volatile private var dungeonLevels: Cached<List<Double>>? = null
     @Volatile private var neu: Cached<NeuTables>? = null
     private val misses = Mutex()
 
@@ -101,15 +100,16 @@ internal class HypixelProfileService(
             val definitions = skillDefinitions()
             val collectionDefinitions = collectionDefinitions()
             val itemDefinitions = itemDefinitions()
+            val neu = neuTables()
             val basic = HypixelProfileParser.parse(
                 identity,
                 requestedProfile,
                 profileJson.body,
                 definitions,
-                dungeonLevelDefinitions(),
+                neu.dungeonLevels,
                 collectionDefinitions,
                 itemDefinitions,
-                neuTables(),
+                neu,
             )
             val parsed = coroutineScope {
                 val garden = async {
@@ -186,20 +186,6 @@ internal class HypixelProfileService(
         return parsed
     }
 
-    /** Catacombs and class levels are not part of Hypixel's skills resource; NEU maintains their live table. */
-    private suspend fun dungeonLevelDefinitions(): List<Double> {
-        dungeonLevels?.takeIf { it.expiresAt > now() }?.let { return it.value }
-        val body = upstream.optionalGet(NEU_LEVELING, emptyMap())
-        val costs = body?.let { runCatching { parseObject(it) }.getOrNull() }
-            ?.array("catacombs").orEmpty().mapNotNull {
-            (it as? JsonPrimitive)?.doubleOrNull
-        }
-        var total = 0.0
-        val cumulative = costs.map { cost -> total += cost; total }
-        dungeonLevels = Cached(cumulative, now() + SKILL_TTL_MILLIS)
-        return cumulative
-    }
-
     /**
      * The NotEnoughUpdates tables that describe SkyBlock rather than a player.
      *
@@ -213,14 +199,17 @@ internal class HypixelProfileService(
         val tables = coroutineScope {
             val sacks = async { upstream.optionalGet(neuConstant("sacks"), emptyMap()) }
             val shards = async { upstream.optionalGet(neuConstant("attribute_shards"), emptyMap()) }
-            val hotm = async { upstream.optionalGet(neuConstant("hotmlayout"), emptyMap()) }
-            val hotf = async { upstream.optionalGet(neuConstant("hotflayout"), emptyMap()) }
+            val hotm = async { upstream.optionalGet(treeConstant(SkillTreeRepo.Tree.MINING), emptyMap()) }
+            val hotf = async { upstream.optionalGet(treeConstant(SkillTreeRepo.Tree.FORAGING), emptyMap()) }
+            val levels = async { upstream.optionalGet(neuConstant("leveling"), emptyMap()) }
             val pets = async { upstream.optionalGet(neuConstant("pets"), emptyMap()) }
             NeuTables(
                 sacks = sacks.await()?.let { runCatching { NeuConstants.parseSacks(it) }.getOrNull() }.orEmpty(),
                 shards = shards.await()?.let { runCatching { NeuConstants.parseShards(it) }.getOrNull() }.orEmpty(),
-                mining = hotm.await()?.let { runCatching { NeuConstants.parseTreeLayout(it, "hotm") }.getOrNull() },
-                foraging = hotf.await()?.let { runCatching { NeuConstants.parseTreeLayout(it, "hotf") }.getOrNull() },
+                mining = hotm.await()?.let { runCatching { SkillTreeRepo.parse(it) }.getOrNull() },
+                foraging = hotf.await()?.let { runCatching { SkillTreeRepo.parse(it) }.getOrNull() },
+                treeLevels = levels.await()?.let { runCatching { NeuConstants.parseTreeLevels(it) }.getOrNull() }.orEmpty(),
+                dungeonLevels = levels.await()?.let { runCatching { NeuConstants.parseDungeonLevels(it) }.getOrNull() }.orEmpty(),
                 pets = pets.await()?.let { runCatching { NeuConstants.parsePets(it) }.getOrNull() },
             )
         }
@@ -229,6 +218,8 @@ internal class HypixelProfileService(
     }
 
     private fun neuConstant(name: String): String = "$NEU_CONSTANTS/$name.json"
+
+    private fun treeConstant(tree: SkillTreeRepo.Tree): String = "${SkillTreeRepo.BASE_URL}/${tree.path}"
 
     private fun UpstreamResponse.requireSuccess() {
         when (status) {
@@ -246,7 +237,6 @@ internal class HypixelProfileService(
         const val SESSION_API = "https://sessionserver.mojang.com"
         const val NEU_CONSTANTS =
             "https://raw.githubusercontent.com/NotEnoughUpdates/NotEnoughUpdates-REPO/master/constants"
-        const val NEU_LEVELING = "$NEU_CONSTANTS/leveling.json"
         const val PROFILE_TTL_MILLIS = 60_000L
         const val IDENTITY_TTL_MILLIS = 6 * 60 * 60 * 1_000L
         const val SKILL_TTL_MILLIS = 6 * 60 * 60 * 1_000L
@@ -281,13 +271,18 @@ internal data class ItemDefinition(val name: String, val rarity: String)
 internal data class NeuTables(
     val sacks: List<NeuConstants.Sack> = emptyList(),
     val shards: List<NeuConstants.Shard> = emptyList(),
-    val mining: NeuConstants.TreeLayout? = null,
-    val foraging: NeuConstants.TreeLayout? = null,
+    val mining: SkillTreeRepo.Layout? = null,
+    val foraging: SkillTreeRepo.Layout? = null,
     val pets: NeuConstants.PetLeveling? = null,
+    /** Cumulative experience for each Heart of the Mountain level, which two of its perks scale against. */
+    val treeLevels: List<Double> = emptyList(),
+    /** Cumulative experience per Catacombs level. From the same file, so it costs the same one request. */
+    val dungeonLevels: List<Double> = emptyList(),
 ) {
     val shardsByName: Map<String, NeuConstants.Shard> by lazy { NeuConstants.index(shards) }
 
-    fun layout(tree: String): NeuConstants.TreeLayout? = if (tree == "mining") mining else foraging
+    fun tree(tree: SkillTreeRepo.Tree): SkillTreeRepo.Layout? =
+        if (tree == SkillTreeRepo.Tree.MINING) mining else foraging
 }
 internal data class UpstreamResponse(val status: Int, val body: String, val headers: Map<String, String>)
 
@@ -694,15 +689,15 @@ private fun bestiaryLocation(id: String): String {
  */
 private fun parseSkillTrees(member: JsonObject, neu: NeuTables): List<ProfileSkillTree> {
     val presets = member.obj("skill_tree")
-    val peak = member.pathObject("mining_core", "nodes")?.int("special_0") ?: 0
 
-    return listOf(
-        Triple("mining", "Heart of the Mountain", member.pathObject("mining_core", "nodes")),
-        Triple("foraging", "Heart of the Forest", member.pathObject("foraging_core", "nodes")),
-    ).mapNotNull { (id, name, core) ->
-        val layout = neu.layout(id)
+    return SkillTreeRepo.Tree.entries.mapNotNull { tree ->
+        val layout = neu.tree(tree)
+        val core = member.pathObject("${tree.id}_core", "nodes")
+        val experience = member.pathObject("${tree.id}_core")?.number("experience") ?: 0.0
+        val treeLevel = neu.treeLevels.count { experience >= it }
+
         val slots = (1..5).mapNotNull { slot ->
-            val key = if (slot == 1) id else "${id}_$slot"
+            val key = if (slot == 1) tree.id else "${tree.id}_$slot"
             val saved = presets?.obj("nodes")?.obj(key)
             val values = when {
                 slot == 1 && core != null -> JsonObject(core + saved.orEmpty())
@@ -711,22 +706,20 @@ private fun parseSkillTrees(member: JsonObject, neu: NeuTables): List<ProfileSki
             ProfileSkillTreeSlot(
                 slot,
                 presets?.pathObject("selected_ability")?.string(key)?.humanName(),
-                treeNodes(id, layout, values, peak),
+                treeNodes(tree, layout, values, treeLevel),
             )
         }
         if (slots.isEmpty()) {
             null
         } else {
             ProfileSkillTree(
-                id = id,
-                name = name,
-                selectedSlot = presets?.pathObject("selected_skill_tree_slot")?.int(id) ?: 1,
+                id = tree.id,
+                name = tree.displayName,
+                selectedSlot = presets?.pathObject("selected_skill_tree_slot")?.int(tree.id) ?: 1,
                 slots = slots,
                 columns = layout?.columns ?: 7,
-                // Deep enough for the layout *and* for anything Hypixel sent that the layout has not heard
-                // of yet, which lands in rows below it. A tree that gained a tier this week is still whole.
                 rows = maxOf(
-                    layout?.rows ?: if (id == "mining") 10 else 7,
+                    layout?.rows ?: 10,
                     slots.flatMap { it.nodes }.maxOfOrNull { it.row + 1 } ?: 0,
                 ),
             )
@@ -735,77 +728,82 @@ private fun parseSkillTrees(member: JsonObject, neu: NeuTables): List<ProfileSki
 }
 
 private fun treeNodes(
-    tree: String,
-    layout: NeuConstants.TreeLayout?,
+    tree: SkillTreeRepo.Tree,
+    layout: SkillTreeRepo.Layout?,
     values: JsonObject,
-    peak: Int,
+    treeLevel: Int,
 ): List<ProfileSkillTreeNode> {
     fun level(vararg keys: String): Int? = keys.firstNotNullOfOrNull { (values[it] as? JsonPrimitive)?.intOrNull }
     fun toggle(vararg keys: String): Boolean? = keys.firstNotNullOfOrNull {
         (values["toggle_$it"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull()
     }
 
+    // An ability's strength depends on the tree's core rather than on itself: taking the core at all buys
+    // every ability its second level. Read from whichever spelling of the core node this payload carries.
+    val coreLevel = layout?.let { level(tree.core, HOTM_NODE_IDS[tree.core].orEmpty()) } ?: 0
+    val abilityLevel = if (coreLevel >= 1) 2 else 1
+
     val claimed = HashSet<String>()
-    val fromLayout = layout?.perks?.values.orEmpty().map { perk ->
-        val hypixelId = HOTM_NODE_IDS[perk.id]?.takeIf { tree == "mining" } ?: perk.id
-        claimed += setOf(perk.id, hypixelId, "toggle_$hypixelId", "toggle_${perk.id}")
-        val level = level(hypixelId, perk.id) ?: 0
+    val fromLayout = layout?.nodes.orEmpty().map { node ->
+        val hypixelId = HOTM_NODE_IDS[node.id]?.takeIf { tree == SkillTreeRepo.Tree.MINING } ?: node.id
+        claimed += setOf(node.id, hypixelId, "toggle_$hypixelId", "toggle_${node.id}")
+        val nodeLevel = level(node.id, hypixelId) ?: 0
+        val variables = mapOf(
+            "level" to nodeLevel.coerceAtLeast(1).toDouble(),
+            "effectiveLevel" to abilityLevel.toDouble(),
+            "hotmLevel" to treeLevel.toDouble(),
+        )
         ProfileSkillTreeNode(
-            id = perk.id,
-            name = perk.name,
-            level = level,
-            enabled = toggle(hypixelId, perk.id),
-            column = perk.column,
-            row = perk.row,
-            maxLevel = perk.maxLevel,
-            kind = perkKind(perk),
-            itemId = layout?.itemFor(perk, level),
-            powder = layout?.powderFor(perk, level)?.takeIf { it.isNotEmpty() },
-            lore = layout?.describe(perk, level, peak).orEmpty(),
+            id = node.id,
+            name = node.name,
+            level = nodeLevel,
+            enabled = toggle(node.id, hypixelId),
+            column = node.column,
+            row = node.row,
+            maxLevel = node.maxLevel,
+            kind = node.kind,
+            itemId = null,
+            costLabel = if (nodeLevel < node.maxLevel) SkillTreeRepo.costOf(node, nodeLevel) else null,
+            lore = SkillTreeRepo.describe(node, variables),
         )
     }
 
-    // Whatever Hypixel sent that no perk claimed.
+    // Whatever Hypixel sent that no node claimed.
     //
-    // **Shown rather than dropped, and this is not a corner case.** Hypixel revamps these trees — the Heart
-    // of the Forest gained a tier and moved its perks around — and the description tables take days to catch
-    // up. Until they do, a new perk has no layout entry, and dropping it would hide progression the player
-    // can see in their own game. So the unclaimed ids are laid out in rows of their own beneath the tree,
-    // where they read as an extra strip of perks rather than as a pile on one square.
+    // **Shown rather than dropped, and this is not a corner case.** Hypixel revamps these trees, and a
+    // description of the new one takes days to appear. Until it does, an unrecognised perk is laid out in
+    // rows of its own beneath the tree, where it reads as an extra strip rather than a pile on one square.
     val extraRow = layout?.rows ?: 0
     val width = (layout?.columns ?: 7).coerceAtLeast(1)
     val leftovers = values.keys
         .filter { it !in claimed && !it.startsWith("toggle_") && "selected" !in it }
         .sorted()
         .mapIndexedNotNull { index, id ->
-            val level = (values[id] as? JsonPrimitive)?.intOrNull ?: return@mapIndexedNotNull null
+            val nodeLevel = (values[id] as? JsonPrimitive)?.intOrNull ?: return@mapIndexedNotNull null
             ProfileSkillTreeNode(
                 id = id,
                 name = id.humanName(),
-                level = level,
+                level = nodeLevel,
                 column = index % width,
                 row = extraRow + index / width,
-                maxLevel = level.coerceAtLeast(1),
+                maxLevel = nodeLevel.coerceAtLeast(1),
             )
         }
 
     return (fromLayout + leftovers).sortedWith(compareBy({ it.row }, { it.column }))
 }
 
-/** The layout separates abilities and the tree's core from ordinary perks only by their shape. */
-private fun perkKind(perk: NeuConstants.Perk): String = when {
-    perk.id == "core_of_the_mountain" || perk.id == "center_of_the_forest" -> "CORE"
-    perk.lore.any { it.text.contains("Pickaxe Ability") || it.text.contains("Axe Ability") } -> "ABILITY"
-    perk.maxLevel <= 1 -> "UNLEVELABLE"
-    else -> "PERK"
-}
-
 /**
  * NotEnoughUpdates' perk key against the id Hypixel puts in a profile, for the eleven that differ.
  *
- * Derived, not remembered: NotEnoughUpdates' `hotmlayout.json` names were matched against the
- * `hypixel id -> friendly name` table SkyCrypt publishes in `src/constants/hotm.js`. Forty-six on each side,
- * every one matched, none left over — which is what makes this a translation rather than a guess.
+ * **Both spellings are real and both are Hypixel's.** The live tree under `mining_core.nodes` uses the older
+ * ids — Quick Forge as `forge_time`, Core of the Mountain as `special_0` — while the saved presets under
+ * `skill_tree.nodes.mining` use the same display-derived names the description repositories do. Two public
+ * profile viewers read one object each and neither needs a translation; this reads both and merges them, so
+ * the table is what lets a perk be found whichever object carried it.
+ *
+ * Derived rather than remembered: the names were matched against the `hypixel id -> friendly name` table
+ * SkyCrypt publishes, forty-six against forty-six with nothing left over on either side.
  */
 private val HOTM_NODE_IDS = mapOf(
     "pickobulus" to "pickaxe_toss",

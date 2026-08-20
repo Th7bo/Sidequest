@@ -21,8 +21,10 @@ responses are passed back as a temporary failure instead of being retried in a t
 
 Hypixel says what a player has; it does not say what any of it means. Which items live in which sack, what a
 Heart of the Mountain perk grants at level 30, what an attribute shard is called and which item draws it —
-none of that is in the profile payload. Those come from NotEnoughUpdates' MIT-licensed constants, fetched by
-the backend and cached alongside everything else, so one download serves everybody.
+none of that is in the profile payload. Sacks, shards and pet levels come from NotEnoughUpdates' constants;
+the two skill trees come from the meowdding repository, which had the Heart of the Forest revamp — an eighth
+tier and seven new perks — while the other did not. Both are fetched by the backend and cached alongside
+everything else, so one download serves everybody.
 
 Perk descriptions are not copied numbers. Each perk records a *formula* — `(* level 20)` for Mining Speed —
 and the server evaluates it at the level the player actually has. A rebalance upstream therefore arrives on
@@ -55,11 +57,11 @@ models, so the active resource pack styles them too.
 - **Collections** — every public collection and its amount.
 - **Pets** — every public pet, rarity, XP, active state, held item/skin identifiers and candy use on the wire.
 - **Mining** — Heart of the Mountain, powders, crystals, Glacite Tunnels, forge and skill-tree progression.
-  Hovering a perk shows its name, level, what it grants at that level, and which powder buys the next one.
+  Hovering a perk shows its name, level, what it grants at that level, and what the next one costs.
 - **Farming** — Garden, Jacob's contests, plots, visitors, crops and other public Garden progress.
 - **Fishing** — trophy fish counts and tiers.
 - **Foraging** — Heart of the Forest, Foraging core, skill progression and attribute shards. The forest tree
-  is three rows shorter than the mountain's and is drawn on its own grid, with the same perk tooltips.
+  is shorter than the mountain's and is drawn on its own grid, with the same perk tooltips.
 - **Rift** — public Rift progression and collectible data.
 - **More** — Museum, essence/currencies, experimentation, leveling, objectives, quests, events, shards,
   temples, safari/hunting and every other bounded displayable profile category returned by Hypixel.

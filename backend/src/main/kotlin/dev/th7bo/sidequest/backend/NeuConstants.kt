@@ -249,141 +249,32 @@ internal object NeuConstants {
 
     private const val DEFAULT_MAX_LEVEL = 100
 
-    // -- Heart of the Mountain and Heart of the Forest ------------------------
-
-    /** One line of a perk's description, and the condition it appears under. */
-    data class LoreLine(val text: String, val onlyIf: String?)
-
-    /** One perk, exactly as the layout file describes it. Every expression is left unevaluated. */
-    data class Perk(
-        val id: String,
-        val name: String,
-        val column: Int,
-        val row: Int,
-        val maxLevel: Int,
-        val powder: String,
-        val item: String,
-        val cost: String,
-        /** `stat`, `statBoost`, `statDuration` and friends: whatever this perk's lore interpolates. */
-        val stats: Map<String, String>,
-        val lore: List<LoreLine>,
-    )
-
-    /** A whole tree: its perks, the grid they sit on, and the prelude they are written against. */
-    class TreeLayout(
-        val scope: NeuLisp.Scope,
-        val perks: Map<String, Perk>,
-        val columns: Int,
-        val rows: Int,
-    ) {
-        /**
-         * The variables every expression in the file is written against.
-         *
-         * `level0` is the raw level, zero meaning never unlocked; `level` is that floored at one, which is
-         * how the prelude's own helpers read it — `npi` treats `level0 = 0` as the locked, coal-coloured
-         * state while every stat formula wants a level of at least one, so a locked perk still shows what
-         * taking it would give. `potm` is Peak of the Mountain, which the pickaxe abilities scale against.
-         */
-        private fun variables(perk: Perk, level: Int, peak: Int) = mapOf(
-            "level0" to level.coerceAtLeast(0).toDouble(),
-            "level" to level.coerceAtLeast(1).toDouble(),
-            "maxLevel" to perk.maxLevel.toDouble(),
-            "potm" to peak.toDouble(),
-        )
-
-        /**
-         * A perk's description at the level somebody actually has it.
-         *
-         * A line whose `onlyIf` does not hold is dropped, and so is one whose placeholder could not be
-         * evaluated — showing "Grants +{stat} Mining Speed" would be worse than showing one line fewer.
-         */
-        fun describe(perk: Perk, level: Int, peakOfTheMountain: Int = 0): List<String> {
-            val variables = variables(perk, level, peakOfTheMountain)
-            val replacements = perk.stats.mapNotNull { (key, expression) ->
-                scope.render(expression, variables)?.let { key to it }
-            }.toMap()
-
-            return perk.lore.mapNotNull { line ->
-                if (line.onlyIf != null && !scope.holds(line.onlyIf, variables)) return@mapNotNull null
-                var text = line.text
-                for ((key, value) in replacements) text = text.replace("{$key}", value)
-                if (PLACEHOLDER.containsMatchIn(text)) null else text
-            }
-        }
-
-        /** The powder a perk costs, once its expression settles at [level]. Empty when it names none. */
-        fun powderFor(perk: Perk, level: Int): String = when {
-            perk.powder.isEmpty() -> ""
-            !perk.powder.startsWith("(") -> perk.powder
-            else -> scope.render(perk.powder, variables(perk, level, 0)).orEmpty()
-        }
-
-        /**
-         * The Minecraft item the game draws a perk with, at the level somebody has it.
-         *
-         * The layout answers this itself — `(npi level0 maxLevel)` is coal when locked, emerald when partly
-         * taken, diamond at the cap — so the icons match the real menu rather than approximating it. The
-         * result is a 1.8-era name in the layout's own casing; lowercasing it and adding the namespace is
-         * the whole translation, since none of the items involved were renamed by the flattening.
-         */
-        fun itemFor(perk: Perk, level: Int): String? {
-            if (perk.item.isEmpty()) return null
-            val name = if (perk.item.startsWith("(")) {
-                scope.render(perk.item, variables(perk, level, 0))
-            } else {
-                perk.item.removePrefix(":")
-            }
-            return name?.takeIf { it.isNotEmpty() && it.all { c -> c.isLetterOrDigit() || c == '_' } }
-                ?.let { "minecraft:" + it.lowercase() }
-        }
-    }
+    // -- level ladders ----------------------------------------------------------
 
     /**
-     * Reads `constants/hotmlayout.json` or `constants/hotflayout.json`.
+     * Cumulative experience per Catacombs level.
      *
-     * [root] is the object inside the file — `hotm` or `hotf`. The two files are the same shape, which is
-     * why one reader serves both; the grids are not the same size, so the extent is measured rather than
-     * assumed. Heart of the Mountain is seven columns by ten rows and Heart of the Forest seven by seven,
-     * and hard-coding the taller of the two leaves the shorter tree floating three rows down its panel.
+     * Hypixel's own skills resource does not cover the dungeon, so this is the one place the table lives.
+     * It shares a file with the Heart of the Mountain ladder, which is why both are read together.
      */
-    fun parseTreeLayout(body: String, root: String): TreeLayout? {
-        val document = parseObject(body)
-        val prelude = (document["prelude"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }
-        val perksJson = (document[root] as? JsonObject)?.get("perks") as? JsonObject ?: return null
+    fun parseDungeonLevels(body: String): List<Double> = cumulative(parseObject(body), "catacombs")
 
-        val perks = perksJson.mapNotNull { (id, raw) ->
-            val perk = raw as? JsonObject ?: return@mapNotNull null
-            id to Perk(
-                id = id,
-                name = (perk["name"] as? JsonPrimitive)?.content ?: id.humanName(),
-                column = (perk["x"] as? JsonPrimitive)?.intOrNull ?: 3,
-                row = (perk["y"] as? JsonPrimitive)?.intOrNull ?: 0,
-                maxLevel = (perk["maxLevel"] as? JsonPrimitive)?.intOrNull ?: 1,
-                powder = (perk["powder"] as? JsonPrimitive)?.content.orEmpty(),
-                item = (perk["item"] as? JsonPrimitive)?.content.orEmpty(),
-                cost = (perk["cost"] as? JsonPrimitive)?.content.orEmpty(),
-                stats = perk.filterKeys { it.startsWith("stat") }
-                    .mapNotNull { (key, value) -> (value as? JsonPrimitive)?.content?.let { key to it } }
-                    .toMap(),
-                lore = (perk["lore"] as? JsonArray).orEmpty().mapNotNull { line ->
-                    when (line) {
-                        is JsonPrimitive -> LoreLine(line.content, null)
-                        is JsonObject -> (line["text"] as? JsonPrimitive)?.content?.let {
-                            LoreLine(it, (line["onlyIf"] as? JsonPrimitive)?.content)
-                        }
-                        else -> null
-                    }
-                },
-            )
-        }.toMap()
-        if (perks.isEmpty()) return null
+    // -- Heart of the Mountain levels -------------------------------------------
 
-        return TreeLayout(
-            scope = NeuLisp.scopeOf(prelude),
-            perks = perks,
-            columns = (perks.values.maxOf { it.column }) + 1,
-            rows = (perks.values.maxOf { it.row }) + 1,
-        )
+    /**
+     * Cumulative experience for each Heart of the Mountain level.
+     *
+     * Two of its perks — the daily powder ones — scale with the tree's own level rather than their own, so
+     * the level has to be known before their descriptions can be written. The file stores the cost of each
+     * level rather than the running total, which is why this sums as it goes.
+     */
+    fun parseTreeLevels(body: String): List<Double> = cumulative(parseObject(body), "HOTM")
+
+    private fun cumulative(root: JsonObject, name: String): List<Double> {
+        val costs = (root[name] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.content?.toDoubleOrNull() }
+        var total = 0.0
+        return costs.map { cost -> total += cost; total }
     }
 
     private val NON_WORD = Regex("[^a-z0-9]+")
