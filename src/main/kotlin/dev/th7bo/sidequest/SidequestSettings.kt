@@ -130,6 +130,23 @@ public object SidequestSettings {
          * while there stops the mod touching it for the rest of the visit.
          */
         public var suppressViewBobbing: Boolean = true
+
+        // -- orbital camera --------------------------------------------------
+
+        /**
+         * How fast the mouse swings the orbital camera.
+         *
+         * Its own, rather than the game's. The camera is doing a different job from aiming — a slow, wide
+         * swing to watch a run from the side, against a quick flick to face a crop — and one number cannot
+         * be right for both.
+         */
+        public var orbitSensitivity: Float = 1f
+
+        /** Whether pushing the mouse forward looks up. Separate for the same reason. */
+        public var orbitInvertY: Boolean = false
+
+        public const val MIN_ORBIT_SENSITIVITY: Float = 0.1f
+        public const val MAX_ORBIT_SENSITIVITY: Float = 3f
     }
 
     // -- SkyBlock levels -----------------------------------------------------

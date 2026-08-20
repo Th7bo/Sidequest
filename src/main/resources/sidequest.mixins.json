@@ -7,7 +7,9 @@
     "defaultRequire": 1
   },
   "client": [
+    "CameraMixin",
     "EntityRendererMixin",
+    "MouseHandlerMixin",
     "PlayerTabOverlayMixin",
     "ScreenPanoramaMixin"
   ],

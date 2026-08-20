@@ -6,6 +6,7 @@ import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.DiscordPresence
 import dev.th7bo.sidequest.features.ProfileViewer
 import dev.th7bo.sidequest.features.GardenViewBobbing
+import dev.th7bo.sidequest.features.OrbitalCameraFeature
 import dev.th7bo.sidequest.features.PlaytimeTracker
 import dev.th7bo.sidequest.features.PingSystem
 import dev.th7bo.sidequest.features.RareDropAnimation
@@ -24,6 +25,7 @@ import dev.th7bo.sidequest.feature.ui.WaypointActions
 import dev.th7bo.sidequest.feature.ui.WaypointScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildWaypointScreen
 import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
+import dev.th7bo.sidequest.platform.minecraft.OrbitalCameraState
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.waypoint.WaypointDelivery
 import dev.th7bo.sidequest.platform.backend.BackendConfig
@@ -539,6 +541,21 @@ object Sidequest : ClientModInitializer {
         playtime = PlaytimeTracker(
             localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
         )
+        orbitalCamera = OrbitalCameraFeature(
+            readPerspective = { net.minecraft.client.Minecraft.getInstance().options.getCameraType().name },
+            writePerspective = { name ->
+                net.minecraft.client.Minecraft.getInstance().options
+                    .setCameraType(net.minecraft.client.CameraType.valueOf(name))
+            },
+            setOrbiting = OrbitalCameraState::setEnabled,
+            recentre = OrbitalCameraState::recentre,
+            publishSettings = {
+                OrbitalCameraState.settings = OrbitalCameraState.Settings(
+                    sensitivity = SidequestSettings.Garden.orbitSensitivity.toDouble(),
+                    invertY = SidequestSettings.Garden.orbitInvertY,
+                )
+            },
+        )
         gardenBobbing = GardenViewBobbing(
             readBobbing = { net.minecraft.client.Minecraft.getInstance().options.bobView().get() },
             writeBobbing = { net.minecraft.client.Minecraft.getInstance().options.bobView().set(it) },
@@ -609,6 +626,7 @@ object Sidequest : ClientModInitializer {
             rareDrops,
             playtime,
             gardenBobbing,
+            orbitalCamera,
             // Before the waypoints, which ask it who the friends are the moment they draw.
             friends,
             // After the friends, whose list its command completes from.
@@ -627,6 +645,7 @@ object Sidequest : ClientModInitializer {
     private lateinit var playtime: PlaytimeTracker
 
     private lateinit var gardenBobbing: GardenViewBobbing
+    private lateinit var orbitalCamera: OrbitalCameraFeature
 
     private lateinit var waypoints: SharedWaypoints
 

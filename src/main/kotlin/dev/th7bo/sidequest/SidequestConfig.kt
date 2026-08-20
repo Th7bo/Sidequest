@@ -383,6 +383,36 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     keywords("farming", "camera", "sway", "bob")
                 }
+                divider(id("garden.divider"))
+                description(
+                    id("garden.orbit.about"),
+                    "/sqorbit looks around without turning you — third person, with the mouse on the camera " +
+                        "instead of the player. Made to sit alongside a mouse lock rather than fight one. " +
+                        "/sqorbitcentre puts it back behind you.",
+                )
+                decimalSlider(
+                    id = id("garden.orbit.sensitivity"),
+                    title = "Orbital camera sensitivity",
+                    description = "Its own, not the game's: swinging a camera and aiming at a crop want different numbers",
+                    value = bind(
+                        get = { SidequestSettings.Garden.orbitSensitivity },
+                        set = { SidequestSettings.Garden.orbitSensitivity = it },
+                        debugName = "garden.orbit.sensitivity",
+                    ),
+                    range = SidequestSettings.Garden.MIN_ORBIT_SENSITIVITY..SidequestSettings.Garden.MAX_ORBIT_SENSITIVITY,
+                ) {
+                    keywords("orbit", "freelook", "perspective", "f5", "third person")
+                }
+                toggle(
+                    id = id("garden.orbit.invert"),
+                    title = "Invert the orbital camera's vertical",
+                    description = "Only this camera. Your own mouse settings are untouched.",
+                    value = bind(
+                        get = { SidequestSettings.Garden.orbitInvertY },
+                        set = { SidequestSettings.Garden.orbitInvertY = it },
+                        debugName = "garden.orbit.invert",
+                    ),
+                )
             }
 
             section("SkyBlock levels", description = "How the level above a player's head is coloured", icon = GlyphIconIds.levels, collapsible = true, startsCollapsed = true) {
