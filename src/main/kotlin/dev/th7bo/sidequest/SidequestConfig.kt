@@ -440,6 +440,18 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     visibleWhen = orbitAutoOn
                 }
+                toggle(
+                    id = id("garden.orbit.stop_on_pests"),
+                    title = "Put it away when a pest spawns",
+                    description = "A pest has to be found and killed, which is worse behind a camera looking elsewhere",
+                    value = bind(
+                        get = { SidequestSettings.Garden.orbitStopOnPests },
+                        set = { SidequestSettings.Garden.orbitStopOnPests = it },
+                        debugName = "garden.orbit.stop_on_pests",
+                    ),
+                ) {
+                    keywords("pest", "orbit", "camera", "garden")
+                }
             }
 
             section("SkyBlock levels", description = "How the level above a player's head is coloured", icon = GlyphIconIds.levels, collapsible = true, startsCollapsed = true) {

@@ -161,6 +161,14 @@ public object SidequestSettings {
 
         public const val MIN_ORBIT_BLOCKS: Int = 10
         public const val MAX_ORBIT_BLOCKS: Int = 1000
+
+        /**
+         * Whether a pest spawning puts the orbital camera away.
+         *
+         * On by default, and the one part of this feature that is: a pest has to be found and killed, and
+         * doing that behind a camera pointed somewhere else is worse than having no camera help at all.
+         */
+        public var orbitStopOnPests: Boolean = true
     }
 
     // -- SkyBlock levels -----------------------------------------------------

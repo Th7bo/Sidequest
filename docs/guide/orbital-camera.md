@@ -43,6 +43,20 @@ then stayed on would be worse than one that never did.
 `/sqorbit` during a run it started means *not this run*, not *never again*. It stands down until the run ends
 rather than switching back on with the next block, which is the same rule the perspective override follows.
 
+## Pests put it away
+
+A pest spawning turns the camera off. On by default, and the one part of this that is: a pest has to be
+found and killed, and doing that behind a camera pointed somewhere else is worse than having no camera help
+at all.
+
+It ends the run outright rather than standing down, so going back to farming earns the camera again the same
+way it did the first time. It stops a camera you turned on by hand too — "stop when pests spawn" is a claim
+about the pest, not about how the camera got there.
+
+The line it watches for is Hypixel's own, and two things about it are invisible to somebody reading it in
+game: the gap after the article is *two* spaces, where an icon was stripped, and the pattern is anchored so
+that a party member quoting the message does not stop your camera. Both carry a test that fails without them.
+
 ## Scope and limits
 
 - **The Garden only.** A camera that stops the mouse turning you is a camera that gets somebody killed in a

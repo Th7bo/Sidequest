@@ -1,7 +1,9 @@
 package dev.th7bo.sidequest.features
 
 import dev.th7bo.sidequest.SidequestSettings
+import dev.th7bo.sidequest.platform.chat.ChatMessageEvent
 import dev.th7bo.sidequest.platform.core.garden.FarmingStreak
+import dev.th7bo.sidequest.platform.core.garden.PestChat
 import dev.th7bo.sidequest.platform.core.notification.notification
 import dev.th7bo.sidequest.platform.core.settings.ContextualOverride
 import dev.th7bo.sidequest.platform.feature.Feature
@@ -9,6 +11,7 @@ import dev.th7bo.sidequest.platform.feature.FeatureCategory
 import dev.th7bo.sidequest.platform.feature.FeatureContext
 import dev.th7bo.sidequest.platform.feature.FeatureDescriptor
 import dev.th7bo.sidequest.platform.feature.command
+import dev.th7bo.sidequest.platform.feature.listen
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.notification.NotificationCategory
 import dev.th7bo.sidequest.platform.skyblock.Island
@@ -96,6 +99,10 @@ class OrbitalCameraFeature(
             recentre()
         }
 
+        context.listen<ChatMessageEvent> { event ->
+            if (PestChat.isSpawn(event.message.clean)) onPestSpawned()
+        }
+
         // Polled for the same reason the Garden's bobbing is: the player can change perspective themselves
         // at any moment and the override has to notice, and leaving the island has to stand the mode down.
         context.scheduler.every(context.owner, period = CHECK, initialDelay = CHECK) { check() }
@@ -155,6 +162,29 @@ class OrbitalCameraFeature(
         val orbiting = wanted && perspective.isOverriding
         publishSettings()
         setOrbiting(orbiting)
+    }
+
+    /**
+     * Puts the camera away when a pest turns up.
+     *
+     * A pest is the one thing on the Garden that needs looking at rather than farming through: it has to be
+     * found and killed, and doing that behind a camera pointed somewhere else is worse than doing it with no
+     * camera help at all. So the run is ended outright rather than stood down — going back to farming earns
+     * the camera again the same way it did the first time.
+     *
+     * It stops a camera the player turned on by hand too. "Stop when pests spawn" is a claim about the
+     * pest, not about how the camera got there.
+     */
+    private fun onPestSpawned() {
+        if (!SidequestSettings.Garden.orbitStopOnPests) return
+        if (!isAllowed()) return
+
+        streak.reset()
+        stoodDownFor = false
+        if (!requested) return
+
+        stop()
+        say("Orbital camera off — a pest spawned.")
     }
 
     /**
