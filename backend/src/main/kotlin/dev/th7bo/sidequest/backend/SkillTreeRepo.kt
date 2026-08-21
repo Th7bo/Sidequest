@@ -104,7 +104,20 @@ internal object SkillTreeRepo {
             )
         }
         if (nodes.isEmpty()) return null
-        return Layout(nodes, nodes.maxOf { it.column } + 1, nodes.maxOf { it.row } + 1)
+
+        // **The file counts rows upward from the bottom; a screen counts them downward from the top.**
+        // Tier 1 is `y = 0` and Tier 1 is the row nearest the bottom of the real menu — Mining Speed, the
+        // first perk anybody takes, sits there. Handing those numbers straight to something that draws row
+        // zero first produces the whole tree upside down, with the perks nobody has yet at the top.
+        //
+        // Flipped once, here, next to the data it is about. Everything downstream then works in the one
+        // convention the protocol documents.
+        val rows = nodes.maxOf { it.row } + 1
+        return Layout(
+            nodes.map { it.copy(row = rows - 1 - it.row) },
+            columns = nodes.maxOf { it.column } + 1,
+            rows = rows,
+        )
     }
 
     /**

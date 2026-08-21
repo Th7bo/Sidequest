@@ -96,6 +96,29 @@ class SkillTreeRepoRealTest {
         assertTrue(unknown.isEmpty(), "colour tags this converter would silently drop: $unknown")
     }
 
+    /**
+     * The tree is the way up it is drawn, not the way up it is written.
+     *
+     * The file counts tiers upward from the bottom — Tier 1 is `y = 0`, and Tier 1 is the row nearest the
+     * bottom of the real menu. A screen counts rows downward from the top. Handing one to the other without
+     * turning it over draws the whole tree upside down, with the perks nobody has yet along the top, and it
+     * looks plausible enough at a glance to ship.
+     */
+    @Test
+    fun `the first perk is at the bottom and the last at the top`() {
+        val body = tree("hotm")
+        assumeTrue(body != null, "set SIDEQUEST_TREE_REPO to run this")
+
+        val layout = requireNotNull(SkillTreeRepo.parse(body!!))
+
+        // Mining Speed is the first perk anybody takes and sits on the bottom row of the menu.
+        assertEquals(layout.rows - 1, layout.byId.getValue("mining_speed").row)
+        // Mining Master is a tier-ten perk, along the top.
+        assertEquals(0, layout.byId.getValue("mining_master").row)
+        // The core sits in the middle either way, which is the check that the flip is not an off-by-one.
+        assertEquals(5, layout.byId.getValue("core_of_the_mountain").row)
+    }
+
     /** The core is the one node whose description is a list of what it has unlocked so far. */
     @Test
     fun `a core grows a line per level taken`() {
