@@ -420,6 +420,41 @@ class CinematicStageTest {
         assertTrue(bars.any { it.bounds.bottom == screen.height })
     }
 
+    /**
+     * The AFK camera's bars, which have no clip to be a fraction of.
+     *
+     * `progress` stays at zero throughout — there is no such thing as halfway through a camera that runs
+     * until somebody comes back — and that is exactly the value at which the composition's own fade would
+     * draw nothing at all. So the assertion worth having is that the bars are on screen anyway, and that they
+     * follow the extent rather than the progress.
+     */
+    @Test
+    fun `bars driven by an extent ignore progress`() {
+        stage.elements = listOf(StageElement.Letterbox(0.5f))
+        stage.progress = 0f
+        stage.barExtent = 0.5f
+
+        frame()
+
+        val bars = renderer.commandsOfType<DrawCommand.FillRect>()
+        assertEquals(2, bars.size)
+        // Half of half the viewport: the extent decides how far in they are, and nothing else does.
+        assertEquals(screen.height * 0.25f, bars.first { it.bounds.y == 0f }.bounds.height)
+    }
+
+    @Test
+    fun `without an extent the bars still slide in with the run`() {
+        stage.elements = listOf(StageElement.Letterbox(0.5f))
+        stage.progress = 0.5f
+        stage.barExtent = null
+
+        frame()
+
+        val bars = renderer.commandsOfType<DrawCommand.FillRect>()
+        // The bars finish sliding early in a cinematic and hold, so halfway through they are fully in.
+        assertEquals(screen.height * 0.5f, bars.first { it.bounds.y == 0f }.bounds.height)
+    }
+
     /** The opacity stack has to balance, or every later frame is dimmed by whatever was left pushed. */
     @Test
     fun `the opacity stack is balanced across a whole run`() {

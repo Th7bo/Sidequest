@@ -2,6 +2,7 @@ package dev.th7bo.sidequest.mixins;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import dev.th7bo.sidequest.platform.minecraft.AfkCameraState;
 import dev.th7bo.sidequest.platform.minecraft.OrbitalCameraState;
 import net.minecraft.client.Camera;
 import org.spongepowered.asm.mixin.Mixin;
@@ -17,6 +18,10 @@ import org.spongepowered.asm.mixin.injection.At;
  *
  * <p>The player's own rotation is untouched, which is the whole feature: the model keeps facing the crops,
  * the reach still goes where they are pointing, and only the view moves.
+ *
+ * <p>The AFK camera arrives through the same door, and second. Both cannot be on at once — the feature that
+ * owns the shots refuses to start while the orbit is running — but the order is stated here anyway, because
+ * the one that must win is the one the player is driving.
  */
 @Mixin(Camera.class)
 public abstract class CameraMixin {
@@ -26,10 +31,17 @@ public abstract class CameraMixin {
         at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Camera;setRotation(FF)V")
     )
     private void sidequest$orbitAroundPlayer(Camera camera, float yaw, float pitch, Operation<Void> original) {
-        if (!OrbitalCameraState.INSTANCE.isActive()) {
-            original.call(camera, yaw, pitch);
+        if (OrbitalCameraState.INSTANCE.isActive()) {
+            original.call(camera, OrbitalCameraState.cameraYaw(yaw), OrbitalCameraState.cameraPitch(pitch));
             return;
         }
-        original.call(camera, OrbitalCameraState.cameraYaw(yaw), OrbitalCameraState.cameraPitch(pitch));
+        if (AfkCameraState.INSTANCE.isActive()) {
+            // Advanced here, once, so the yaw and the pitch below come from one step of the reel rather than
+            // from two reads that could fall either side of a cut.
+            AfkCameraState.advance();
+            original.call(camera, AfkCameraState.cameraYaw(yaw), AfkCameraState.cameraPitch());
+            return;
+        }
+        original.call(camera, yaw, pitch);
     }
 }

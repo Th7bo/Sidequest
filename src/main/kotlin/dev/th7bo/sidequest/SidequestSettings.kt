@@ -10,6 +10,8 @@ import dev.th7bo.sidequest.platform.cosmetic.CosmeticSettings
 import dev.th7bo.sidequest.platform.notification.NotificationSettings
 import dev.th7bo.sidequest.platform.skyblock.Island
 import dev.th7bo.sidequest.ui.rendering.Color
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Every preference the mod has, as plain properties.
@@ -89,6 +91,44 @@ public object SidequestSettings {
 
         public var queueWhileUnsafe: Boolean = true
         public var recap: Boolean = true
+    }
+
+    // -- AFK cinematics ------------------------------------------------------
+
+    /**
+     * The camera that runs itself once nobody is at the keyboard.
+     *
+     * Its own group rather than a corner of [Cinematics], because the two are opposites: a cinematic
+     * interrupts somebody who is playing, and this only ever runs when nobody is. They share the safety gate
+     * and nothing else, and filing this under a switch labelled "things worth stopping for" would make the
+     * one setting people come here to change hard to find.
+     */
+    public object Afk {
+        public var isEnabled: Boolean = true
+
+        /**
+         * How long with nobody at the keyboard before the camera takes over.
+         *
+         * The setting this feature exists to have. Three minutes by default: long enough that it never
+         * appears during a pause to read something, short enough to be there when somebody walks away.
+         */
+        public var afterSeconds: Int = 180
+
+        /** How long an average shot holds before the reel cuts. Scales all of them together. */
+        public var shotSeconds: Int = 8
+
+        /** Bars top and bottom while it runs. */
+        public var letterbox: Boolean = true
+
+        public val after: Duration get() = afterSeconds.seconds
+
+        public val shotLength: Duration get() = shotSeconds.seconds
+
+        public const val MIN_AFTER_SECONDS: Int = 15
+        public const val MAX_AFTER_SECONDS: Int = 900
+
+        public const val MIN_SHOT_SECONDS: Int = 3
+        public const val MAX_SHOT_SECONDS: Int = 20
     }
 
     // -- rare drops ----------------------------------------------------------
