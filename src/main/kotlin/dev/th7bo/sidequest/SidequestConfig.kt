@@ -35,6 +35,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     // than a plain property.
     val notificationsOn = mutableStateOf(SidequestSettings.Notifications.isEnabled, "notifications.enabled")
     val cinematicsOn = mutableStateOf(SidequestSettings.Cinematics.isEnabled, "cinematics.enabled")
+    val afkOn = mutableStateOf(SidequestSettings.Afk.isEnabled, "afk.enabled")
     val dropsOn = mutableStateOf(SidequestSettings.Drops.isEnabled, "drops.enabled")
     val orbitAutoOn = mutableStateOf(SidequestSettings.Garden.orbitAutoStart, "garden.orbit.auto")
     val cosmeticsOn = mutableStateOf(SidequestSettings.Cosmetics.isEnabled, "cosmetics.enabled")
@@ -253,6 +254,68 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     ),
                 ) {
                     visibleWhen = cinematicsOn
+                }
+            }
+
+            section("AFK camera", description = "What the game shows once you have walked away", icon = GlyphIconIds.cinematics, collapsible = true, startsCollapsed = true) {
+                description(
+                    id("afk.about"),
+                    "After a while with nobody at the keyboard the view leaves your eyes and cuts between " +
+                        "camera shots, with bars top and bottom. Anything at all — a step, a glance, a " +
+                        "screen — hands it straight back. /sqafk starts it now.",
+                )
+                toggle(
+                    id = id("afk.enabled"),
+                    title = "Play shots while you are away",
+                    value = bind(
+                        get = { SidequestSettings.Afk.isEnabled },
+                        set = { SidequestSettings.Afk.isEnabled = it; afkOn.value = it },
+                        debugName = "afk.enabled",
+                    ),
+                ) {
+                    keywords("afk", "idle", "away", "camera", "attract", "cinematic")
+                }
+                slider(
+                    id = id("afk.after"),
+                    title = "Start it after",
+                    description = "How long with nobody at the keyboard before the camera takes over",
+                    value = bind(
+                        get = { SidequestSettings.Afk.afterSeconds },
+                        set = { SidequestSettings.Afk.afterSeconds = it },
+                        debugName = "afk.after",
+                    ),
+                    range = SidequestSettings.Afk.MIN_AFTER_SECONDS..SidequestSettings.Afk.MAX_AFTER_SECONDS,
+                    step = 15,
+                    format = ::asDelay,
+                ) {
+                    visibleWhen = afkOn
+                    keywords("afk", "idle", "timeout", "delay", "minutes")
+                }
+                slider(
+                    id = id("afk.shot_length"),
+                    title = "Seconds a shot holds",
+                    description = "One number for the whole reel: a long orbit stays longer than a quick profile at any setting",
+                    value = bind(
+                        get = { SidequestSettings.Afk.shotSeconds },
+                        set = { SidequestSettings.Afk.shotSeconds = it },
+                        debugName = "afk.shot_length",
+                    ),
+                    range = SidequestSettings.Afk.MIN_SHOT_SECONDS..SidequestSettings.Afk.MAX_SHOT_SECONDS,
+                    format = { "${it}s" },
+                ) {
+                    visibleWhen = afkOn
+                }
+                toggle(
+                    id = id("afk.letterbox"),
+                    title = "Letterbox",
+                    description = "Bars at the top and bottom while it runs",
+                    value = bind(
+                        get = { SidequestSettings.Afk.letterbox },
+                        set = { SidequestSettings.Afk.letterbox = it },
+                        debugName = "afk.letterbox",
+                    ),
+                ) {
+                    visibleWhen = afkOn
                 }
             }
 
@@ -885,6 +948,20 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
         }
     }
 }
+
+/**
+ * Seconds, read as somebody would say them.
+ *
+ * `300` is a number to work out; `5m` is a length of time. The slider runs to a quarter of an hour, which is
+ * long enough that raw seconds stop meaning anything about halfway along it.
+ */
+private fun asDelay(seconds: Int): String = when {
+    seconds < SECONDS_PER_MINUTE -> "${seconds}s"
+    seconds % SECONDS_PER_MINUTE == 0 -> "${seconds / SECONDS_PER_MINUTE}m"
+    else -> "${seconds / SECONDS_PER_MINUTE}m ${seconds % SECONDS_PER_MINUTE}s"
+}
+
+private const val SECONDS_PER_MINUTE = 60
 
 /** A percentage, for the volume sliders. Zero reads as "off" rather than as "0%", which looks like a bug. */
 private fun percent(value: Float): String = if (value <= 0f) "off" else "${(value * 100).toInt()}%"

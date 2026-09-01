@@ -5,6 +5,7 @@ import dev.th7bo.sidequest.ui.core.component.ComponentContext
 import dev.th7bo.sidequest.ui.core.hud.HudElementNode
 import dev.th7bo.sidequest.ui.core.hud.HudLayerNode
 import dev.th7bo.sidequest.ui.components.cinematic.CinematicStageNode
+import dev.th7bo.sidequest.ui.components.cinematic.StageElement
 import dev.th7bo.sidequest.ui.components.notification.NotificationRegionNode
 import dev.th7bo.sidequest.ui.components.world.WaypointLayerNode
 import dev.th7bo.sidequest.ui.core.icon.IconRegistry
@@ -76,6 +77,16 @@ public object SidequestHudLayer : HudElement {
 
     /** Advances the cinematic clock each frame. Set by the mod, which owns the sink. */
     public var onFrame: ((deltaSeconds: Float) -> Unit)? = null
+
+    /**
+     * How far the AFK camera's bars are in, or null when there are none.
+     *
+     * A supplier rather than a value pushed in, because the thing that knows is the camera state, which runs
+     * off the render clock and has no way to reach the HUD. Asked once a frame, on the thread that answers.
+     */
+    public var afkLetterbox: (() -> Float?)? = null
+
+    private var afk: CinematicStageNode? = null
 
     private var notificationRegion: NotificationRegionNode? = null
     private var waypoints: WaypointLayerNode? = null
@@ -170,6 +181,8 @@ public object SidequestHudLayer : HudElement {
         // wall-clock length whatever the tick rate is doing, and must stop while the game is paused.
         onFrame?.invoke(delta)
 
+        drawAfkBars()
+
         val renderer = MinecraftUiRenderer(
             graphics = graphics,
             font = client.font,
@@ -187,6 +200,21 @@ public object SidequestHudLayer : HudElement {
         } finally {
             renderer.endFrame()
         }
+    }
+
+    /**
+     * Keeps the AFK camera's bars in step with the camera, once a frame.
+     *
+     * The contents are set only when they change. Assigning `elements` invalidates the measure pass, and
+     * doing that sixty times a second for a list of one thing that never varies would remeasure the whole
+     * stage for nothing.
+     */
+    private fun drawAfkBars() {
+        val stage = afk ?: return
+        val bars = afkLetterbox?.invoke()
+        val wanted = bars != null
+        if (stage.isActive != wanted) stage.elements = if (wanted) AFK_BARS else emptyList()
+        if (stage.barExtent != bars) stage.barExtent = bars
     }
 
     private fun build(client: Minecraft): UiRuntime {
@@ -228,11 +256,17 @@ public object SidequestHudLayer : HudElement {
         val stage = CinematicStageNode(UiId.of(Sidequest.MOD_ID, "cinematic"), context)
         cinematic = stage
 
-        // A box fixed to the screen, so all three layers are measured against the full
+        // The AFK camera's bars, under the cinematic stage rather than sharing it. They are on for as long
+        // as nobody comes back, and a rare drop landing during that has to be able to play its own cinematic
+        // over the top — one stage would mean whichever arrived last wiped the other out.
+        val afkStage = CinematicStageNode(UiId.of(Sidequest.MOD_ID, "cinematic.afk"), context)
+        afk = afkStage
+
+        // A box fixed to the screen, so all the layers are measured against the full
         // viewport rather than against each other's sizes.
         val stack = BoxNode(UiId.of(Sidequest.MOD_ID, "hud.root")).apply {
             preferredSize = screenSize
-            addChildren(waypointLayer, built, region, stage)
+            addChildren(waypointLayer, built, region, afkStage, stage)
         }
         root = stack
         created.root = stack
@@ -259,7 +293,9 @@ public object SidequestHudLayer : HudElement {
         notifications.dispose()
         notificationRegion = null
         cinematic = null
+        afk = null
         onFrame = null
+        afkLetterbox = null
         waypoints = null
         root = null
         runtime?.dispose()
@@ -270,4 +306,16 @@ public object SidequestHudLayer : HudElement {
     }
 
     private const val TICKS_PER_SECOND = 20f
+
+    /**
+     * The AFK camera's bars.
+     *
+     * One shared immutable list, because it never varies: how far in they are lives in `barExtent`, and
+     * rebuilding the list every frame would invalidate the measure pass sixty times a second for content
+     * that is identical each time.
+     */
+    private val AFK_BARS = listOf(StageElement.Letterbox(AFK_BAR_HEIGHT))
+
+    /** A touch deeper than a cinematic's, because these are the shot rather than a frame around one. */
+    private const val AFK_BAR_HEIGHT = 0.14f
 }

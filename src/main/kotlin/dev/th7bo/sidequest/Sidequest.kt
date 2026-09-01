@@ -1,5 +1,6 @@
 package dev.th7bo.sidequest
 
+import dev.th7bo.sidequest.features.AfkCinematics
 import dev.th7bo.sidequest.features.CustomFriends
 import dev.th7bo.sidequest.features.DebtTracker
 import dev.th7bo.sidequest.features.DeveloperTools
@@ -25,6 +26,8 @@ import dev.th7bo.sidequest.feature.ui.WaypointActions
 import dev.th7bo.sidequest.feature.ui.WaypointScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildWaypointScreen
 import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
+import dev.th7bo.sidequest.platform.core.afk.CameraPose
+import dev.th7bo.sidequest.platform.minecraft.AfkCameraState
 import dev.th7bo.sidequest.platform.minecraft.BlocksBroken
 import dev.th7bo.sidequest.platform.minecraft.OrbitalCameraState
 import dev.th7bo.sidequest.platform.player.PlayerId
@@ -309,6 +312,9 @@ object Sidequest : ClientModInitializer {
         // The cinematic clock. On the render delta rather than on a tick, so a cinematic runs the same
         // wall-clock length whatever the tick rate is doing and stops while the game is paused.
         SidequestHudLayer.onFrame = { delta -> cinematicSink.advance(delta) }
+        // The AFK camera's bars. Asked rather than pushed: the camera runs off the render clock, which is the
+        // only clock the reel and the bars can share without one of them lagging the other by a frame.
+        SidequestHudLayer.afkLetterbox = { AfkCameraState.letterbox() }
 
         // Markers reach the world overlay layer through the bridge, redrawn from the platform's tick rather
         // than per frame: what the service reports only changes when a marker is placed, expires, or the
@@ -528,6 +534,19 @@ object Sidequest : ClientModInitializer {
             dev.th7bo.sidequest.platform.skyblock.SqPosition(it.x, it.y, it.z)
         }
 
+    /**
+     * Where the player is standing and which way they are looking.
+     *
+     * Here rather than in the feature for the same reason as [localPosition]: it reaches into the game.
+     * Rotation as well as position, because the two answer different halves of "is anybody there" — somebody
+     * reading chat turns the view without moving, and somebody on a moving platform moves without doing
+     * anything at all.
+     */
+    private fun localPose(): CameraPose? =
+        Minecraft.getInstance().player?.let {
+            CameraPose(it.x, it.y, it.z, it.yRot, it.xRot)
+        }
+
     /** How many marker overlays are live. For the in-game test, which has no other way to see the bridge. */
     fun markerOverlayCount(): Int = SidequestHudLayer.worldOverlays.size
 
@@ -557,6 +576,23 @@ object Sidequest : ClientModInitializer {
                     invertY = SidequestSettings.Garden.orbitInvertY,
                 )
             },
+        )
+        afkCinematics = AfkCinematics(
+            pose = ::localPose,
+            readPerspective = { net.minecraft.client.Minecraft.getInstance().options.getCameraType().name },
+            writePerspective = { name ->
+                net.minecraft.client.Minecraft.getInstance().options
+                    .setCameraType(net.minecraft.client.CameraType.valueOf(name))
+            },
+            startShots = AfkCameraState::start,
+            releaseShots = AfkCameraState::release,
+            stopShots = AfkCameraState::stop,
+            isSettled = { AfkCameraState.isSettled },
+            shotName = { AfkCameraState.shotName },
+            // The orbital camera is the player driving; this is the player being absent. Whichever is already
+            // pointing the view keeps it, and the one that has to give way is the one nobody asked for.
+            isCameraBusy = { OrbitalCameraState.isActive },
+            blocksBroken = { BlocksBroken.total },
         )
         gardenBobbing = GardenViewBobbing(
             readBobbing = { net.minecraft.client.Minecraft.getInstance().options.bobView().get() },
@@ -629,6 +665,7 @@ object Sidequest : ClientModInitializer {
             playtime,
             gardenBobbing,
             orbitalCamera,
+            afkCinematics,
             // Before the waypoints, which ask it who the friends are the moment they draw.
             friends,
             // After the friends, whose list its command completes from.
@@ -648,6 +685,7 @@ object Sidequest : ClientModInitializer {
 
     private lateinit var gardenBobbing: GardenViewBobbing
     private lateinit var orbitalCamera: OrbitalCameraFeature
+    private lateinit var afkCinematics: AfkCinematics
 
     private lateinit var waypoints: SharedWaypoints
 

@@ -148,6 +148,20 @@ public class CinematicStageNode(
             invalidatePaint()
         }
 
+    /**
+     * How far the bars are in, when something other than [progress] is driving them.
+     *
+     * Null, and normally left null: bars belong to a cinematic and slide in with it. It exists for the case
+     * where the bars are the *whole* content and there is no clip to be a fraction of — an AFK camera runs
+     * for as long as nobody comes back, so it has a moment it starts and no moment it is halfway through.
+     * Driving that through [progress] would mean choosing a fake length for something with no length.
+     */
+    public var barExtent: Float? = null
+        set(value) {
+            field = value?.coerceIn(0f, 1f)
+            invalidatePaint()
+        }
+
     /** True while something is playing. Cheaper for a caller to read than the list. */
     public val isActive: Boolean get() = elements.isNotEmpty()
 
@@ -202,8 +216,10 @@ public class CinematicStageNode(
     override fun paintSelf(renderer: UiRenderer, bounds: Rect, context: RenderContext) {
         if (elements.isEmpty()) return
 
-        // The envelope for the composition as a whole — it fades in, holds, and fades out together.
-        renderer.pushOpacity(envelope(progress))
+        // The envelope for the composition as a whole — it fades in, holds, and fades out together. Skipped
+        // when [barExtent] is driving: that is the case with no clip to be a fraction of, so the extent is
+        // the entrance and there is nothing for a fade to be in step with.
+        renderer.pushOpacity(if (barExtent != null) 1f else envelope(progress))
         try {
             for (element in elements) {
                 // And each piece arrives in its own turn on top of that. Everything appearing at once reads as
@@ -384,7 +400,7 @@ public class CinematicStageNode(
                 val height = bounds.height * element.heightFraction
                 // Slid in from off-screen rather than faded: a bar that fades looks like a rendering fault,
                 // and the slide is what reads as "something is about to happen".
-                val shown = height * slide(progress)
+                val shown = height * (barExtent ?: slide(progress))
                 val black = Color.Black
                 renderer.fillRect(Rect.of(Vec2(bounds.x, bounds.y), Size(bounds.width, shown)), black)
                 renderer.fillRect(
