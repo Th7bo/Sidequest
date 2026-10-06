@@ -520,7 +520,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 toggle(
                     id = id("garden.time.reminder"),
                     title = "Remind me to set the garden time",
-                    description = "Night before pests spawn, Day before you kill them. Loud if a pest dies at Night.",
+                    description = "Night for the spawn, Day before you kill them. Loud if a pest dies at Night.",
                     value = bind(
                         get = { SidequestSettings.Garden.timeReminder },
                         set = { SidequestSettings.Garden.timeReminder = it; gardenTimeOn.value = it },

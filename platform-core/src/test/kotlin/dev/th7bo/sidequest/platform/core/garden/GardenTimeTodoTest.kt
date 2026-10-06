@@ -26,18 +26,31 @@ class GardenTimeTodoTest {
     @Test
     fun `the routine done right says nothing alarming`() {
         val todo = GardenTimeTodo()
-        assertEquals(Advice.None, todo.onTimeSet(GardenTime.NIGHT))
+        assertEquals(Advice.None, todo.onTimeSet(GardenTime.DAY))
         assertNull(todo.todo)
 
-        assertEquals(Advice.SetDay, todo.onSpawn(2))
+        assertEquals(Advice.None, todo.onTimeSet(GardenTime.NIGHT))
+        assertNull(todo.todo, "a Night set ahead of the spawn is the routine, not a mistake")
+
+        assertEquals(Advice.SetDay, todo.onSpawn(3))
         assertEquals(GardenTime.DAY, todo.todo)
 
         assertEquals(Advice.ReadyToKill, todo.onTimeSet(GardenTime.DAY))
         assertNull(todo.todo)
 
         assertEquals(Advice.None, todo.onKill())
-        assertEquals(Advice.AllClear, todo.onKill())
-        assertEquals(GardenTime.NIGHT, todo.todo)
+        assertEquals(Advice.LastOneLeft, todo.onKill())
+        assertEquals(GardenTimeTodo.KEPT, todo.pestsOut)
+    }
+
+    /** One pest stays on the plot, so going to Night with it alive is the normal way to wait for a spawn. */
+    @Test
+    fun `night with the kept pest alive is fine`() {
+        val todo = GardenTimeTodo()
+        todo.onTimeSet(GardenTime.DAY)
+        todo.onSpawn(1)
+        assertEquals(Advice.None, todo.onTimeSet(GardenTime.NIGHT))
+        assertNull(todo.todo)
     }
 
     @Test
@@ -66,18 +79,9 @@ class GardenTimeTodoTest {
     }
 
     @Test
-    fun `going back to night with pests out is caught before the kill`() {
+    fun `an unknown time asks for nothing`() {
         val todo = GardenTimeTodo()
-        todo.onTimeSet(GardenTime.DAY)
-        todo.onSpawn(1)
-        assertEquals(Advice.NightWithPestsOut, todo.onTimeSet(GardenTime.NIGHT))
-        assertEquals(GardenTime.DAY, todo.todo)
-    }
-
-    @Test
-    fun `an unknown time asks for night once the pests are gone`() {
-        val todo = GardenTimeTodo()
-        assertEquals(GardenTime.NIGHT, todo.todo)
+        assertNull(todo.todo)
         assertEquals(Advice.None, todo.onKill())
     }
 }

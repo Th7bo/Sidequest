@@ -219,8 +219,8 @@ public object SidequestSettings {
         /**
          * Whether the mod keeps track of the Garden's time around pests.
          *
-         * Night before they spawn, Day before they are killed. Reminds while farming when the time is wrong
-         * for what comes next, and makes a pest killed at Night impossible to miss.
+         * Night for the spawn, Day before they are killed. Reminds while farming through a Night that has
+         * had its spawn, and makes a pest killed at Night impossible to miss.
          */
         public var timeReminder: Boolean = true
 

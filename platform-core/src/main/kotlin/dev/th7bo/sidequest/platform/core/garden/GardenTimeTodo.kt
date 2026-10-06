@@ -3,9 +3,10 @@ package dev.th7bo.sidequest.platform.core.garden
 /**
  * What the Garden's time should be next, and what has gone wrong when it is not.
  *
- * The routine it keeps: **Night before pests spawn, Day before they are killed.** Then Night again for the
- * next lot. Easy to state and easy to forget halfway through a run, which is the whole reason this exists —
- * a reminder has to come from something that is watching, because the player is watching the crops.
+ * The routine it keeps: **farm at Day, switch to Night just for the spawn, back to Day before anything is
+ * killed** — and leave one pest alive on the plot for the next wave. Night is the exception rather than the
+ * rule, so the only thing worth reminding about is a Night that outstayed its spawn. A Night set ahead of a
+ * spawn is the player doing it right, however long they farm while they wait.
  *
  * Nothing here reads chat or shows anything. It is told what happened and answers with what that means, so
  * the routine can be tested without a game.
@@ -24,28 +25,29 @@ public class GardenTimeTodo {
     public var pestsOut: Int = 0
         private set
 
+    /** Whether pests spawned since the time was last set to Night — so the Night has done its job. */
+    private var spawnedThisNight: Boolean = false
+
     /** What the player should do next, or null when the time is already right. */
     public val todo: GardenTime?
-        get() {
-            val wanted = if (pestsOut > 0) GardenTime.DAY else GardenTime.NIGHT
-            return wanted.takeIf { time != wanted }
-        }
+        get() = GardenTime.DAY.takeIf { time == GardenTime.NIGHT && spawnedThisNight }
 
     /** The player set the time. */
     public fun onTimeSet(time: GardenTime): Advice {
+        val spawned = spawnedThisNight
         this.time = time
-        return when {
-            pestsOut > 0 && time == GardenTime.DAY -> Advice.ReadyToKill
-            pestsOut > 0 && time == GardenTime.NIGHT -> Advice.NightWithPestsOut
-            else -> Advice.None
-        }
+        spawnedThisNight = false
+        return if (time == GardenTime.DAY && spawned) Advice.ReadyToKill else Advice.None
     }
 
     /** Pests arrived. */
     public fun onSpawn(amount: Int): Advice {
         pestsOut += amount.coerceAtLeast(1)
         return when (time) {
-            GardenTime.NIGHT -> Advice.SetDay
+            GardenTime.NIGHT -> {
+                spawnedThisNight = true
+                Advice.SetDay
+            }
             GardenTime.DAY -> Advice.SpawnedInDay
             null -> Advice.SetDay
         }
@@ -53,10 +55,11 @@ public class GardenTimeTodo {
 
     /** A pest died. */
     public fun onKill(): Advice {
+        val before = pestsOut
         pestsOut = (pestsOut - 1).coerceAtLeast(0)
         return when {
             time == GardenTime.NIGHT -> Advice.KilledAtNight
-            pestsOut == 0 && time == GardenTime.DAY -> Advice.AllClear
+            time == GardenTime.DAY && before > KEPT && pestsOut == KEPT -> Advice.LastOneLeft
             else -> Advice.None
         }
     }
@@ -65,6 +68,7 @@ public class GardenTimeTodo {
     public fun reset() {
         time = null
         pestsOut = 0
+        spawnedThisNight = false
     }
 
     /** What an event means for the player. */
@@ -78,16 +82,18 @@ public class GardenTimeTodo {
         /** Pests spawned while it was Day, so the Night was missed this time. */
         public data object SpawnedInDay : Advice
 
-        /** Day was set with pests out: go kill them. */
+        /** Day was set after the spawn: go kill them. */
         public data object ReadyToKill : Advice
-
-        /** Night was set while pests are still out — the next kill would be at Night. */
-        public data object NightWithPestsOut : Advice
 
         /** A pest was killed while it was still Night. The one that has to be loud. */
         public data object KilledAtNight : Advice
 
-        /** The last pest died at Day. Night again before the next spawn. */
-        public data object AllClear : Advice
+        /** Down to the one pest that stays on the plot. */
+        public data object LastOneLeft : Advice
+    }
+
+    public companion object {
+        /** The pest left alive on the plot between waves. */
+        public const val KEPT: Int = 1
     }
 }

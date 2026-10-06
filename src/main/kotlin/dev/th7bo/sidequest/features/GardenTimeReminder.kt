@@ -6,7 +6,6 @@ import dev.th7bo.sidequest.platform.audio.SoundGroup
 import dev.th7bo.sidequest.platform.audio.SoundRequest
 import dev.th7bo.sidequest.platform.chat.ChatMessageEvent
 import dev.th7bo.sidequest.platform.core.garden.FarmingStreak
-import dev.th7bo.sidequest.platform.core.garden.GardenTime
 import dev.th7bo.sidequest.platform.core.garden.GardenTimeChat
 import dev.th7bo.sidequest.platform.core.garden.GardenTimeTodo
 import dev.th7bo.sidequest.platform.core.garden.GardenTimeTodo.Advice
@@ -32,9 +31,10 @@ import kotlin.time.TimeSource
 /**
  * Keeps the Garden's time on the right side of each pest wave.
  *
- * Night before pests spawn, Day before they are killed — the routine lives in [GardenTimeTodo]. What this
- * adds is the watching: it reads Hypixel's own confirmations, reminds the player while they farm when the
- * time is wrong for what comes next, and makes a pest killed at Night impossible to miss.
+ * Farm at Day, Night just for the spawn, Day again before anything is killed — the routine lives in
+ * [GardenTimeTodo]. What this adds is the watching: it reads Hypixel's own confirmations, reminds the player
+ * while they farm through a Night that has already had its spawn, and makes a pest killed at Night
+ * impossible to miss.
  *
  * **Reminders ride on the farming run.** A nag on arrival is a nag for somebody who came to talk to a
  * visitor; a nag once the crops are going is a nag for exactly the person who forgot.
@@ -52,7 +52,7 @@ class GardenTimeReminder(
         id = SqId.sidequest("garden.time_reminder"),
         displayName = "Garden time reminder",
         category = FeatureCategory.UTILITY,
-        description = "Night before pests spawn, Day before you kill them",
+        description = "Night for the pest spawn, Day before you kill them",
     )
 
     private lateinit var context: FeatureContext
@@ -116,17 +116,11 @@ class GardenTimeReminder(
             )
             Advice.SpawnedInDay -> remind(
                 "Pests spawned during the Day",
-                "Night was missed this time. Kill them, then set it back to Night.",
+                "Night was missed this time. Set it before the next spawn.",
             )
-            Advice.ReadyToKill -> say("Day set — go get the pests.")
-            Advice.NightWithPestsOut -> remind(
-                "Pests are still out!",
-                "Set it back to Day before killing the rest.",
-                priority = NotificationPriority.HIGH,
-                onScreen = true,
-            )
+            Advice.ReadyToKill -> say("Day set — kill all but one.")
             Advice.KilledAtNight -> alarm()
-            Advice.AllClear -> say("All pests down. Set the time back to Night before the next spawn.")
+            Advice.LastOneLeft -> say("One pest left — leave it on the plot for the next wave.")
         }
     }
 
@@ -167,11 +161,10 @@ class GardenTimeReminder(
     }
 
     /**
-     * Reminds the player while they farm, when the time is wrong for what comes next.
+     * Reminds the player while they farm through a Night that has already had its spawn.
      *
-     * Once when the run starts, and again every so often while it lasts — but only when the mod *knows* the
-     * time is wrong. An unknown time, after a fresh login, earns a single question per run rather than a nag
-     * about something the player may well have done already.
+     * Once when the run starts, and again every so often while it lasts. A Night set ahead of a spawn is
+     * never nagged about, however long the player farms while waiting for it — that is the routine.
      */
     private fun followTheRun() {
         if (!isOn() || !isOnGarden()) {
@@ -193,18 +186,14 @@ class GardenTimeReminder(
 
         val wanted = todo.todo ?: return
         val last = remindedAt
-        if (last != null && (todo.time == null || now - last < REPEAT)) return
+        if (last != null && now - last < REPEAT) return
         remindedAt = now
 
-        val known = todo.time != null
         remind(
-            title = if (known) "Set the garden time to ${wanted.displayName}" else "Is the garden on ${wanted.displayName}?",
-            subtitle = when (wanted) {
-                GardenTime.NIGHT -> "Night before the next pests spawn"
-                GardenTime.DAY -> "Day before you kill the pests"
-            },
+            title = "Set the garden time to ${wanted.displayName}",
+            subtitle = "The pests have spawned — Day before you kill them",
             priority = NotificationPriority.HIGH,
-            onScreen = known,
+            onScreen = true,
         )
     }
 
