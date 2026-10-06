@@ -213,6 +213,19 @@ public object SidequestSettings {
          * doing that behind a camera pointed somewhere else is worse than having no camera help at all.
          */
         public var orbitStopOnPests: Boolean = true
+
+        // -- garden time -----------------------------------------------------
+
+        /**
+         * Whether the mod keeps track of the Garden's time around pests.
+         *
+         * Night before they spawn, Day before they are killed. Reminds while farming when the time is wrong
+         * for what comes next, and makes a pest killed at Night impossible to miss.
+         */
+        public var timeReminder: Boolean = true
+
+        /** Whether the reminders and the alarm make a sound as well. */
+        public var timeReminderSound: Boolean = true
     }
 
     // -- SkyBlock levels -----------------------------------------------------

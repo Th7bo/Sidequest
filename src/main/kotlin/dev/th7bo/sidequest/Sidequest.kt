@@ -6,6 +6,7 @@ import dev.th7bo.sidequest.features.DebtTracker
 import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.DiscordPresence
 import dev.th7bo.sidequest.features.ProfileViewer
+import dev.th7bo.sidequest.features.GardenTimeReminder
 import dev.th7bo.sidequest.features.GardenViewBobbing
 import dev.th7bo.sidequest.features.OrbitalCameraFeature
 import dev.th7bo.sidequest.features.PlaytimeTracker
@@ -29,6 +30,7 @@ import dev.th7bo.sidequest.ui.minecraft.MinecraftIcons
 import dev.th7bo.sidequest.platform.core.afk.CameraPose
 import dev.th7bo.sidequest.platform.minecraft.AfkCameraState
 import dev.th7bo.sidequest.platform.minecraft.BlocksBroken
+import dev.th7bo.sidequest.platform.minecraft.toMinecraft
 import dev.th7bo.sidequest.platform.minecraft.OrbitalCameraState
 import dev.th7bo.sidequest.platform.player.PlayerId
 import dev.th7bo.sidequest.platform.waypoint.WaypointDelivery
@@ -594,6 +596,11 @@ object Sidequest : ClientModInitializer {
             isCameraBusy = { OrbitalCameraState.isActive },
             blocksBroken = { BlocksBroken.total },
         )
+        gardenTime = GardenTimeReminder(
+            showTitle = ::showTitle,
+            sendChat = platform.client::sendClientMessage,
+            blocksBroken = { BlocksBroken.total },
+        )
         gardenBobbing = GardenViewBobbing(
             readBobbing = { net.minecraft.client.Minecraft.getInstance().options.bobView().get() },
             writeBobbing = { net.minecraft.client.Minecraft.getInstance().options.bobView().set(it) },
@@ -665,6 +672,7 @@ object Sidequest : ClientModInitializer {
             playtime,
             gardenBobbing,
             orbitalCamera,
+            gardenTime,
             afkCinematics,
             // Before the waypoints, which ask it who the friends are the moment they draw.
             friends,
@@ -685,6 +693,7 @@ object Sidequest : ClientModInitializer {
 
     private lateinit var gardenBobbing: GardenViewBobbing
     private lateinit var orbitalCamera: OrbitalCameraFeature
+    private lateinit var gardenTime: GardenTimeReminder
     private lateinit var afkCinematics: AfkCinematics
 
     private lateinit var waypoints: SharedWaypoints
@@ -1180,6 +1189,22 @@ object Sidequest : ClientModInitializer {
      * guess at something that looks vaguely similar. The feature has already shown its toast by this point,
      * so failing here costs the flourish and nothing else.
      */
+    /**
+     * Shows a vanilla title and subtitle in the middle of the screen.
+     *
+     * The title moved from `Gui` onto its `Hud` in 26.2; everything else about it is the same.
+     */
+    private fun showTitle(title: SqText, subtitle: SqText?) {
+        val client = net.minecraft.client.Minecraft.getInstance()
+        //? if >=26.2 {
+        val titles = client.gui.hud
+        //?} else
+        /*val titles = client.gui*/
+        titles.setTimes(TITLE_FADE_IN, TITLE_STAY, TITLE_FADE_OUT)
+        titles.setSubtitle(subtitle?.toMinecraft() ?: net.minecraft.network.chat.Component.empty())
+        titles.setTitle(title.toMinecraft())
+    }
+
     private fun showTotemAnimation(itemName: String): Boolean {
         val client = net.minecraft.client.Minecraft.getInstance()
         val stack = itemStackFor(itemName) ?: return false
@@ -1234,3 +1259,8 @@ private const val ACCENT_COLOR = 0xA78BFA
 
 /** For anything the user has to act on. */
 private const val ERROR_COLOR = 0xF87171
+
+/** How long a title the mod raises takes to appear, stays, and fades, in ticks. */
+private const val TITLE_FADE_IN = 5
+private const val TITLE_STAY = 50
+private const val TITLE_FADE_OUT = 15

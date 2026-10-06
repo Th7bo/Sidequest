@@ -38,6 +38,7 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
     val afkOn = mutableStateOf(SidequestSettings.Afk.isEnabled, "afk.enabled")
     val dropsOn = mutableStateOf(SidequestSettings.Drops.isEnabled, "drops.enabled")
     val orbitAutoOn = mutableStateOf(SidequestSettings.Garden.orbitAutoStart, "garden.orbit.auto")
+    val gardenTimeOn = mutableStateOf(SidequestSettings.Garden.timeReminder, "garden.time.reminder")
     val cosmeticsOn = mutableStateOf(SidequestSettings.Cosmetics.isEnabled, "cosmetics.enabled")
     val playtimeOn = mutableStateOf(SidequestSettings.Playtime.isEnabled, "playtime.enabled")
     val titleScreenOn = mutableStateOf(SidequestSettings.TitleScreen.isEnabled, "title.enabled")
@@ -514,6 +515,31 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                     ),
                 ) {
                     keywords("pest", "orbit", "camera", "garden")
+                }
+                divider(id("garden.time.divider"))
+                toggle(
+                    id = id("garden.time.reminder"),
+                    title = "Remind me to set the garden time",
+                    description = "Night before pests spawn, Day before you kill them. Loud if a pest dies at Night.",
+                    value = bind(
+                        get = { SidequestSettings.Garden.timeReminder },
+                        set = { SidequestSettings.Garden.timeReminder = it; gardenTimeOn.value = it },
+                        debugName = "garden.time.reminder",
+                    ),
+                ) {
+                    keywords("pest", "day", "night", "time", "todo", "garden")
+                }
+                toggle(
+                    id = id("garden.time.sound"),
+                    title = "Garden time sounds",
+                    description = "A bell with each reminder, an alarm when a pest dies at Night",
+                    value = bind(
+                        get = { SidequestSettings.Garden.timeReminderSound },
+                        set = { SidequestSettings.Garden.timeReminderSound = it },
+                        debugName = "garden.time.sound",
+                    ),
+                ) {
+                    visibleWhen = gardenTimeOn
                 }
             }
 
