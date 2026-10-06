@@ -226,6 +226,16 @@ public object SidequestSettings {
 
         /** Whether the reminders and the alarm make a sound as well. */
         public var timeReminderSound: Boolean = true
+
+        /**
+         * How many seconds before the pest cooldown ends to say "set Night".
+         *
+         * Read off the tab list's Pests widget, so it needs that widget turned on in `/widget`.
+         */
+        public var nightLeadSeconds: Int = 10
+
+        public const val MIN_NIGHT_LEAD: Int = 0
+        public const val MAX_NIGHT_LEAD: Int = 60
     }
 
     // -- SkyBlock levels -----------------------------------------------------

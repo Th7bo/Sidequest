@@ -541,6 +541,20 @@ public fun buildSidequestConfigScreen(): ConfigScreen {
                 ) {
                     visibleWhen = gardenTimeOn
                 }
+                slider(
+                    id = id("garden.time.night_lead"),
+                    title = "Seconds before a spawn to set Night",
+                    description = "From the Pests widget in the tab list — turn it on with /widget",
+                    value = bind(
+                        get = { SidequestSettings.Garden.nightLeadSeconds },
+                        set = { SidequestSettings.Garden.nightLeadSeconds = it },
+                        debugName = "garden.time.night_lead",
+                    ),
+                    range = SidequestSettings.Garden.MIN_NIGHT_LEAD..SidequestSettings.Garden.MAX_NIGHT_LEAD,
+                    step = 1,
+                ) {
+                    visibleWhen = gardenTimeOn
+                }
             }
 
             section("SkyBlock levels", description = "How the level above a player's head is coloured", icon = GlyphIconIds.levels, collapsible = true, startsCollapsed = true) {

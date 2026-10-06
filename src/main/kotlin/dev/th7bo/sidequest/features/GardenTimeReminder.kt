@@ -9,7 +9,10 @@ import dev.th7bo.sidequest.platform.core.garden.FarmingStreak
 import dev.th7bo.sidequest.platform.core.garden.GardenTimeChat
 import dev.th7bo.sidequest.platform.core.garden.GardenTimeTodo
 import dev.th7bo.sidequest.platform.core.garden.GardenTimeTodo.Advice
+import dev.th7bo.sidequest.platform.core.garden.GardenTime
 import dev.th7bo.sidequest.platform.core.garden.PestChat
+import dev.th7bo.sidequest.platform.core.garden.PestCooldown
+import dev.th7bo.sidequest.platform.core.parser.TabListParser
 import dev.th7bo.sidequest.platform.core.notification.notification
 import dev.th7bo.sidequest.platform.feature.Feature
 import dev.th7bo.sidequest.platform.feature.FeatureCategory
@@ -20,6 +23,8 @@ import dev.th7bo.sidequest.platform.feature.listen
 import dev.th7bo.sidequest.platform.id.SqId
 import dev.th7bo.sidequest.platform.notification.NotificationCategory
 import dev.th7bo.sidequest.platform.notification.NotificationPriority
+import dev.th7bo.sidequest.platform.parser.TabListChangedEvent
+import dev.th7bo.sidequest.platform.parser.TabWidget
 import dev.th7bo.sidequest.platform.skyblock.Island
 import dev.th7bo.sidequest.platform.text.SqStyle
 import dev.th7bo.sidequest.platform.text.SqText
@@ -66,6 +71,16 @@ class GardenTimeReminder(
     /** When the current run was last reminded, or null if it has not been. */
     private var remindedAt: Duration? = null
 
+    /**
+     * When the pest cooldown runs out, on [since]'s clock, or null when no spawn is coming.
+     *
+     * Read off the tab list's Pests widget. Null at max pests, and until the widget has been seen at all.
+     */
+    private var cooldownEndsAt: Duration? = null
+
+    /** When the player was last told to set Night for the coming spawn, or null outside that window. */
+    private var nightRemindedAt: Duration? = null
+
     override fun onEnable(context: FeatureContext) {
         this.context = context
 
@@ -83,6 +98,7 @@ class GardenTimeReminder(
         )
 
         context.listen<ChatMessageEvent> { event -> onChat(event.message.clean) }
+        context.listen<TabListChangedEvent> { event -> onTabList(event) }
 
         context.command(name = "sqgardentime", description = "What the Garden's time should be right now") {
             explain()
@@ -99,10 +115,30 @@ class GardenTimeReminder(
             return
         }
         PestChat.spawn(message)?.let { spawn ->
+            // The widget will show the next cooldown shortly; until then, the last one is spent.
+            cooldownEndsAt = null
+            nightRemindedAt = null
             react(todo.onSpawn(spawn.amount))
             return
         }
         if (GardenTimeChat.pestKilled(message) != null) react(todo.onKill())
+    }
+
+    /**
+     * Keeps the pest cooldown in step with the tab list.
+     *
+     * Only when the Pests widget itself moved: the whole board is re-split for it, which is cheap, but there is
+     * no reason to do it for a change somewhere else on the list.
+     */
+    private fun onTabList(event: TabListChangedEvent) {
+        if (TabWidget.PESTS !in event.addedWidgets && TabWidget.PESTS !in event.changedWidgets) return
+        val lines = TabListParser.parse(event.snapshot).linesOf(TabWidget.PESTS)
+        val now = since.elapsedNow()
+        cooldownEndsAt = when (val cooldown = PestCooldown.read(lines) ?: return) {
+            is PestCooldown.Waiting -> now + cooldown.remaining
+            PestCooldown.Ready -> now
+            PestCooldown.MaxPests -> null
+        }
     }
 
     private fun react(advice: Advice) {
@@ -170,6 +206,7 @@ class GardenTimeReminder(
         if (!isOn() || !isOnGarden()) {
             streak.reset()
             remindedAt = null
+            nightRemindedAt = null
             seenBlocks = blocksBroken()
             return
         }
@@ -178,8 +215,11 @@ class GardenTimeReminder(
         val broken = blocksBroken()
         repeat((broken - seenBlocks).coerceIn(0, MAX_CATCH_UP).toInt()) { streak.record(now) }
         seenBlocks = broken
+        val farming = streak.hasReached(RUN_BLOCKS, now)
 
-        if (!streak.hasReached(RUN_BLOCKS, now)) {
+        checkSpawnWindow(now, farming)
+
+        if (!farming) {
             remindedAt = null
             return
         }
@@ -192,6 +232,36 @@ class GardenTimeReminder(
         remind(
             title = "Set the garden time to ${wanted.displayName}",
             subtitle = "The pests have spawned — Day before you kill them",
+            priority = NotificationPriority.HIGH,
+            onScreen = true,
+        )
+    }
+
+    /**
+     * Tells the player to set Night as the pest cooldown runs out.
+     *
+     * Once on entering the window — however the player is spending it — and again every so often while they
+     * farm through it, because farming is what spawns the pest. Stops the moment the time is Night, a pest
+     * spawns, or the plot is full.
+     */
+    private fun checkSpawnWindow(now: Duration, farming: Boolean) {
+        val endsAt = cooldownEndsAt
+        val due = endsAt != null &&
+            endsAt - now <= SidequestSettings.Garden.nightLeadSeconds.seconds &&
+            todo.time != GardenTime.NIGHT
+        if (!due) {
+            nightRemindedAt = null
+            return
+        }
+
+        val last = nightRemindedAt
+        if (last != null && (!farming || now - last < NIGHT_REPEAT)) return
+        nightRemindedAt = now
+
+        val left = (endsAt!! - now).inWholeSeconds
+        remind(
+            title = if (todo.time == null) "Is the garden on Night?" else "Set the garden time to Night",
+            subtitle = if (left > 0) "Pests can spawn in ${left}s" else "Pests can spawn now",
             priority = NotificationPriority.HIGH,
             onScreen = true,
         )
@@ -258,6 +328,9 @@ class GardenTimeReminder(
 
         /** How long a run goes between reminders about the same thing. */
         val REPEAT = 90.seconds
+
+        /** How often farming through an open spawn window is reminded to set Night. Pests come fast. */
+        val NIGHT_REPEAT = 15.seconds
 
         /** See [OrbitalCameraFeature]: a poll never accounts for more than this many blocks at once. */
         const val MAX_CATCH_UP = 64L
