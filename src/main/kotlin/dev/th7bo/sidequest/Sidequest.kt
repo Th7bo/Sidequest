@@ -1,7 +1,9 @@
 package dev.th7bo.sidequest
 
 import dev.th7bo.sidequest.features.CustomFriends
+import dev.th7bo.sidequest.features.AchievementCabinet
 import dev.th7bo.sidequest.features.DebtTracker
+import dev.th7bo.sidequest.features.EvidenceNotes
 import dev.th7bo.sidequest.features.DeveloperTools
 import dev.th7bo.sidequest.features.DiscordPresence
 import dev.th7bo.sidequest.features.ProfileViewer
@@ -16,6 +18,7 @@ import dev.th7bo.sidequest.features.SessionDiagnostics
 import dev.th7bo.sidequest.feature.ui.FriendActions
 import dev.th7bo.sidequest.feature.ui.FriendScreenIcons
 import dev.th7bo.sidequest.feature.ui.buildFriendHubScreen
+import dev.th7bo.sidequest.feature.ui.buildAchievementScreen
 import dev.th7bo.sidequest.feature.ui.DebtActions
 import dev.th7bo.sidequest.feature.ui.PresenceStates
 import dev.th7bo.sidequest.feature.ui.DebtScreenIcons
@@ -622,6 +625,13 @@ object Sidequest : ClientModInitializer {
         // the settings screen — so the save has to be asked for explicitly. See `saveConfiguration`.
         profiles.saveSettings = ::saveConfiguration
 
+        achievements = AchievementCabinet()
+        achievements.openCabinet = ::openAchievementCabinet
+
+        evidence = EvidenceNotes(
+            localPlayer = { platform.client.localPlayerId?.let { PlayerId.of(it) } },
+        )
+
         val refusals = platform.start(
             sessionDiagnostics,
             developerTools,
@@ -638,6 +648,8 @@ object Sidequest : ClientModInitializer {
             readyChecks,
             discordPresence,
             profiles,
+            achievements,
+            evidence,
         )
         for (refusal in refusals) logger.warn("Feature did not start — {}", refusal)
     }
@@ -658,6 +670,29 @@ object Sidequest : ClientModInitializer {
     private lateinit var discordPresence: DiscordPresence
 
     private lateinit var profiles: ProfileViewer
+
+    private lateinit var achievements: AchievementCabinet
+
+    private lateinit var evidence: EvidenceNotes
+
+    /**
+     * Opens the achievement cabinet.
+     *
+     * Deferred with `schedule` like every other screen opened from a command: chat closes itself after a
+     * command returns, and a screen opened inline shows for one frame before chat replaces it with null.
+     */
+    fun openAchievementCabinet() {
+        if (!::achievements.isInitialized) return
+        val client = Minecraft.getInstance()
+        client.schedule {
+            client.setScreenAndShow(
+                SidequestConfigScreen(
+                    buildAchievementScreen(achievements.rows(), achievements.actions()),
+                    activeTheme(),
+                ),
+            )
+        }
+    }
 
     /** Opens the native viewer immediately; its network work continues away from the client thread. */
     fun openProfile(username: String, profile: String?) {

@@ -379,6 +379,7 @@ class DeveloperTools(
             "drop" -> simulateRareDrop()
             "trophy" -> simulateTrophy()
             "achievement" -> simulateAchievement()
+            "coins" -> simulateCoins(arguments)
             "death" -> simulateDeath()
             "dungeon" -> simulateRunEnd("dungeon")
             "kuudra" -> simulateRunEnd("kuudra")
@@ -1030,16 +1031,33 @@ class DeveloperTools(
     }
 
     private fun simulateAchievement() {
-        context.cinematics.submit(PreviewData.slowAchievement)
-        context.notifications.notify(
-            notification(
-                category = NotificationCategory.PROGRESSION,
-                title = "Achievement unlocked",
-                subtitle = "Catacombs Floor 7 — first clear",
-                priority = NotificationPriority.HIGH,
-            ),
+        // Through the real service, not around it: the definition is registered, the unlock is recorded,
+        // the event is posted and the cabinet announces it — everything but the rule that would normally
+        // have fired. A simulation bypassing the service would prove only that a toast draws.
+        val id = SqId.sidequest("dev.first_clear")
+        if (context.achievements.definitionOf(id) == null) {
+            context.achievements.register(
+                dev.th7bo.sidequest.platform.achievement.Achievement(
+                    id = id,
+                    displayName = "First clear",
+                    description = "Catacombs Floor 7 — first clear",
+                    category = dev.th7bo.sidequest.platform.achievement.AchievementCategory.PROGRESSION,
+                ),
+            )
+        }
+        val unlocked = context.achievements.unlock(id, dev.th7bo.sidequest.platform.achievement.AchievementSource.MANUAL)
+        tell(if (unlocked) "Unlocked a development achievement." else "Already unlocked — /sqachieve to see it.")
+    }
+
+    /** Some coins, through the wallet. The cabinet screen shows the balance and this line in its history. */
+    private fun simulateCoins(arguments: List<String>) {
+        val amount = arguments.getOrNull(1)?.toLongOrNull() ?: 50L
+        context.currency.grant(
+            amount = if (amount > 0) amount else -amount,
+            reason = "development",
+            source = "manual",
         )
-        tell("Played a long cinematic and posted its toast.")
+        tell("Granted coins. Balance: ${context.currency.balance()}.")
     }
 
     /**
@@ -1448,7 +1466,7 @@ class DeveloperTools(
             // The simulations. Each stands in for something that is genuinely awkward to arrange: a rare
             // drop happens once a week, a Kuudra clear needs four other people, and dying on purpose to
             // check a death marker gets old quickly.
-            "drop", "trophy", "achievement", "death", "dungeon", "kuudra", "ping", "waypoint", "cosmetic", "offline",
+            "drop", "trophy", "achievement", "coins", "death", "dungeon", "kuudra", "ping", "waypoint", "cosmetic", "offline",
         )
 
         val ERROR_VERBS = listOf("list", "show", "clear")

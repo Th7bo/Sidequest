@@ -247,6 +247,31 @@ public interface FeatureContext {
     public val cosmetics: CosmeticService
 
     /**
+     * Achievements: the definitions, and what has been earned.
+     *
+     * Unlocking is normally a rule's job — an action names the achievement and the engine calls — so a
+     * feature reaching for this directly usually means it observed something no rule could. That is a real
+     * case; it is just not most cases.
+     */
+    public val achievements: dev.th7bo.sidequest.platform.achievement.AchievementService
+
+    /**
+     * The group's currency.
+     *
+     * Grant on earning, spend at the shop, and never keep your own tally beside it — two answers to one
+     * balance is how "I definitely had enough for this" happens.
+     */
+    public val currency: dev.th7bo.sidequest.platform.currency.CurrencyService
+
+    /**
+     * The local half of the evidence locker.
+     *
+     * Recording here never takes a screenshot — capture stays an explicit ask on the caller's side, which
+     * is the local form of the plan's rule that nothing is uploaded silently.
+     */
+    public val evidence: dev.th7bo.sidequest.platform.evidence.EvidenceService
+
+    /**
      * What has gone wrong this session, grouped.
      *
      * Read-only on purpose. A feature reports a problem by logging it — this is the same problems, counted,

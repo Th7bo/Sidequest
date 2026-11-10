@@ -25,10 +25,14 @@ import dev.th7bo.sidequest.platform.core.item.NeuItemRepository
 import dev.th7bo.sidequest.platform.core.item.NeuNameCache
 import dev.th7bo.sidequest.platform.skyblock.SqPosition
 import dev.th7bo.sidequest.platform.item.SkyBlockItemRepository
+import dev.th7bo.sidequest.platform.core.achievement.DefaultAchievementService
 import dev.th7bo.sidequest.platform.core.cosmetic.CosmeticStore
 import dev.th7bo.sidequest.platform.core.cosmetic.DefaultCosmeticService
 import dev.th7bo.sidequest.platform.core.cosmetic.LoadoutPublisher
 import dev.th7bo.sidequest.platform.core.cosmetic.RemoteCosmeticReceiver
+import dev.th7bo.sidequest.platform.core.currency.DefaultCurrencyService
+import dev.th7bo.sidequest.platform.core.evidence.DefaultEvidenceService
+import dev.th7bo.sidequest.platform.evidence.EvidenceLocker
 import dev.th7bo.sidequest.platform.core.marker.DefaultMarkerService
 import dev.th7bo.sidequest.platform.core.marker.RemoteMarkerReceiver
 import dev.th7bo.sidequest.platform.core.player.DefaultPlayerDirectory
@@ -79,6 +83,8 @@ import dev.th7bo.sidequest.platform.audio.SoundResult
 import dev.th7bo.sidequest.platform.rule.ActionHandler
 import dev.th7bo.sidequest.platform.rule.RuleAction
 import dev.th7bo.sidequest.platform.rule.RuleEngine
+import dev.th7bo.sidequest.platform.achievement.AchievementStore
+import dev.th7bo.sidequest.platform.currency.Wallet
 import dev.th7bo.sidequest.platform.rule.RuleStore
 import dev.th7bo.sidequest.platform.cinematic.Cinematic
 import dev.th7bo.sidequest.platform.cinematic.CinematicComponent
@@ -408,6 +414,49 @@ class SidequestPlatform(
     val cosmetics: CosmeticService get() = cosmeticService
 
     /**
+     * Achievements.
+     *
+     * Built after the rule engine, because most unlocks arrive through one of its actions — but nothing
+     * here wires the two: that happens in [registerRuleActions], where every other subsystem meets the
+     * engine, and keeping it there means this service stays usable before any rule exists.
+     */
+    private val achievementService = DefaultAchievementService(
+        events = events,
+        log = loggers.create(LogCategory.FEATURE, SqId.sidequest("achievements")),
+        localPlayer = { minecraftClient.localPlayerId?.let { PlayerId.of(it) } },
+    )
+
+    val achievements: dev.th7bo.sidequest.platform.achievement.AchievementService get() = achievementService
+
+    /**
+     * The group's currency, alongside the achievements it mostly comes from.
+     *
+     * It does not import them. A reward is data on the achievement and a transaction here; whoever
+     * applies rewards is the mod's wiring, which is where every other "these two subsystems meet"
+     * decision lives too.
+     */
+    private val currencyService = DefaultCurrencyService(
+        events = events,
+        log = loggers.create(LogCategory.FEATURE, SqId.sidequest("currency")),
+    )
+
+    val currency: dev.th7bo.sidequest.platform.currency.CurrencyService get() = currencyService
+
+    /**
+     * The evidence locker's local half.
+     *
+     * It never takes a screenshot. Capture is a game-adapter act and an explicit ask — the plan's "never
+     * uploaded silently" starts as "never captured silently", and this service records what it is given
+     * rather than reaching for the framebuffer.
+     */
+    private val evidenceService = DefaultEvidenceService(
+        events = events,
+        log = loggers.create(LogCategory.FEATURE, SqId.sidequest("evidence")),
+    )
+
+    val evidence: dev.th7bo.sidequest.platform.evidence.EvidenceService get() = evidenceService
+
+    /**
      * Feeds a line to the chat parser as though the server had sent it.
      *
      * For the developer commands, and deliberately *not* on the `ChatParser` interface: a feature able to
@@ -560,6 +609,9 @@ class SidequestPlatform(
         rules = ruleEngine,
         assets = assetManager,
         cosmetics = cosmeticService,
+        achievements = achievementService,
+        currency = currencyService,
+        evidence = evidenceService,
         errors = loggers.errors,
         storage = fileStorage,
         permissions = permissionService,
@@ -883,6 +935,38 @@ class SidequestPlatform(
             log.debug { "Stat ${stat.statId} += ${stat.amount} from ${outcome.rule.id}" }
             true
         }
+        ruleEngine.handle("achievement") { action, outcome ->
+            val unlock = action as? RuleAction.UnlockAchievement ?: return@handle false
+            achievementService.unlock(
+                id = unlock.achievementId,
+                source = dev.th7bo.sidequest.platform.achievement.AchievementSource.RULE,
+                subject = outcome.subject,
+            )
+        }
+        ruleEngine.handle("currency") { action, outcome ->
+            val grant = action as? RuleAction.GrantCurrency ?: return@handle false
+            currencyService.grant(
+                amount = grant.amount,
+                // Substituted like a notify title, so one rule can serve every tier with one reward.
+                reason = grant.reason?.let { outcome.format(it) } ?: "rule ${outcome.rule.id.value}",
+                source = "rule",
+            )
+        }
+        ruleEngine.handle("evidence") { action, outcome ->
+            val create = action as? RuleAction.CreateEvidence ?: return@handle false
+            evidenceService.record(
+                dev.th7bo.sidequest.platform.evidence.EvidenceEntry(
+                    id = "",
+                    kind = dev.th7bo.sidequest.platform.evidence.EvidenceKind.INCIDENT,
+                    title = outcome.format(create.caption).ifBlank { outcome.rule.displayName },
+                    atMillis = outcome.timestampMillis,
+                    players = listOfNotNull(outcome.subject),
+                    island = contextService.context.island,
+                    activity = contextService.context.activity.activity.displayName,
+                    tags = setOf("rule"),
+                ),
+            ) != null
+        }
     }
 
     /**
@@ -985,6 +1069,53 @@ class SidequestPlatform(
         }
         cosmeticService.onLoadoutChanged = { pendingCosmeticStore = CosmeticStore(it) }
 
+        // Achievements, account-scoped like the rules they are earned through: the same player on either
+        // profile has done the same things.
+        val achievementRepository = fileStorage.repository(
+            id = SqId.sidequest("achievements"),
+            scope = StorageScope.Account(playerId),
+            serializer = AchievementStore.serializer(),
+            default = { AchievementStore() },
+        )
+        scheduler.async(OwnerId.PLATFORM) {
+            val stored = achievementRepository.load()
+            if (stored.report.isWorthReporting) log.warn { "Achievements: ${stored.report}" }
+            scheduler.onMain(OwnerId.PLATFORM) { achievementService.load(stored.value) }
+        }
+        achievementService.onStoreChanged = { pendingAchievementStore = it }
+
+        // The wallet, same scope and same reasoning as everything else in this method.
+        val currencyRepository = fileStorage.repository(
+            id = SqId.sidequest("currency"),
+            scope = StorageScope.Account(playerId),
+            serializer = Wallet.serializer(),
+            default = { Wallet() },
+            // Parsing is not validation: a negative balance deserialises perfectly and means
+            // something wrote nonsense, which is worth rejecting while the file is kept.
+            validate = { if (it.balance < 0) "negative balance" else null },
+        )
+        scheduler.async(OwnerId.PLATFORM) {
+            val stored = currencyRepository.load()
+            if (stored.report.isWorthReporting) log.warn { "Currency: ${stored.report}" }
+            scheduler.onMain(OwnerId.PLATFORM) { currencyService.load(stored.value) }
+        }
+        currencyService.onWalletChanged = { pendingCurrencyWallet = it }
+
+        // The evidence locker, account-scoped like the rest: an incident belongs to whoever was there,
+        // not to whichever profile they happened to be on.
+        val evidenceRepository = fileStorage.repository(
+            id = SqId.sidequest("evidence"),
+            scope = StorageScope.Account(playerId),
+            serializer = EvidenceLocker.serializer(),
+            default = { EvidenceLocker() },
+        )
+        scheduler.async(OwnerId.PLATFORM) {
+            val stored = evidenceRepository.load()
+            if (stored.report.isWorthReporting) log.warn { "Evidence: ${stored.report}" }
+            scheduler.onMain(OwnerId.PLATFORM) { evidenceService.load(stored.value) }
+        }
+        evidenceService.onStoreChanged = { pendingEvidenceLocker = it }
+
         adapterScope.add(
             scheduler.every(OwnerId.PLATFORM, RULE_SAVE_INTERVAL, thread = SchedulerThread.ASYNC) {
                 pendingRuleStore?.let { store ->
@@ -998,6 +1129,18 @@ class SidequestPlatform(
                 pendingCosmeticStore?.let { store ->
                     pendingCosmeticStore = null
                     scheduler.async(OwnerId.PLATFORM) { cosmeticRepository.save(store) }
+                }
+                pendingAchievementStore?.let { store ->
+                    pendingAchievementStore = null
+                    scheduler.async(OwnerId.PLATFORM) { achievementRepository.save(store) }
+                }
+                pendingCurrencyWallet?.let { wallet ->
+                    pendingCurrencyWallet = null
+                    scheduler.async(OwnerId.PLATFORM) { currencyRepository.save(wallet) }
+                }
+                pendingEvidenceLocker?.let { locker ->
+                    pendingEvidenceLocker = null
+                    scheduler.async(OwnerId.PLATFORM) { evidenceRepository.save(locker) }
                 }
             },
         )
@@ -1017,6 +1160,18 @@ class SidequestPlatform(
     /** The most recent cosmetic state not yet written. Same debounce again. */
     @Volatile
     private var pendingCosmeticStore: CosmeticStore? = null
+
+    /** The most recent achievement records not yet written. Same debounce, last time. */
+    @Volatile
+    private var pendingAchievementStore: AchievementStore? = null
+
+    /** The most recent wallet not yet written. */
+    @Volatile
+    private var pendingCurrencyWallet: Wallet? = null
+
+    /** The most recent evidence locker not yet written. */
+    @Volatile
+    private var pendingEvidenceLocker: EvidenceLocker? = null
 
     /**
      * Builds and starts the backend client for the signed-in account.

@@ -3,7 +3,10 @@ package dev.th7bo.sidequest.platform.core.feature
 import dev.th7bo.sidequest.platform.command.CommandCollisionException
 import dev.th7bo.sidequest.platform.core.chat.DefaultChatParser
 import dev.th7bo.sidequest.platform.core.context.DefaultGameContextService
+import dev.th7bo.sidequest.platform.core.achievement.DefaultAchievementService
 import dev.th7bo.sidequest.platform.core.cosmetic.DefaultCosmeticService
+import dev.th7bo.sidequest.platform.core.currency.DefaultCurrencyService
+import dev.th7bo.sidequest.platform.core.evidence.DefaultEvidenceService
 import dev.th7bo.sidequest.platform.asset.AssetManager
 import dev.th7bo.sidequest.platform.log.ErrorLog
 import dev.th7bo.sidequest.platform.audio.SoundSink
@@ -135,6 +138,9 @@ class FeatureRegistryTest {
         errors = ErrorLog.None,
         storage = JsonFileStorage(storageRoot, NoopLogger),
         permissions = DefaultPermissionService(NoopLogger, localPlayer = { null }),
+        achievements = DefaultAchievementService(bus, NoopLogger),
+        currency = DefaultCurrencyService(bus, NoopLogger),
+        evidence = DefaultEvidenceService(bus, NoopLogger),
         loggers = loggers,
         isEnabledByUser = enabledByUser,
     )

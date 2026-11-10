@@ -759,9 +759,10 @@ nearly every event, and at DEBUG they would drown everything else.
 
 Actions are data dispatched by `kind` to an `ActionHandler` the engine looks up, and the engine imports
 no subsystem — the mod registers the handlers in `SidequestPlatform`. Today that is `notify`, `sound`,
-`sound_pool` and `stat`; `currency`, `evidence`, `cosmetic`, `cinematic` and the rest have no subsystem
-yet. A rule naming one of those **does the half that works** and logs the rest. Half-supported beats
-broken, and it is what lets the engine exist before the things it will eventually drive.
+`sound_pool`, `cinematic`, `waypoint`, `ping`, `stat`, `achievement` and `currency`; `evidence`,
+`cosmetic` and `title` have no subsystem yet. A rule naming one of those **does the half that works**
+and logs the rest. Half-supported beats broken, and it is what lets the engine exist before the things
+it will eventually drive.
 
 ### Tiers, and why they are not three rules
 
@@ -1272,6 +1273,100 @@ Not the rule engine's `Condition`. A rule's condition is about one subject and a
 about a **pair** — whose cosmetic and who is looking — and has no event at all. Reusing `RuleContext` would
 have meant inventing a synthetic event and a second meaning for `subject`. Two small trees beat one that lies
 about what it holds.
+
+---
+
+## Achievements
+
+An achievement is **presentation, not machinery**. The machinery — watching for events, checking conditions,
+counting progress across tiers — belongs to the rule engine, and an achievement names the rule it rides on
+with `ruleId` so a progress bar has something to read. Building a second engine inside the achievement
+service would mean two answers to "did you do the thing", and duplicated conditions drift the way duplicates
+always do.
+
+```kotlin
+context.achievements.register(
+    Achievement(
+        id = SqId.sidequest("group.first_blood"),
+        displayName = "First blood",
+        category = AchievementCategory.FRIEND_GROUP,
+        ruleId = SqId.sidequest("rule.first_blood"),
+        reward = AchievementReward(currency = 100),
+    ),
+)
+```
+
+Unlocking arrives through any of three doors: a rule's `achievement` action, `/sqachieve unlock`, or a
+feature calling `unlock` directly for something no rule could observe. All three land in the same place,
+which is the point — the state lives in one service whether the caller is an engine, a command or a feature.
+
+**Unlocking twice loses quietly.** Two rules naming one achievement both firing in the same second is not a
+race to fix but a race that already happened; the first one won and told the player. The second gets `false`
+and moves on.
+
+**A hidden achievement stays out of listings until it is earned**, and then it is listed like any other.
+Nobody wants a trophy cabinet with holes in it. The filter reads the store rather than just the flag, which
+is why it takes a subject.
+
+Definitions are code and re-register every session; records are data and are persisted per account on the
+same debounced timer as rule progress. The two are deliberately separate maps — merging them is how a
+definition renamed between sessions loses its unlock, because the file remembers the record under the old
+key and nothing can find it.
+
+The cabinet (`/sqachieve`) draws what this service holds joined against the rule engine's progress, and
+announces every unlock once — from one listener on `AchievementUnlockedEvent` rather than from each rule's
+own notify action, because two places announcing one unlock is how a double toast happens.
+
+---
+
+## The wallet
+
+Sidequest's currency is the friend group's joke money: earned from achievements, spent on cosmetics, titles
+and sounds, and worth nothing in SkyBlock. That constraint shapes the interface — granting is unrestricted,
+spending can fail, and neither touches anything outside its own file.
+
+**The balance is authoritative; the history is a bounded tail.** A complete audit log would eventually make
+every save a rewrite of a document nobody loads, so the wallet keeps the running balance and trims
+transactions to the most recent five hundred. What survives is still good for the thing anybody asks:
+where did these coins come from.
+
+**An overdraft is refused as a normal answer, not an error.** Spending more than you have returns false
+because that is what a shop shows when somebody cannot afford something. Granting a non-positive amount is
+different — that is a bug in the caller, and it is logged rather than absorbed, because a rule whose reward
+never lands is exactly the silent failure this platform exists to prevent.
+
+Persistence is account-scoped like everything else that follows the player between profiles, with one
+validation on load: a negative balance parses perfectly and means something wrote nonsense, so it is rejected
+and quarantined while the default is used. The wallet posts `CurrencyChangedEvent` on every accepted change;
+the cabinet listens and shows the balance and the recent tail. It announces nothing as a toast on purpose —
+rewards arrive in bursts during a recap, and five toasts about coins is how notifications get muted wholesale.
+
+---
+
+## Evidence
+
+The local half of the plan's shared evidence locker: what happened, who was there, where, and when — recorded
+on this machine and synced later. Reactions, comments and albums are deliberately absent. They are group
+content, group content has one authoritative copy, and that copy is the backend's; modelling them locally now
+would mean two places answering who said what, which is exactly the drift the realtime protocol exists to
+prevent.
+
+**A screenshot reference is not a screenshot.** `ScreenshotRef` names a file by name and content hash, because
+an entry that embedded images would make every caption edit rewrite megabytes — and a filename alone can be
+overwritten out from under an entry, where a hash cannot.
+
+**Hiding is not removing.** `isHiddenLocally` takes an entry out of lists and out of search; it stays in the
+file, because "why is there a record of that" is answered by the record still being there. Only `remove`
+removes.
+
+**Nothing is captured silently.** The service records what it is given and never reaches for the framebuffer.
+Capture is a game-adapter act behind an explicit ask — which is also the local form of the plan's "never
+uploaded silently": the decision point is taking the picture, not sending it.
+
+`/sqev` is the door on it: `note` stamps the current island, activity and player onto whatever happened,
+`list` reads back, `hide` and `unhide` manage view without touching history. Rules write through the same
+service via the engine's `evidence` action, tagged so hand-written notes and rule-written entries can be told
+apart.
 
 ---
 
